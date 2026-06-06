@@ -9,7 +9,9 @@ import {
   FRICTION_PER_SEC,
   GRAVITY,
   INPUT_BUFFER_SEC,
+  MATERIAL,
   MAX_SPEED,
+  OBSTACLE,
   PX_PER_METER,
   SLOPE_RESIST_PER_SEC,
   SPEED_BONUS,
@@ -45,6 +47,7 @@ const POWER_SWEEP_SPEED = 2.8
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const TERRAIN_THICKNESS = 64
 const UNDER_BREAK_SPEED = 520
+const OBSTACLE_SIZE = 34
 const UI_CANNON_X = 92
 const UI_CANNON_Y = 104
 const UI_AIM_RADIUS = 72
@@ -65,6 +68,8 @@ class Game {
     this.lockedAimAngle = AIM_MIN_ANGLE
     this.powerRatio = POWER_MIN
     this.currentIsland = null
+    this.obstacles = []
+    this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
     this.landingTime = 0
@@ -109,6 +114,7 @@ class Game {
       this.renderer.add(island.mesh)
       this.islands.push(island)
     }
+    this._buildObstacles()
 
     const cannonBase = new THREE.Mesh(
       new THREE.BoxGeometry(80, 24, 1),
@@ -218,6 +224,63 @@ class Game {
     }
   }
 
+  _buildObstacles() {
+    const placements = [
+      { island: 1, t: 0.42, type: 'wood' },
+      { island: 1, t: 0.72, type: 'spike' },
+      { island: 2, t: 0.36, type: 'stone' },
+      { island: 2, t: 0.68, type: 'wood' },
+      { island: 3, t: 0.48, type: 'moving' },
+      { island: 4, t: 0.34, type: 'stone' },
+      { island: 4, t: 0.68, type: 'spike' },
+      { island: 5, t: 0.44, type: 'iron' },
+      { island: 6, t: 0.55, type: 'stone' },
+      { island: 7, t: 0.45, type: 'wood' },
+      { island: 8, t: 0.55, type: 'iron' },
+    ]
+
+    for (const placement of placements) {
+      const terrain = this.islands[placement.island]
+      if (!terrain) continue
+      const x = THREE.MathUtils.lerp(terrain.bounds.left, terrain.bounds.right, placement.t)
+      const y = this._getTerrainTopY(terrain, x)
+      const obstacle = this._createObstacle(terrain, placement.type, x, y)
+      this.obstacles.push(obstacle)
+      this.renderer.add(obstacle.mesh)
+    }
+  }
+
+  _createObstacle(terrain, type, x, groundY) {
+    const obstacleConfig = OBSTACLE[type]
+    const materialConfig = obstacleConfig.material ? MATERIAL[obstacleConfig.material] : null
+    const color = materialConfig?.color ?? 0xe53935
+    const height = type === 'spike' ? 26 : OBSTACLE_SIZE
+    const width = type === 'spike' ? 38 : OBSTACLE_SIZE
+    const geometry = type === 'spike'
+      ? new THREE.ConeGeometry(width / 2, height, 3)
+      : new THREE.BoxGeometry(width, height, 1)
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({ color }),
+    )
+    mesh.position.set(x, groundY + height / 2, 0)
+
+    return {
+      terrain,
+      type,
+      mesh,
+      width,
+      height,
+      hit: false,
+      destroyed: false,
+      config: obstacleConfig,
+      material: materialConfig,
+      baseX: x,
+      baseY: groundY,
+      phase: x * 0.01,
+    }
+  }
+
   _getTerrainTopY(terrain, x) {
     const points = terrain.points
     if (x <= points[0].x) return points[0].y
@@ -253,6 +316,15 @@ class Game {
     this.lockedAimAngle = AIM_MIN_ANGLE
     this.powerRatio = POWER_MIN
     this.currentIsland = null
+    this._restoreTerrain()
+    for (const obstacle of this.obstacles) {
+      obstacle.hit = false
+      obstacle.destroyed = false
+      obstacle.mesh.visible = true
+      obstacle.mesh.position.x = obstacle.baseX
+      obstacle.mesh.position.y = obstacle.baseY + obstacle.height / 2
+    }
+    this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
     this.landingTime = 0
@@ -277,6 +349,15 @@ class Game {
     this.lockedAimAngle = AIM_MIN_ANGLE
     this.powerRatio = POWER_MIN
     this.currentIsland = null
+    this._restoreTerrain()
+    for (const obstacle of this.obstacles) {
+      obstacle.hit = false
+      obstacle.destroyed = false
+      obstacle.mesh.visible = true
+      obstacle.mesh.position.x = obstacle.baseX
+      obstacle.mesh.position.y = obstacle.baseY + obstacle.height / 2
+    }
+    this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
     this.landingTime = 0
@@ -292,6 +373,13 @@ class Game {
     this.armadillo.material.color.set(0xff1744)
     if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     this.sm.current = State.AIMING
+  }
+
+  _restoreTerrain() {
+    for (const island of this.islands) {
+      island.destroyed = false
+      island.mesh.visible = true
+    }
   }
 
   _togglePause() {
@@ -494,6 +582,7 @@ class Game {
     if (!this.currentIsland) return
 
     const bounds = this.currentIsland.bounds
+    this._updateActiveObstacles(dt)
     const slopeAngle = this._getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
     const slope = Math.sin(slopeAngle)
     this.speedRatio = THREE.MathUtils.clamp(
@@ -504,6 +593,7 @@ class Game {
     this.armadillo.position.x += this.speedRatio * MAX_SPEED * dt
     this.armadillo.position.y = this._getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.armadillo.rotation.z = slopeAngle
+    this._checkObstacleCollisions()
 
     if (this.timingPending && this.time - this.landingTime > this.timingWindow) {
       this._applyTimingRating('MISS')
@@ -515,6 +605,62 @@ class Game {
       this.armadillo.position.x = bounds.right - ARMADILLO_SIZE / 2
       this._launchFromIsland()
     }
+  }
+
+  _updateActiveObstacles(dt) {
+    for (const obstacle of this.obstacles) {
+      if (obstacle.destroyed || obstacle.terrain !== this.currentIsland) continue
+      if (obstacle.type !== 'moving') continue
+
+      const offset = Math.sin(this.time * 2.2 + obstacle.phase) * 28
+      obstacle.mesh.position.x = obstacle.baseX + offset
+      obstacle.mesh.position.y = this._getTerrainTopY(obstacle.terrain, obstacle.mesh.position.x) + obstacle.height / 2
+    }
+  }
+
+  _checkObstacleCollisions() {
+    for (const obstacle of this.obstacles) {
+      if (obstacle.destroyed || obstacle.hit || obstacle.terrain !== this.currentIsland) continue
+      if (!this._isObstacleColliding(obstacle)) continue
+
+      this._resolveObstacleHit(obstacle)
+    }
+  }
+
+  _isObstacleColliding(obstacle) {
+    const ax = this.armadillo.position.x
+    const ay = this.armadillo.position.y
+    const ox = obstacle.mesh.position.x
+    const oy = obstacle.mesh.position.y
+    return Math.abs(ax - ox) <= (ARMADILLO_SIZE + obstacle.width) / 2
+      && Math.abs(ay - oy) <= (ARMADILLO_SIZE + obstacle.height) / 2
+  }
+
+  _resolveObstacleHit(obstacle) {
+    obstacle.hit = true
+
+    if (obstacle.type === 'spike') {
+      this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
+      this.lastRating = 'SPIKE'
+      this.armadillo.material.color.set(0x9e9e9e)
+      return
+    }
+
+    const threshold = obstacle.material?.threshold ?? Infinity
+    if (this.speedRatio >= threshold) {
+      obstacle.destroyed = true
+      obstacle.mesh.visible = false
+      this.breakCount += 1
+      this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.breakCost)
+      this.lastRating = `${obstacle.type.toUpperCase()} BREAK`
+      this.armadillo.material.color.set(0xffd54f)
+      return
+    }
+
+    this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
+    this.lastRating = `${obstacle.type.toUpperCase()} BLOCK`
+    this.armadillo.position.x = obstacle.mesh.position.x - (ARMADILLO_SIZE + obstacle.width) / 2
+    this.armadillo.material.color.set(0x9e9e9e)
   }
 
   _updateStallState(dt) {
@@ -600,7 +746,10 @@ class Game {
     if (!this.ui) return
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
-    const score = heightM * SCORE.perM_height + distanceM * SCORE.perM_distance + this.combo * SCORE.comboPerLevel
+    const score = heightM * SCORE.perM_height
+      + distanceM * SCORE.perM_distance
+      + this.combo * SCORE.comboPerLevel
+      + this.breakCount * SCORE.chainPerBreak
     const speed = Math.round(this.speedRatio * 100)
     const aimDeg = Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))
     const aimActiveDeg = Math.round(THREE.MathUtils.radToDeg(this.aimAngle))
@@ -640,6 +789,7 @@ class Game {
         <div>POWER ${powerPercent}%</div>
         <div>HIT ${this.lastRating}</div>
         <div>COMBO ${this.combo}</div>
+        <div>BREAK ${this.breakCount}</div>
         ${dangerText}
       </div>
 
