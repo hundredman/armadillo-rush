@@ -19,7 +19,12 @@ const MAX_FRAME_DT = 0.25     // 탭 비활성 후 복귀 시 스파이럴 방�
 const ARMADILLO_SIZE = 30
 const LAUNCH_SPEED = 850      // 현재 placeholder 섬 배치에 맞춘 2단계 검증용 발사 속도
 const CANNON_POS = new THREE.Vector2(-280, -330)
-const CANNON_ANGLE = Math.PI / 4.2
+const AIM_MIN_ANGLE = THREE.MathUtils.degToRad(38)
+const AIM_MAX_ANGLE = THREE.MathUtils.degToRad(60)
+const AIM_SWEEP_SPEED = 1.9
+const POWER_MIN = 0.85
+const POWER_MAX = 1.0
+const POWER_SWEEP_SPEED = 2.8
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const TIMING_TEST_BONUS = 0.15
 
@@ -35,6 +40,9 @@ class Game {
     this.lastNow = performance.now()
     this.velocity = new THREE.Vector2(0, 0)
     this.speedRatio = 0.75
+    this.aimAngle = AIM_MIN_ANGLE
+    this.lockedAimAngle = AIM_MIN_ANGLE
+    this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
 
@@ -54,12 +62,20 @@ class Game {
   // ── 2단계 placeholder: 대포 + 섬 + 발사 가능한 아르마딜로 ──
   _buildPlaceholderWorld() {
     this.islands = []
-    for (let i = 0; i < 6; i++) {
-      const w = 380 - i * 38
+    const islandLayout = [
+      { x: 150, y: -250, w: 1000 },
+      { x: 1100, y: -180, w: 1400 },
+      { x: 1900, y: -40, w: 650 },
+      { x: 2580, y: 100, w: 500 },
+      { x: 3220, y: 250, w: 380 },
+      { x: 3820, y: 420, w: 280 },
+    ]
+    for (const spec of islandLayout) {
+      const w = spec.w
       const geom = new THREE.BoxGeometry(w, 30, 1)
       const mat = new THREE.MeshBasicMaterial({ color: 0x4caf50 })
       const island = new THREE.Mesh(geom, mat)
-      island.position.set(120 + i * 670, -180 + i * 120, 0)
+      island.position.set(spec.x, spec.y, 0)
       island.userData.bounds = this._getIslandBounds(island, w, 30)
       this.renderer.add(island)
       this.islands.push(island)
@@ -72,13 +88,13 @@ class Game {
     cannonBase.position.set(CANNON_POS.x, CANNON_POS.y - 14, 0)
     this.renderer.add(cannonBase)
 
-    const cannonBarrel = new THREE.Mesh(
+    this.cannonBarrel = new THREE.Mesh(
       new THREE.BoxGeometry(78, 18, 1),
       new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
     )
-    cannonBarrel.position.set(CANNON_POS.x + 28, CANNON_POS.y + 10, 0)
-    cannonBarrel.rotation.z = CANNON_ANGLE
-    this.renderer.add(cannonBarrel)
+    this.cannonBarrel.position.set(CANNON_POS.x + 28, CANNON_POS.y + 10, 0)
+    this.cannonBarrel.rotation.z = this.aimAngle
+    this.renderer.add(this.cannonBarrel)
 
     const aGeom = new THREE.BoxGeometry(ARMADILLO_SIZE, ARMADILLO_SIZE, 1)
     const aMat = new THREE.MeshBasicMaterial({ color: 0xff1744 })
@@ -123,14 +139,25 @@ class Game {
   _resetRun() {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
+    this.aimAngle = AIM_MIN_ANGLE
+    this.lockedAimAngle = AIM_MIN_ANGLE
+    this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
+    this.armadillo.material.color.set(0xff1744)
+    if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.AIMING)
   }
 
   _handleAction() {
     if (this.sm.is(State.AIMING)) {
+      this.lockedAimAngle = this.aimAngle
+      this.sm.transition(State.POWERING)
+      return
+    }
+
+    if (this.sm.is(State.POWERING)) {
       this._launchFromCannon()
       return
     }
@@ -148,11 +175,11 @@ class Game {
 
   _launchFromCannon() {
     if (!this.sm.transition(State.FLYING)) return
-    this.speedRatio = 0.9
+    this.speedRatio = this.powerRatio
     this.armadillo.material.color.set(0xff1744)
     this.velocity.set(
-      Math.cos(CANNON_ANGLE) * LAUNCH_SPEED,
-      Math.sin(CANNON_ANGLE) * LAUNCH_SPEED,
+      Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
+      Math.sin(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
     )
   }
 
@@ -173,12 +200,29 @@ class Game {
       this._updateFlight(dt)
     } else if (this.sm.is(State.ROLLING)) {
       this._updateRolling(dt)
+    } else if (this.sm.is(State.AIMING) || this.sm.is(State.POWERING)) {
+      this._updateAiming(dt)
     }
 
     this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - CANNON_POS.y)
 
     // 카메라 추적 대상 = 아르마딜로 위치
     this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+  }
+
+  _updateAiming(dt) {
+    if (this.sm.is(State.AIMING)) {
+      const t = (Math.sin(this.time * AIM_SWEEP_SPEED) + 1) * 0.5
+      this.aimAngle = THREE.MathUtils.lerp(AIM_MIN_ANGLE, AIM_MAX_ANGLE, t)
+      this.lockedAimAngle = this.aimAngle
+    }
+
+    if (this.sm.is(State.POWERING)) {
+      const t = (Math.sin(this.time * POWER_SWEEP_SPEED) + 1) * 0.5
+      this.powerRatio = THREE.MathUtils.lerp(POWER_MIN, POWER_MAX, t)
+    }
+
+    this.cannonBarrel.rotation.z = this.lockedAimAngle
   }
 
   _updateFlight(dt) {
@@ -265,7 +309,9 @@ class Game {
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const speed = Math.round(this.speedRatio * 100)
     const action = this.sm.is(State.AIMING)
-      ? 'Space / Tap: Launch'
+      ? 'Space / Tap: Lock Angle'
+      : this.sm.is(State.POWERING)
+        ? 'Space / Tap: Lock Power'
       : this.sm.is(State.ROLLING)
         ? 'Space / Tap: Boost'
         : this.sm.is(State.GAMEOVER)
@@ -277,6 +323,8 @@ class Game {
         <div>STATE ${this.sm.current}</div>
         <div>HEIGHT ${heightM}m</div>
         <div>SPEED ${speed}%</div>
+        <div>ANGLE ${Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))}deg</div>
+        <div>POWER ${Math.round(this.powerRatio * 100)}%</div>
       </div>
       <div style="position:fixed;left:18px;bottom:18px;font-weight:700">${action}</div>
     `

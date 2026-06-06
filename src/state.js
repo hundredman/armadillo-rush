@@ -1,11 +1,12 @@
 /**
  * 게임 상태 머신 (§4 게임 흐름).
- * 단계: TITLE → AIMING → FLYING → ROLLING ⇄ FALLING → GAMEOVER
+ * 단계: TITLE → AIMING → POWERING → FLYING → ROLLING ⇄ FALLING → GAMEOVER
  */
 
 export const State = Object.freeze({
   TITLE: 'TITLE',       // 타이틀 화면, 베스트 표시
-  AIMING: 'AIMING',     // 대포 드래그 조준
+  AIMING: 'AIMING',     // 대포 각도 조준
+  POWERING: 'POWERING', // 발사 파워 조준
   FLYING: 'FLYING',     // 발사 후 첫 섬까지 포물선 비행
   ROLLING: 'ROLLING',   // 섬 위 구름 (타이밍 판정 발생)
   FALLING: 'FALLING',   // 갭 추락 중 (아래 섬 탐색)
@@ -15,7 +16,8 @@ export const State = Object.freeze({
 // 허용되는 전환만 명시 — 잘못된 전환은 개발 중 즉시 잡는다.
 const TRANSITIONS = {
   [State.TITLE]: [State.AIMING],
-  [State.AIMING]: [State.FLYING],
+  [State.AIMING]: [State.POWERING],
+  [State.POWERING]: [State.FLYING, State.AIMING],
   [State.FLYING]: [State.ROLLING, State.AIMING],   // 첫 섬 도달 실패 시 재발사(§4)
   [State.ROLLING]: [State.FALLING, State.GAMEOVER],
   [State.FALLING]: [State.ROLLING, State.GAMEOVER],
