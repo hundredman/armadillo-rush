@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import './ui.css'
+import { SPRITES, createSprite } from './assets.js'
 import { Renderer } from './renderer/scene.js'
 import { Background } from './renderer/background.js'
 import { StateMachine, State } from './state.js'
@@ -234,67 +235,29 @@ class Game {
 
   _createArmadillo() {
     const group = new THREE.Group()
-    const shellMat = new THREE.MeshBasicMaterial({ color: 0xff1744 })
-    const bellyMat = new THREE.MeshBasicMaterial({ color: 0xff8a65 })
-    const darkMat = new THREE.MeshBasicMaterial({ color: 0x271512 })
-    const faceMat = new THREE.MeshBasicMaterial({ color: 0xffb088 })
-    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x1b1f24 })
-
-    const outline = new THREE.Mesh(new THREE.CircleGeometry(20, 28), outlineMat)
-    outline.scale.set(1.16, 0.92, 1)
-    outline.position.set(-1, 0, 0.01)
-
-    const shell = new THREE.Mesh(new THREE.CircleGeometry(18, 28), shellMat)
-    shell.scale.set(1.12, 0.88, 1)
-    shell.position.set(-1, 0, 0.03)
-
-    const belly = new THREE.Mesh(new THREE.CircleGeometry(10, 20), bellyMat)
-    belly.scale.set(1.08, 0.62, 1)
-    belly.position.set(-1, -4, 0.05)
-
-    const head = new THREE.Mesh(new THREE.CircleGeometry(8, 18), faceMat)
-    head.scale.set(1.1, 0.82, 1)
-    head.position.set(15, 4, 0.06)
-
-    const snout = new THREE.Mesh(new THREE.CircleGeometry(4, 14), faceMat)
-    snout.scale.set(1.3, 0.7, 1)
-    snout.position.set(22, 2, 0.07)
-
-    const eye = new THREE.Mesh(new THREE.CircleGeometry(1.6, 10), darkMat)
-    eye.position.set(18, 7, 0.08)
-
-    const ear = new THREE.Mesh(new THREE.ConeGeometry(4, 8, 3), faceMat)
-    ear.position.set(12, 12, 0.06)
-    ear.rotation.z = -0.35
-
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(4, 16, 10), outlineMat)
-    tail.position.set(-23, 0, 0.02)
-    tail.rotation.z = THREE.MathUtils.degToRad(90)
-
-    const legGeom = new THREE.BoxGeometry(5, 7, 1)
-    for (const x of [-8, 8]) {
-      const leg = new THREE.Mesh(legGeom, darkMat)
-      leg.position.set(x, -15, 0.02)
-      group.add(leg)
-    }
-
-    const stripeGeom = new THREE.BoxGeometry(3, 26, 1)
-    for (const x of [-9, -3, 3, 9]) {
-      const stripe = new THREE.Mesh(stripeGeom, new THREE.MeshBasicMaterial({ color: 0xc62828 }))
-      stripe.position.set(x, 0, 0.07)
-      stripe.rotation.z = -0.18
-      group.add(stripe)
-    }
-
-    group.add(tail, outline, shell, belly, head, snout, ear, eye)
-    this.armadilloParts = { shellMat, bellyMat, faceMat }
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(20, 24),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }),
+    )
+    shadow.scale.set(1.2, 0.28, 1)
+    shadow.position.set(0, -18, -0.04)
+    const sprite = createSprite(SPRITES.character.idle, 58, 58)
+    sprite.position.z = 0.08
+    group.add(shadow, sprite)
+    this.armadilloSprite = sprite
+    this.armadilloSpriteState = 'idle'
     return group
   }
 
   _setArmadilloColor(color) {
-    this.armadilloParts.shellMat.color.set(color)
-    this.armadilloParts.bellyMat.color.set(new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.28))
-    this.armadilloParts.faceMat.color.set(new THREE.Color(color).lerp(new THREE.Color(0xffb088), 0.62))
+    this.armadilloSprite.material.color.set(color)
+  }
+
+  _setArmadilloSprite(state) {
+    if (this.armadilloSpriteState === state) return
+    this.armadilloSpriteState = state
+    this.armadilloSprite.material.map = SPRITES.character[state]
+    this.armadilloSprite.material.needsUpdate = true
   }
 
   _bindInput() {
@@ -550,10 +513,13 @@ class Game {
     this.slowmoTime = Math.max(0, this.slowmoTime - dt)
     this.time += simDt
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this._setArmadilloSprite('jump')
       this._updateFlight(simDt)
     } else if (this.sm.is(State.ROLLING)) {
+      this._setArmadilloSprite(Math.floor(this.time * 10) % 2 === 0 ? 'walk1' : 'walk2')
       this._updateRolling(simDt)
     } else if (this.sm.is(State.AIMING) || this.sm.is(State.POWERING)) {
+      this._setArmadilloSprite('idle')
       this._updateAiming(simDt)
     }
     this._updateParticles(simDt)

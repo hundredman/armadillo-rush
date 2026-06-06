@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { SPRITES, createSprite } from '../assets.js'
 import { MATERIAL, OBSTACLE } from '../config.js'
 
 export const TERRAIN_THICKNESS = 64
@@ -85,20 +86,17 @@ export function createCurvedTerrain({ x, y, w, rise, amp }) {
   const mesh = new THREE.Group()
   mesh.add(soil, grass, ridge)
 
-  const tuftMat = new THREE.MeshBasicMaterial({ color: 0x9ccc65, side: THREE.DoubleSide })
-  const rockMat = new THREE.MeshBasicMaterial({ color: 0x4e342e, side: THREE.DoubleSide })
   for (let i = 3; i < topPoints.length - 3; i += 5) {
     const point = topPoints[i]
-    const tuft = createGrassTuft(tuftMat)
-    tuft.position.set(point.x, point.y + 7, 0.08)
-    tuft.scale.setScalar(0.75 + ((i % 3) * 0.14))
-    mesh.add(tuft)
+    const tile = createSprite(SPRITES.terrain.grass, 48, 48)
+    tile.position.set(point.x, point.y + 17, 0.08)
+    tile.material.rotation = ((i % 2) - 0.5) * 0.08
+    mesh.add(tile)
   }
   for (let i = 6; i < topPoints.length - 2; i += 9) {
     const point = topPoints[i]
-    const rock = new THREE.Mesh(new THREE.CircleGeometry(5 + (i % 2) * 2, 9), rockMat)
-    rock.scale.set(1.35, 0.72, 1)
-    rock.position.set(point.x + 6, point.y - 26, 0.06)
+    const rock = createSprite(SPRITES.terrain.rock, 34, 34)
+    rock.position.set(point.x + 6, point.y - 22, 0.07)
     mesh.add(rock)
   }
 
@@ -108,17 +106,6 @@ export function createCurvedTerrain({ x, y, w, rise, amp }) {
     destroyed: false,
     bounds: { left, right, top: maxY, bottom: bottomY },
   }
-}
-
-function createGrassTuft(material) {
-  const group = new THREE.Group()
-  for (const [x, rot, h] of [[-5, -0.45, 13], [0, 0, 16], [5, 0.45, 12]]) {
-    const blade = new THREE.Mesh(new THREE.PlaneGeometry(3, h), material)
-    blade.position.set(x, h / 2 - 2, 0)
-    blade.rotation.z = rot
-    group.add(blade)
-  }
-  return group
 }
 
 export function getTerrainTopY(terrain, x) {
@@ -152,18 +139,17 @@ export function getTerrainSlopeAngle(terrain, x) {
 export function createObstacle(terrain, type, x, groundY) {
   const obstacleConfig = OBSTACLE[type]
   const materialConfig = obstacleConfig.material ? MATERIAL[obstacleConfig.material] : null
-  const color = materialConfig?.color ?? 0xe53935
   const height = type === 'spike' ? 26 : OBSTACLE_SIZE
   const width = type === 'spike' ? 38 : OBSTACLE_SIZE
   const group = new THREE.Group()
   if (type === 'spike') {
-    addSpikeObstacle(group)
-  } else if (type === 'moving') {
-    addCrateObstacle(group, color, 0xffd54f)
-  } else if (type === 'iron') {
-    addIronObstacle(group)
+    const sprite = createSprite(SPRITES.obstacle.spike, 46, 46)
+    sprite.position.z = 0.04
+    group.add(sprite)
   } else {
-    addCrateObstacle(group, color, type === 'stone' ? 0xb0bec5 : 0xa1887f)
+    const sprite = createSprite(SPRITES.obstacle[type] ?? SPRITES.obstacle.wood, 46, 46)
+    sprite.position.z = 0.04
+    group.add(sprite)
   }
   group.position.set(x, groundY + height / 2, 0)
 
@@ -180,47 +166,5 @@ export function createObstacle(terrain, type, x, groundY) {
     baseX: x,
     baseY: groundY,
     phase: x * 0.01,
-  }
-}
-
-function addCrateObstacle(group, color, accent) {
-  const outline = new THREE.Mesh(
-    new THREE.BoxGeometry(40, 40, 1),
-    new THREE.MeshBasicMaterial({ color: 0x1b1f24 }),
-  )
-  outline.position.z = -0.03
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(34, 34, 1),
-    new THREE.MeshBasicMaterial({ color }),
-  )
-  body.position.z = 0.02
-  const strapH = new THREE.Mesh(new THREE.BoxGeometry(30, 4, 1), new THREE.MeshBasicMaterial({ color: accent }))
-  const strapV = new THREE.Mesh(new THREE.BoxGeometry(4, 30, 1), new THREE.MeshBasicMaterial({ color: accent }))
-  strapH.position.z = 0.05
-  strapV.position.z = 0.06
-  group.add(outline, body, strapH, strapV)
-}
-
-function addIronObstacle(group) {
-  addCrateObstacle(group, 0x90a4ae, 0x263238)
-  for (const x of [-11, 11]) {
-    for (const y of [-11, 11]) {
-      const bolt = new THREE.Mesh(new THREE.CircleGeometry(2.5, 10), new THREE.MeshBasicMaterial({ color: 0xeceff1 }))
-      bolt.position.set(x, y, 0.08)
-      group.add(bolt)
-    }
-  }
-}
-
-function addSpikeObstacle(group) {
-  const base = new THREE.Mesh(new THREE.BoxGeometry(42, 7, 1), new THREE.MeshBasicMaterial({ color: 0x1b1f24 }))
-  base.position.set(0, -12, 0)
-  group.add(base)
-  for (const x of [-12, 0, 12]) {
-    const outline = new THREE.Mesh(new THREE.ConeGeometry(8, 31, 3), new THREE.MeshBasicMaterial({ color: 0x1b1f24 }))
-    const spike = new THREE.Mesh(new THREE.ConeGeometry(6, 27, 3), new THREE.MeshBasicMaterial({ color: 0xef5350 }))
-    outline.position.set(x, 3, -0.03)
-    spike.position.set(x, 4, 0.02)
-    group.add(outline, spike)
   }
 }
