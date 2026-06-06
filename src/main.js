@@ -16,6 +16,8 @@ import {
   SLOPE_RESIST_PER_SEC,
   SPEED_BONUS,
   SCORE,
+  SLOWMO_SCALE,
+  SLOWMO_SEC,
   STALL_DANGER_SEC,
   STALL_GAMEOVER_SEC,
   STALL_SPEED_RATIO,
@@ -48,6 +50,7 @@ const ROLLING_MIN_SPEED_RATIO = 0.38
 const TERRAIN_THICKNESS = 64
 const UNDER_BREAK_SPEED = 520
 const OBSTACLE_SIZE = 34
+const PARTICLE_COUNT = 18
 const UI_CANNON_X = 92
 const UI_CANNON_Y = 104
 const UI_AIM_RADIUS = 72
@@ -69,6 +72,7 @@ class Game {
     this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.obstacles = []
+    this.particles = []
     this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
@@ -79,6 +83,10 @@ class Game {
     this.combo = 0
     this.bufferedInputTime = -Infinity
     this.stallTime = 0
+    this.trauma = 0
+    this.flashTime = 0
+    this.slowmoTime = 0
+    this.bestRecord = this._loadBestRecord()
     this.isPaused = false
 
     // 카메라가 추적할 목표
@@ -115,6 +123,7 @@ class Game {
       this.islands.push(island)
     }
     this._buildObstacles()
+    this._buildParticlePool()
 
     const cannonBase = new THREE.Mesh(
       new THREE.BoxGeometry(80, 24, 1),
@@ -281,6 +290,23 @@ class Game {
     }
   }
 
+  _buildParticlePool() {
+    const geom = new THREE.BoxGeometry(8, 8, 1)
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const mesh = new THREE.Mesh(
+        geom,
+        new THREE.MeshBasicMaterial({ color: 0xffd54f }),
+      )
+      mesh.visible = false
+      this.renderer.add(mesh)
+      this.particles.push({
+        mesh,
+        velocity: new THREE.Vector2(),
+        life: 0,
+      })
+    }
+  }
+
   _getTerrainTopY(terrain, x) {
     const points = terrain.points
     if (x <= points[0].x) return points[0].y
@@ -324,6 +350,7 @@ class Game {
       obstacle.mesh.position.x = obstacle.baseX
       obstacle.mesh.position.y = obstacle.baseY + obstacle.height / 2
     }
+    this._clearParticles()
     this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
@@ -334,6 +361,9 @@ class Game {
     this.combo = 0
     this.bufferedInputTime = -Infinity
     this.stallTime = 0
+    this.trauma = 0
+    this.flashTime = 0
+    this.slowmoTime = 0
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
@@ -357,6 +387,7 @@ class Game {
       obstacle.mesh.position.x = obstacle.baseX
       obstacle.mesh.position.y = obstacle.baseY + obstacle.height / 2
     }
+    this._clearParticles()
     this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
@@ -367,6 +398,9 @@ class Game {
     this.combo = 0
     this.bufferedInputTime = -Infinity
     this.stallTime = 0
+    this.trauma = 0
+    this.flashTime = 0
+    this.slowmoTime = 0
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
@@ -450,14 +484,18 @@ class Game {
       return
     }
 
-    this.time += dt
+    const simDt = this.slowmoTime > 0 ? dt * SLOWMO_SCALE : dt
+    this.slowmoTime = Math.max(0, this.slowmoTime - dt)
+    this.time += simDt
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this._updateFlight(dt)
+      this._updateFlight(simDt)
     } else if (this.sm.is(State.ROLLING)) {
-      this._updateRolling(dt)
+      this._updateRolling(simDt)
     } else if (this.sm.is(State.AIMING) || this.sm.is(State.POWERING)) {
-      this._updateAiming(dt)
+      this._updateAiming(simDt)
     }
+    this._updateParticles(simDt)
+    this._updateEffects(dt)
 
     this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - CANNON_POS.y)
     this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - CANNON_POS.x)
@@ -505,8 +543,7 @@ class Game {
         this.sm.transition(State.AIMING)
         this._resetRun()
       } else {
-        this.sm.transition(State.GAMEOVER)
-        this.velocity.set(0, 0)
+        this._gameOver('FALL')
       }
     }
   }
@@ -549,6 +586,7 @@ class Game {
     if (impactSpeed < UNDER_BREAK_SPEED) {
       this.velocity.y = -Math.abs(this.velocity.y) * 0.45
       this.speedRatio = Math.max(0.2, this.speedRatio - 0.12)
+      this._triggerImpact(0.35, 0xff7043, this.armadillo.position.x, this.armadillo.position.y)
       return
     }
 
@@ -556,6 +594,7 @@ class Game {
     terrain.mesh.visible = false
     this.speedRatio = Math.max(0.2, this.speedRatio - 0.18)
     this.armadillo.material.color.set(0xffd54f)
+    this._triggerImpact(0.65, 0x4caf50, this.armadillo.position.x, this.armadillo.position.y)
   }
 
   _landOnIsland(island) {
@@ -643,6 +682,7 @@ class Game {
       this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
       this.lastRating = 'SPIKE'
       this.armadillo.material.color.set(0x9e9e9e)
+      this._triggerImpact(0.35, 0xe53935, obstacle.mesh.position.x, obstacle.mesh.position.y)
       return
     }
 
@@ -654,6 +694,7 @@ class Game {
       this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.breakCost)
       this.lastRating = `${obstacle.type.toUpperCase()} BREAK`
       this.armadillo.material.color.set(0xffd54f)
+      this._triggerImpact(0.55, obstacle.material?.color ?? 0xffd54f, obstacle.mesh.position.x, obstacle.mesh.position.y)
       return
     }
 
@@ -661,16 +702,14 @@ class Game {
     this.lastRating = `${obstacle.type.toUpperCase()} BLOCK`
     this.armadillo.position.x = obstacle.mesh.position.x - (ARMADILLO_SIZE + obstacle.width) / 2
     this.armadillo.material.color.set(0x9e9e9e)
+    this._triggerImpact(0.45, 0xb0bec5, obstacle.mesh.position.x, obstacle.mesh.position.y)
   }
 
   _updateStallState(dt) {
     if (this.speedRatio <= STALL_SPEED_RATIO) {
       this.stallTime += dt
       if (this.stallTime >= STALL_GAMEOVER_SEC) {
-        this.sm.transition(State.GAMEOVER)
-        this.velocity.set(0, 0)
-        this.timingPending = false
-        this.lastRating = 'STOP'
+        this._gameOver('STOP')
       }
       return
     }
@@ -727,10 +766,101 @@ class Game {
     return 0
   }
 
+  _triggerImpact(strength, color, x, y) {
+    this.trauma = Math.min(1, this.trauma + strength)
+    this.flashTime = Math.max(this.flashTime, 0.12)
+    this.slowmoTime = Math.max(this.slowmoTime, SLOWMO_SEC)
+    this._spawnParticles(x, y, color)
+  }
+
+  _spawnParticles(x, y, color) {
+    let spawned = 0
+    for (const particle of this.particles) {
+      if (particle.life > 0) continue
+      particle.life = 0.45 + Math.random() * 0.25
+      particle.mesh.visible = true
+      particle.mesh.material.color.set(color)
+      particle.mesh.position.set(x, y, 0)
+      const angle = Math.random() * Math.PI * 2
+      const speed = 80 + Math.random() * 170
+      particle.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed)
+      spawned += 1
+      if (spawned >= 8) break
+    }
+  }
+
+  _updateParticles(dt) {
+    for (const particle of this.particles) {
+      if (particle.life <= 0) continue
+      particle.life -= dt
+      particle.velocity.y -= GRAVITY * 0.35 * dt
+      particle.mesh.position.x += particle.velocity.x * dt
+      particle.mesh.position.y += particle.velocity.y * dt
+      particle.mesh.rotation.z += dt * 8
+      particle.mesh.visible = particle.life > 0
+    }
+  }
+
+  _clearParticles() {
+    for (const particle of this.particles) {
+      particle.life = 0
+      particle.mesh.visible = false
+      particle.velocity.set(0, 0)
+    }
+  }
+
+  _updateEffects(dt) {
+    this.trauma = Math.max(0, this.trauma - dt * 1.8)
+    this.flashTime = Math.max(0, this.flashTime - dt)
+  }
+
+  _gameOver(reason) {
+    if (this.sm.is(State.GAMEOVER)) return
+    this.sm.transition(State.GAMEOVER)
+    this.velocity.set(0, 0)
+    this.timingPending = false
+    this.lastRating = reason
+    this._saveBestRecord()
+  }
+
+  _getScore() {
+    const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
+    const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
+    return heightM * SCORE.perM_height
+      + distanceM * SCORE.perM_distance
+      + this.combo * SCORE.comboPerLevel
+      + this.breakCount * SCORE.chainPerBreak
+  }
+
+  _loadBestRecord() {
+    try {
+      return JSON.parse(localStorage.getItem('armadillo-rush-best')) ?? { score: 0, heightM: 0, distanceM: 0 }
+    } catch {
+      return { score: 0, heightM: 0, distanceM: 0 }
+    }
+  }
+
+  _saveBestRecord() {
+    const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
+    const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
+    const score = this._getScore()
+    if (score <= this.bestRecord.score) return
+
+    this.bestRecord = { score, heightM, distanceM }
+    try {
+      localStorage.setItem('armadillo-rush-best', JSON.stringify(this.bestRecord))
+    } catch {
+      // 기록 저장 실패는 플레이 흐름을 막지 않는다.
+    }
+  }
+
   _render() {
     // 카메라 lerp 추적 (§11)
     this.camPos.lerp(this.camTarget, CAMERA_LERP)
-    this.renderer.setCenter(this.camPos.x, this.camPos.y)
+    const shake = this.trauma * this.trauma * 16
+    const shakeX = (Math.random() - 0.5) * shake
+    const shakeY = (Math.random() - 0.5) * shake
+    this.renderer.setCenter(this.camPos.x, this.camPos.y, shakeX, shakeY)
 
     // 배경 높이 진행도 갱신
     const heightRatio = THREE.MathUtils.clamp(
@@ -746,10 +876,7 @@ class Game {
     if (!this.ui) return
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
-    const score = heightM * SCORE.perM_height
-      + distanceM * SCORE.perM_distance
-      + this.combo * SCORE.comboPerLevel
-      + this.breakCount * SCORE.chainPerBreak
+    const score = this._getScore()
     const speed = Math.round(this.speedRatio * 100)
     const aimDeg = Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))
     const aimActiveDeg = Math.round(THREE.MathUtils.radToDeg(this.aimAngle))
@@ -818,6 +945,22 @@ class Game {
       </div>
 
       ${this.isPaused ? '<div style="position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,0.28);font-size:42px;font-weight:900;z-index:10">PAUSED</div>' : ''}
+      ${this.flashTime > 0 ? `<div style="position:fixed;inset:0;background:rgba(255,255,255,${this.flashTime * 1.6});z-index:8"></div>` : ''}
+      ${this.sm.is(State.GAMEOVER) ? `
+        <div style="position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,0.52);z-index:18;pointer-events:auto">
+          <div style="min-width:280px;padding:22px;background:rgba(0,0,17,0.9);border:2px solid rgba(255,255,255,0.6)">
+            <div style="font-size:32px;font-weight:900;margin-bottom:12px">GAME OVER</div>
+            <div style="line-height:1.7;font-weight:800">
+              <div>SCORE ${score}</div>
+              <div>HEIGHT ${heightM}m</div>
+              <div>DIST ${distanceM}m</div>
+              <div>BREAK ${this.breakCount}</div>
+              <div>BEST ${this.bestRecord.score}</div>
+            </div>
+            <button class="clickable" data-action="restart" style="margin-top:16px;width:100%;height:42px;border:0;background:#ffd54f;color:#111;font-weight:900">Restart</button>
+          </div>
+        </div>
+      ` : ''}
 
       <div style="position:fixed;right:16px;top:16px;display:flex;gap:8px;pointer-events:auto;z-index:20">
         <button class="clickable" data-action="pause" style="min-width:78px;height:40px;border:0;background:rgba(255,255,255,0.9);color:#111;font-weight:800">${pauseLabel}</button>
