@@ -27,6 +27,8 @@ const POWER_MAX = 1.0
 const POWER_SWEEP_SPEED = 2.8
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const TIMING_TEST_BONUS = 0.15
+const TERRAIN_THICKNESS = 64
+const UNDER_BREAK_SPEED = 520
 const UI_CANNON_X = 92
 const UI_CANNON_Y = 104
 const UI_AIM_RADIUS = 72
@@ -67,21 +69,20 @@ class Game {
   _buildPlaceholderWorld() {
     this.islands = []
     const islandLayout = [
-      { x: 150, y: -250, w: 1000 },
-      { x: 1100, y: -180, w: 1400 },
-      { x: 1900, y: -40, w: 650 },
-      { x: 2580, y: 100, w: 500 },
-      { x: 3220, y: 250, w: 380 },
-      { x: 3820, y: 420, w: 280 },
+      { x: 150, y: -250, w: 1000, rise: 18, amp: 18 },
+      { x: 1080, y: -185, w: 1320, rise: 70, amp: 26 },
+      { x: 1960, y: -20, w: 760, rise: 90, amp: 34 },
+      { x: 2720, y: 140, w: 660, rise: 105, amp: 38 },
+      { x: 3440, y: 320, w: 560, rise: 120, amp: 42 },
+      { x: 4120, y: 525, w: 500, rise: 135, amp: 42 },
+      { x: 4770, y: 750, w: 440, rise: 150, amp: 46 },
+      { x: 5380, y: 1000, w: 390, rise: 165, amp: 48 },
+      { x: 5960, y: 1275, w: 340, rise: 180, amp: 50 },
+      { x: 6500, y: 1580, w: 300, rise: 195, amp: 52 },
     ]
     for (const spec of islandLayout) {
-      const w = spec.w
-      const geom = new THREE.BoxGeometry(w, 30, 1)
-      const mat = new THREE.MeshBasicMaterial({ color: 0x4caf50 })
-      const island = new THREE.Mesh(geom, mat)
-      island.position.set(spec.x, spec.y, 0)
-      island.userData.bounds = this._getIslandBounds(island, w, 30)
-      this.renderer.add(island)
+      const island = this._createCurvedTerrain(spec)
+      this.renderer.add(island.mesh)
       this.islands.push(island)
     }
 
@@ -106,7 +107,7 @@ class Game {
     this.renderer.add(this.armadillo)
     this._resetRun()
 
-    this.maxHeightPx = this.islands[this.islands.length - 1].position.y + 240   // 배경 heightRatio 정규화 기준
+    this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240   // 배경 heightRatio 정규화 기준
   }
 
   _bindInput() {
@@ -115,14 +116,24 @@ class Game {
     }
 
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
+    const handleControlButton = (event) => {
+      const button = event.target.closest('[data-action]')
+      if (!button) return false
 
-    if (isTouchDevice) {
-      window.addEventListener('pointerdown', (event) => {
-        if (event.pointerType === 'mouse') return
-        if (event.target.closest('.clickable')) return
-        triggerAction()
-      })
+      event.preventDefault()
+      event.stopPropagation()
+      if (button.dataset.action === 'pause') this._togglePause()
+      if (button.dataset.action === 'restart') this._restartToAim()
+      return true
     }
+
+    window.addEventListener('pointerdown', (event) => {
+      if (handleControlButton(event)) return
+
+      if (!isTouchDevice) return
+      if (event.pointerType === 'mouse') return
+      triggerAction()
+    })
 
     window.addEventListener('keydown', (event) => {
       if (event.repeat) return
@@ -138,24 +149,75 @@ class Game {
         this._togglePause()
       }
     })
-
-    this.ui?.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-action]')
-      if (!button) return
-      event.stopPropagation()
-
-      if (button.dataset.action === 'pause') this._togglePause()
-      if (button.dataset.action === 'restart') this._restartToAim()
-    })
   }
 
-  _getIslandBounds(island, width, height) {
-    return {
-      left: island.position.x - width / 2,
-      right: island.position.x + width / 2,
-      top: island.position.y + height / 2,
-      bottom: island.position.y - height / 2,
+  _createCurvedTerrain({ x, y, w, rise, amp }) {
+    const left = x - w / 2
+    const right = x + w / 2
+    const controls = [
+      new THREE.Vector3(left, y, 0),
+      new THREE.Vector3(left + w * 0.28, y + rise * 0.28 + amp, 0),
+      new THREE.Vector3(left + w * 0.62, y + rise * 0.72 - amp * 0.35, 0),
+      new THREE.Vector3(right, y + rise, 0),
+    ]
+    const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal', 0.35)
+    const topPoints = curve.getPoints(32).map((point) => new THREE.Vector2(point.x, point.y))
+    const minY = Math.min(...topPoints.map((point) => point.y))
+    const maxY = Math.max(...topPoints.map((point) => point.y))
+    const bottomY = minY - TERRAIN_THICKNESS
+    const shape = new THREE.Shape()
+    shape.moveTo(topPoints[0].x, topPoints[0].y)
+    for (let i = 1; i < topPoints.length; i++) {
+      shape.lineTo(topPoints[i].x, topPoints[i].y)
     }
+    shape.lineTo(right, bottomY)
+    shape.lineTo(left, bottomY)
+    shape.closePath()
+
+    const mesh = new THREE.Mesh(
+      new THREE.ShapeGeometry(shape, 12),
+      new THREE.MeshBasicMaterial({ color: 0x4caf50, side: THREE.DoubleSide }),
+    )
+
+    return {
+      mesh,
+      points: topPoints,
+      destroyed: false,
+      bounds: {
+        left,
+        right,
+        top: maxY,
+        bottom: bottomY,
+      },
+    }
+  }
+
+  _getTerrainTopY(terrain, x) {
+    const points = terrain.points
+    if (x <= points[0].x) return points[0].y
+    if (x >= points[points.length - 1].x) return points[points.length - 1].y
+
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1]
+      const next = points[i]
+      if (x >= prev.x && x <= next.x) {
+        const t = (x - prev.x) / (next.x - prev.x)
+        return THREE.MathUtils.lerp(prev.y, next.y, t)
+      }
+    }
+
+    return points[points.length - 1].y
+  }
+
+  _getTerrainSlopeAngle(terrain, x) {
+    const points = terrain.points
+    let nearest = 1
+    for (let i = 1; i < points.length; i++) {
+      if (Math.abs(points[i].x - x) < Math.abs(points[nearest].x - x)) nearest = i
+    }
+    const prev = points[Math.max(0, nearest - 1)]
+    const next = points[Math.min(points.length - 1, nearest + 1)]
+    return Math.atan2(next.y - prev.y, next.x - prev.x)
   }
 
   _resetRun() {
@@ -168,6 +230,7 @@ class Game {
     this.bestHeightPx = 0
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
+    this.armadillo.rotation.z = 0
     this.armadillo.material.color.set(0xff1744)
     if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.AIMING)
@@ -183,6 +246,7 @@ class Game {
     this.bestHeightPx = 0
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
+    this.armadillo.rotation.z = 0
     this.armadillo.material.color.set(0xff1744)
     if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     this.sm.current = State.AIMING
@@ -289,6 +353,11 @@ class Game {
       return
     }
 
+    const brokenTerrain = this._findUnderTerrainBreak(prevBottom, nextBottom)
+    if (brokenTerrain) {
+      this._breakTerrain(brokenTerrain)
+    }
+
     if (this.armadillo.position.y < this.camPos.y - 520) {
       if (this.sm.is(State.FLYING)) {
         this.sm.transition(State.AIMING)
@@ -304,21 +373,54 @@ class Game {
     if (this.velocity.y > 0) return null
 
     for (const island of this.islands) {
-      const bounds = island.userData.bounds
+      if (island.destroyed) continue
+      const bounds = island.bounds
+      const topY = this._getTerrainTopY(island, this.armadillo.position.x)
       const withinX = this.armadillo.position.x >= bounds.left - ARMADILLO_SIZE / 2
         && this.armadillo.position.x <= bounds.right + ARMADILLO_SIZE / 2
-      const crossedTop = prevBottom >= bounds.top && nextBottom <= bounds.top
+      const crossedTop = prevBottom >= topY && nextBottom <= topY
       if (withinX && crossedTop) return island
     }
 
     return null
   }
 
+  _findUnderTerrainBreak(prevBottom, nextBottom) {
+    if (this.velocity.y <= 0) return null
+    const prevTop = prevBottom + ARMADILLO_SIZE
+    const nextTop = nextBottom + ARMADILLO_SIZE
+
+    for (const island of this.islands) {
+      if (island.destroyed) continue
+      const bounds = island.bounds
+      const withinX = this.armadillo.position.x >= bounds.left - ARMADILLO_SIZE / 2
+        && this.armadillo.position.x <= bounds.right + ARMADILLO_SIZE / 2
+      const crossedBottom = prevTop <= bounds.bottom && nextTop >= bounds.bottom
+      if (withinX && crossedBottom) return island
+    }
+
+    return null
+  }
+
+  _breakTerrain(terrain) {
+    const impactSpeed = this.velocity.length()
+    if (impactSpeed < UNDER_BREAK_SPEED) {
+      this.velocity.y = -Math.abs(this.velocity.y) * 0.45
+      this.speedRatio = Math.max(0.2, this.speedRatio - 0.12)
+      return
+    }
+
+    terrain.destroyed = true
+    terrain.mesh.visible = false
+    this.speedRatio = Math.max(0.2, this.speedRatio - 0.18)
+    this.armadillo.material.color.set(0xffd54f)
+  }
+
   _landOnIsland(island) {
     this.currentIsland = island
     this.velocity.set(0, 0)
     this.speedRatio = Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO)
-    this.armadillo.position.y = island.userData.bounds.top + ARMADILLO_SIZE / 2
+    this.armadillo.position.y = this._getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
 
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
@@ -328,10 +430,11 @@ class Game {
   _updateRolling(dt) {
     if (!this.currentIsland) return
 
-    const bounds = this.currentIsland.userData.bounds
+    const bounds = this.currentIsland.bounds
     this.speedRatio = Math.max(ROLLING_MIN_SPEED_RATIO, this.speedRatio - FRICTION_PER_SEC * dt)
     this.armadillo.position.x += this.speedRatio * MAX_SPEED * dt
-    this.armadillo.position.y = bounds.top + ARMADILLO_SIZE / 2
+    this.armadillo.position.y = this._getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    this.armadillo.rotation.z = this._getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
 
     if (this.armadillo.position.x >= bounds.right - ARMADILLO_SIZE / 2) {
       this.armadillo.position.x = bounds.right - ARMADILLO_SIZE / 2
