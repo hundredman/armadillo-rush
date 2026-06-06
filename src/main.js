@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import './ui.css'
 import { Renderer } from './renderer/scene.js'
 import { Background } from './renderer/background.js'
 import { StateMachine, State } from './state.js'
@@ -97,6 +98,7 @@ class Game {
     this.slowmoTime = 0
     this.bestRecord = this._loadBestRecord()
     this.isPaused = false
+    this.audio = null
 
     // 카메라가 추적할 목표
     this.camTarget = new THREE.Vector2(0, 0)
@@ -137,13 +139,56 @@ class Game {
     this.cannonBarrel.rotation.z = this.aimAngle
     this.renderer.add(this.cannonBarrel)
 
-    const aGeom = new THREE.BoxGeometry(ARMADILLO_SIZE, ARMADILLO_SIZE, 1)
-    const aMat = new THREE.MeshBasicMaterial({ color: 0xff1744 })
-    this.armadillo = new THREE.Mesh(aGeom, aMat)
+    this.armadillo = this._createArmadillo()
     this.renderer.add(this.armadillo)
     this._resetRun()
 
     this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240   // 배경 heightRatio 정규화 기준
+  }
+
+  _createArmadillo() {
+    const group = new THREE.Group()
+    const shellMat = new THREE.MeshBasicMaterial({ color: 0xff1744 })
+    const bellyMat = new THREE.MeshBasicMaterial({ color: 0xff8a65 })
+    const darkMat = new THREE.MeshBasicMaterial({ color: 0x271512 })
+    const faceMat = new THREE.MeshBasicMaterial({ color: 0xffb088 })
+
+    const shell = new THREE.Mesh(new THREE.CircleGeometry(18, 28), shellMat)
+    shell.scale.set(1.12, 0.88, 1)
+    shell.position.set(-1, 0, 0.03)
+
+    const belly = new THREE.Mesh(new THREE.CircleGeometry(10, 20), bellyMat)
+    belly.scale.set(1.08, 0.62, 1)
+    belly.position.set(-1, -4, 0.05)
+
+    const head = new THREE.Mesh(new THREE.CircleGeometry(8, 18), faceMat)
+    head.scale.set(1.1, 0.82, 1)
+    head.position.set(15, 4, 0.06)
+
+    const snout = new THREE.Mesh(new THREE.CircleGeometry(4, 14), faceMat)
+    snout.scale.set(1.3, 0.7, 1)
+    snout.position.set(22, 2, 0.07)
+
+    const eye = new THREE.Mesh(new THREE.CircleGeometry(1.6, 10), darkMat)
+    eye.position.set(18, 7, 0.08)
+
+    const stripeGeom = new THREE.BoxGeometry(3, 26, 1)
+    for (const x of [-9, -3, 3, 9]) {
+      const stripe = new THREE.Mesh(stripeGeom, new THREE.MeshBasicMaterial({ color: 0xc62828 }))
+      stripe.position.set(x, 0, 0.07)
+      stripe.rotation.z = -0.18
+      group.add(stripe)
+    }
+
+    group.add(shell, belly, head, snout, eye)
+    this.armadilloParts = { shellMat, bellyMat, faceMat }
+    return group
+  }
+
+  _setArmadilloColor(color) {
+    this.armadilloParts.shellMat.color.set(color)
+    this.armadilloParts.bellyMat.color.set(new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.28))
+    this.armadilloParts.faceMat.color.set(new THREE.Color(color).lerp(new THREE.Color(0xffb088), 0.62))
   }
 
   _bindInput() {
@@ -160,6 +205,7 @@ class Game {
 
       event.preventDefault()
       event.stopPropagation()
+      this._ensureAudio()
       if (button.dataset.action === 'pause') this._togglePause()
       if (button.dataset.action === 'restart') this._restartToAim()
       return true
@@ -253,7 +299,7 @@ class Game {
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
-    this.armadillo.material.color.set(0xff1744)
+    this._setArmadilloColor(0xff1744)
     if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.AIMING)
   }
@@ -293,7 +339,7 @@ class Game {
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
-    this.armadillo.material.color.set(0xff1744)
+    this._setArmadilloColor(0xff1744)
     if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     this.sm.current = State.AIMING
   }
@@ -311,6 +357,7 @@ class Game {
   }
 
   _handleAction() {
+    this._ensureAudio()
     if (this.isPaused) return
 
     if (this.sm.is(State.AIMING)) {
@@ -344,11 +391,12 @@ class Game {
     this.timingPending = false
     this.lastRating = 'LAUNCH'
     this.stallTime = 0
-    this.armadillo.material.color.set(0xff1744)
+    this._setArmadilloColor(0xff1744)
     this.velocity.set(
       Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
       Math.sin(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
     )
+    this._playTone(220 + this.powerRatio * 180, 0.09, 0.08, 'square')
   }
 
   _launchFromIsland() {
@@ -501,7 +549,7 @@ class Game {
     terrain.destroyed = true
     terrain.mesh.visible = false
     this.speedRatio = Math.max(0.2, this.speedRatio - 0.18)
-    this.armadillo.material.color.set(0xffd54f)
+    this._setArmadilloColor(0xffd54f)
     this._triggerImpact(0.65, 0x4caf50, this.armadillo.position.x, this.armadillo.position.y)
   }
 
@@ -589,7 +637,7 @@ class Game {
     if (obstacle.type === 'spike') {
       this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
       this.lastRating = 'SPIKE'
-      this.armadillo.material.color.set(0x9e9e9e)
+      this._setArmadilloColor(0x9e9e9e)
       this._triggerImpact(0.35, 0xe53935, obstacle.mesh.position.x, obstacle.mesh.position.y)
       return
     }
@@ -601,7 +649,7 @@ class Game {
       this.breakCount += 1
       this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.breakCost)
       this.lastRating = `${obstacle.type.toUpperCase()} BREAK`
-      this.armadillo.material.color.set(0xffd54f)
+      this._setArmadilloColor(0xffd54f)
       this._triggerImpact(0.55, obstacle.material?.color ?? 0xffd54f, obstacle.mesh.position.x, obstacle.mesh.position.y)
       return
     }
@@ -609,7 +657,7 @@ class Game {
     this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
     this.lastRating = `${obstacle.type.toUpperCase()} BLOCK`
     this.armadillo.position.x = obstacle.mesh.position.x - (ARMADILLO_SIZE + obstacle.width) / 2
-    this.armadillo.material.color.set(0x9e9e9e)
+    this._setArmadilloColor(0x9e9e9e)
     this._triggerImpact(0.45, 0xb0bec5, obstacle.mesh.position.x, obstacle.mesh.position.y)
   }
 
@@ -667,7 +715,8 @@ class Game {
       OK: 0xff1744,
       MISS: 0x9e9e9e,
     }
-    this.armadillo.material.color.set(colorByRating[rating] ?? 0xff1744)
+    this._setArmadilloColor(colorByRating[rating] ?? 0xff1744)
+    this._playRatingSound(rating)
   }
 
   _getComboBonus() {
@@ -682,6 +731,7 @@ class Game {
     this.flashTime = Math.max(this.flashTime, 0.12)
     this.slowmoTime = Math.max(this.slowmoTime, SLOWMO_SEC)
     this._spawnParticles(x, y, color)
+    this._playTone(90 + strength * 90, 0.08, 0.06 + strength * 0.05, 'sawtooth')
   }
 
   _spawnParticles(x, y, color) {
@@ -732,6 +782,51 @@ class Game {
     this.timingPending = false
     this.lastRating = reason
     this._saveBestRecord()
+    this._playTone(96, 0.22, 0.1, 'triangle')
+  }
+
+  _ensureAudio() {
+    if (this.audio) {
+      if (this.audio.state === 'suspended') this.audio.resume()
+      return
+    }
+
+    const AudioContext = window.AudioContext || window.webkitAudioContext
+    if (!AudioContext) return
+    this.audio = new AudioContext()
+  }
+
+  _playRatingSound(rating) {
+    const freqByRating = {
+      PERFECT: 720,
+      GOOD: 520,
+      OK: 360,
+      MISS: 150,
+    }
+    const durationByRating = {
+      PERFECT: 0.12,
+      GOOD: 0.09,
+      OK: 0.07,
+      MISS: 0.08,
+    }
+    this._playTone(freqByRating[rating] ?? 260, durationByRating[rating] ?? 0.08, 0.05, 'sine')
+  }
+
+  _playTone(frequency, duration, volume, type = 'sine') {
+    if (!this.audio || this.audio.state !== 'running') return
+
+    const now = this.audio.currentTime
+    const osc = this.audio.createOscillator()
+    const gain = this.audio.createGain()
+    osc.type = type
+    osc.frequency.setValueAtTime(frequency, now)
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(volume, now + 0.012)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+    osc.connect(gain)
+    gain.connect(this.audio.destination)
+    osc.start(now)
+    osc.stop(now + duration + 0.02)
   }
 
   _getScore() {
@@ -814,25 +909,25 @@ class Game {
     const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
     const phaseText = this.isPaused ? 'PAUSED' : this.sm.current
     const dangerText = this.stallTime >= STALL_DANGER_SEC
-      ? `<div style="color:#ff7043">DANGER ${Math.max(0, STALL_GAMEOVER_SEC - this.stallTime).toFixed(1)}s</div>`
+      ? `<div class="hud-danger">DANGER ${Math.max(0, STALL_GAMEOVER_SEC - this.stallTime).toFixed(1)}s</div>`
       : ''
 
     this.ui.innerHTML = `
-      <div style="position:fixed;left:18px;top:16px;font-weight:700;line-height:1.5">
-        <div>STATE ${phaseText}</div>
-        <div>SCORE ${score}</div>
-        <div>HEIGHT ${heightM}m</div>
-        <div>DIST ${distanceM}m</div>
-        <div>SPEED ${speed}%</div>
-        <div>ANGLE ${this.sm.is(State.AIMING) ? aimActiveDeg : aimDeg}deg</div>
-        <div>POWER ${powerPercent}%</div>
-        <div>HIT ${this.lastRating}</div>
-        <div>COMBO ${this.combo}</div>
-        <div>BREAK ${this.breakCount}</div>
+      <div class="hud-panel hud-stats">
+        <div><span>STATE</span><strong>${phaseText}</strong></div>
+        <div><span>SCORE</span><strong>${score}</strong></div>
+        <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
+        <div><span>DIST</span><strong>${distanceM}m</strong></div>
+        <div><span>SPEED</span><strong>${speed}%</strong></div>
+        <div><span>ANGLE</span><strong>${this.sm.is(State.AIMING) ? aimActiveDeg : aimDeg}deg</strong></div>
+        <div><span>POWER</span><strong>${powerPercent}%</strong></div>
+        <div><span>HIT</span><strong>${this.lastRating}</strong></div>
+        <div><span>COMBO</span><strong>${this.combo}</strong></div>
+        <div><span>BREAK</span><strong>${this.breakCount}</strong></div>
         ${dangerText}
       </div>
 
-      <div style="position:fixed;left:18px;top:132px;width:180px;height:130px">
+      <div class="hud-aim">
         <svg width="180" height="130" viewBox="0 0 180 130" aria-hidden="true">
           <path d="M ${UI_CANNON_X} ${UI_CANNON_Y} L 149 60 A 72 72 0 0 0 128 42 Z"
             fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
@@ -844,43 +939,39 @@ class Game {
         </svg>
       </div>
 
-      <div style="position:fixed;left:18px;top:258px;width:190px">
-        <div style="height:12px;border:2px solid rgba(255,255,255,0.72);background:rgba(0,0,0,0.24)">
-          <div style="height:100%;width:${powerFill}%;background:#ff7043"></div>
-        </div>
+      <div class="meter meter-power">
+        <div class="meter-fill power-fill" style="width:${powerFill}%"></div>
       </div>
 
-      <div style="position:fixed;left:18px;top:282px;width:190px">
-        <div style="height:10px;border:2px solid rgba(255,255,255,0.72);background:rgba(0,0,0,0.24)">
-          <div style="height:100%;width:${timingFill}%;background:#ffd54f"></div>
-        </div>
+      <div class="meter meter-timing">
+        <div class="meter-fill timing-fill" style="width:${timingFill}%"></div>
       </div>
 
-      ${this.isPaused ? '<div style="position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,0.28);font-size:42px;font-weight:900;z-index:10">PAUSED</div>' : ''}
-      ${this.flashTime > 0 ? `<div style="position:fixed;inset:0;background:rgba(255,255,255,${this.flashTime * 1.6});z-index:8"></div>` : ''}
+      ${this.isPaused ? '<div class="pause-layer">PAUSED</div>' : ''}
+      ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
       ${this.sm.is(State.GAMEOVER) ? `
-        <div style="position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,0.52);z-index:18;pointer-events:auto">
-          <div style="min-width:280px;padding:22px;background:rgba(0,0,17,0.9);border:2px solid rgba(255,255,255,0.6)">
-            <div style="font-size:32px;font-weight:900;margin-bottom:12px">GAME OVER</div>
-            <div style="line-height:1.7;font-weight:800">
-              <div>SCORE ${score}</div>
-              <div>HEIGHT ${heightM}m</div>
-              <div>DIST ${distanceM}m</div>
-              <div>BREAK ${this.breakCount}</div>
-              <div>MAX COMBO ${this.maxCombo}</div>
-              <div>BEST ${this.bestRecord.score}</div>
+        <div class="modal-layer">
+          <div class="result-card">
+            <div class="result-title">GAME OVER</div>
+            <div class="result-grid">
+              <div><span>SCORE</span><strong>${score}</strong></div>
+              <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
+              <div><span>DIST</span><strong>${distanceM}m</strong></div>
+              <div><span>BREAK</span><strong>${this.breakCount}</strong></div>
+              <div><span>MAX COMBO</span><strong>${this.maxCombo}</strong></div>
+              <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
             </div>
-            <button class="clickable" data-action="restart" style="margin-top:16px;width:100%;height:42px;border:0;background:#ffd54f;color:#111;font-weight:900">Restart</button>
+            <button class="clickable primary-button" data-action="restart">Restart</button>
           </div>
         </div>
       ` : ''}
 
-      <div style="position:fixed;right:16px;top:16px;display:flex;gap:8px;pointer-events:auto;z-index:20">
-        <button class="clickable" data-action="pause" style="min-width:78px;height:40px;border:0;background:rgba(255,255,255,0.9);color:#111;font-weight:800">${pauseLabel}</button>
-        <button class="clickable" data-action="restart" style="min-width:86px;height:40px;border:0;background:rgba(255,213,79,0.95);color:#111;font-weight:800">Restart</button>
+      <div class="control-row">
+        <button class="clickable secondary-button" data-action="pause">${pauseLabel}</button>
+        <button class="clickable primary-button" data-action="restart">Restart</button>
       </div>
 
-      <div style="position:fixed;left:18px;bottom:18px;font-weight:700">${action}</div>
+      <div class="action-hint">${action}</div>
     `
   }
 

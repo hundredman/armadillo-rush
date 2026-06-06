@@ -1,0 +1,288 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050713;
+  color: #fff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#ui-overlay {
+  position: fixed;
+  inset: 0;
+  color: #fff;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+#ui-overlay .clickable {
+  pointer-events: auto;
+}
+
+.hud-panel {
+  position: fixed;
+  left: 16px;
+  top: 14px;
+  width: min(230px, calc(100vw - 132px));
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 7, 19, 0.58);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.hud-stats {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.hud-stats div,
+.result-grid div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hud-stats span,
+.result-grid span {
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 10px;
+}
+
+.hud-stats strong,
+.result-grid strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.hud-danger {
+  margin-top: 4px;
+  color: #ff7043;
+}
+
+.hud-aim {
+  position: fixed;
+  left: 16px;
+  top: 178px;
+  width: 180px;
+  height: 130px;
+}
+
+.meter {
+  position: fixed;
+  left: 18px;
+  width: 190px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.meter-power {
+  top: 302px;
+  height: 14px;
+}
+
+.meter-timing {
+  top: 326px;
+  height: 12px;
+}
+
+.meter-fill {
+  height: 100%;
+  transition: width 80ms linear;
+}
+
+.power-fill {
+  background: linear-gradient(90deg, #ff7043, #ffd54f);
+}
+
+.timing-fill {
+  background: linear-gradient(90deg, #ffd54f, #ffffff);
+}
+
+.control-row {
+  position: fixed;
+  right: 16px;
+  top: 14px;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.primary-button,
+.secondary-button {
+  min-width: 84px;
+  height: 42px;
+  border: 0;
+  border-radius: 8px;
+  color: #10131a;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+.primary-button {
+  background: #ffd54f;
+}
+
+.secondary-button {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.primary-button:active,
+.secondary-button:active {
+  transform: translateY(1px);
+}
+
+.action-hint {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  max-width: calc(100vw - 36px);
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(5, 7, 19, 0.52);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.pause-layer,
+.modal-layer,
+.flash-layer {
+  position: fixed;
+  inset: 0;
+}
+
+.pause-layer {
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.34);
+  font-size: 42px;
+  font-weight: 1000;
+}
+
+.flash-layer {
+  z-index: 8;
+  background: #fff;
+  pointer-events: none;
+}
+
+.modal-layer {
+  z-index: 18;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.56);
+  pointer-events: auto;
+}
+
+.result-card {
+  width: min(360px, calc(100vw - 40px));
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(5, 7, 19, 0.92);
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.42);
+}
+
+.result-title {
+  margin-bottom: 14px;
+  color: #ffd54f;
+  font-size: 32px;
+  font-weight: 1000;
+}
+
+.result-grid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-weight: 900;
+}
+
+.result-card .primary-button {
+  width: 100%;
+}
+
+@media (max-width: 620px) {
+  .hud-panel {
+    width: 168px;
+    padding: 10px 11px;
+  }
+
+  .hud-stats {
+    font-size: 11px;
+  }
+
+  .hud-stats div:nth-child(n + 8) {
+    display: none;
+  }
+
+  .hud-aim {
+    top: 142px;
+    transform: scale(0.78);
+    transform-origin: left top;
+  }
+
+  .meter {
+    left: 16px;
+    width: 148px;
+  }
+
+  .meter-power {
+    top: 246px;
+  }
+
+  .meter-timing {
+    top: 268px;
+  }
+
+  .control-row {
+    right: 10px;
+    top: 10px;
+    flex-direction: column;
+  }
+
+  .primary-button,
+  .secondary-button {
+    min-width: 76px;
+    height: 38px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .action-hint {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    text-align: center;
+  }
+}
