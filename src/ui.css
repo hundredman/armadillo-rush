@@ -175,10 +175,47 @@ button {
 }
 
 .pause-layer,
+.start-layer,
 .modal-layer,
 .flash-layer {
   position: fixed;
   inset: 0;
+}
+
+.start-layer {
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(255, 213, 79, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(5, 7, 19, 0.16), rgba(5, 7, 19, 0.54));
+  text-align: center;
+}
+
+.start-title {
+  color: #ffd54f;
+  font-size: clamp(40px, 7vw, 82px);
+  font-weight: 1000;
+  line-height: 0.95;
+  text-shadow: 0 5px 0 rgba(0, 0, 0, 0.28), 0 18px 38px rgba(0, 0, 0, 0.44);
+}
+
+.start-subtitle {
+  padding: 9px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(5, 7, 19, 0.62);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.start-best {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .pause-layer {

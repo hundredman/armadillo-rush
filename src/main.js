@@ -53,7 +53,7 @@ const AIM_MAX_ANGLE = THREE.MathUtils.degToRad(60)
 const AIM_SWEEP_SPEED = 1.9
 const POWER_MIN = 0.85
 const POWER_MAX = 1.0
-const POWER_SWEEP_SPEED = 2.8
+const POWER_CHARGE_PER_SEC = 0.55
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
 const ROLLING_MIN_SPEED_RATIO = 0.38
@@ -78,6 +78,7 @@ class Game {
     this.aimAngle = AIM_MIN_ANGLE
     this.lockedAimAngle = AIM_MIN_ANGLE
     this.powerRatio = POWER_MIN
+    this.powerCharging = false
     this.currentIsland = null
     this.obstacles = []
     this.particles = []
@@ -111,8 +112,6 @@ class Game {
     this._bindInput()
 
     this.sm.onChange((from, to) => console.log(`[state] ${from} → ${to}`))
-    // 1단계 확인용: 타이틀 → 조준으로 바로 진입해 placeholder 가 보이게
-    this.sm.transition(State.AIMING)
   }
 
   // ── 2단계 placeholder: 대포 + 섬 + 발사 가능한 아르마딜로 ──
@@ -261,9 +260,8 @@ class Game {
   }
 
   _bindInput() {
-    const triggerAction = () => {
-      this._handleAction()
-    }
+    const triggerPress = () => this._handlePress()
+    const triggerRelease = () => this._handleRelease()
 
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
     const handleControlButton = (event) => {
@@ -276,16 +274,24 @@ class Game {
       event.stopPropagation()
       this._ensureAudio()
       if (button.dataset.action === 'pause') this._togglePause()
-      if (button.dataset.action === 'restart') this._restartToAim()
+      if (button.dataset.action === 'restart') this._restartToTitle()
       return true
     }
 
     window.addEventListener('pointerdown', (event) => {
       if (handleControlButton(event)) return
 
-      if (!isTouchDevice) return
-      if (event.pointerType === 'mouse') return
-      triggerAction()
+      if (!isTouchDevice && event.pointerType === 'mouse') return
+      triggerPress()
+    })
+
+    window.addEventListener('pointerup', (event) => {
+      if (!isTouchDevice && event.pointerType === 'mouse') return
+      triggerRelease()
+    })
+
+    window.addEventListener('pointercancel', () => {
+      triggerRelease()
     })
 
     window.addEventListener('keydown', (event) => {
@@ -293,7 +299,7 @@ class Game {
 
       if (event.code === 'Space') {
         event.preventDefault()
-        triggerAction()
+        triggerPress()
         return
       }
 
@@ -301,6 +307,12 @@ class Game {
         event.preventDefault()
         this._togglePause()
       }
+    })
+
+    window.addEventListener('keyup', (event) => {
+      if (event.code !== 'Space') return
+      event.preventDefault()
+      triggerRelease()
     })
   }
 
@@ -339,6 +351,7 @@ class Game {
     this.aimAngle = AIM_MIN_ANGLE
     this.lockedAimAngle = AIM_MIN_ANGLE
     this.powerRatio = POWER_MIN
+    this.powerCharging = false
     this.currentIsland = null
     this._restoreTerrain()
     for (const obstacle of this.obstacles) {
@@ -370,15 +383,16 @@ class Game {
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
     this._updateCannonPose(this.aimAngle)
-    if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.AIMING)
+    if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.TITLE)
   }
 
-  _restartToAim() {
+  _restartToTitle() {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
     this.aimAngle = AIM_MIN_ANGLE
     this.lockedAimAngle = AIM_MIN_ANGLE
     this.powerRatio = POWER_MIN
+    this.powerCharging = false
     this.currentIsland = null
     this._restoreTerrain()
     for (const obstacle of this.obstacles) {
@@ -410,7 +424,7 @@ class Game {
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
     this._updateCannonPose(this.aimAngle)
-    this.sm.current = State.AIMING
+    this.sm.current = State.TITLE
   }
 
   _restoreTerrain() {
@@ -425,18 +439,26 @@ class Game {
     this.isPaused = !this.isPaused
   }
 
-  _handleAction() {
+  _handlePress() {
     this._ensureAudio()
     if (this.isPaused) return
 
+    if (this.sm.is(State.TITLE)) {
+      this._resetRun()
+      this.sm.transition(State.AIMING)
+      return
+    }
+
     if (this.sm.is(State.AIMING)) {
       this.lockedAimAngle = this.aimAngle
+      this.powerRatio = POWER_MIN
+      this.powerCharging = false
       this.sm.transition(State.POWERING)
       return
     }
 
     if (this.sm.is(State.POWERING)) {
-      this._launchFromCannon()
+      this.powerCharging = true
       return
     }
 
@@ -454,9 +476,18 @@ class Game {
     }
   }
 
+  _handleRelease() {
+    if (this.isPaused) return
+    if (!this.sm.is(State.POWERING) || !this.powerCharging) return
+
+    this.powerCharging = false
+    this._launchFromCannon()
+  }
+
   _launchFromCannon() {
     if (!this.sm.transition(State.FLYING)) return
     this.speedRatio = this.powerRatio
+    this.powerCharging = false
     this.timingPending = false
     this.lastRating = 'LAUNCH'
     this.stallTime = 0
@@ -549,8 +580,9 @@ class Game {
     }
 
     if (this.sm.is(State.POWERING)) {
-      const t = (Math.sin(this.time * POWER_SWEEP_SPEED) + 1) * 0.5
-      this.powerRatio = THREE.MathUtils.lerp(POWER_MIN, POWER_MAX, t)
+      if (this.powerCharging) {
+        this.powerRatio = Math.min(POWER_MAX, this.powerRatio + POWER_CHARGE_PER_SEC * dt)
+      }
     }
 
     this._updateCannonPose(this.lockedAimAngle)
@@ -989,10 +1021,12 @@ class Game {
     const timingFill = this.timingPending
       ? THREE.MathUtils.clamp(1 - timingElapsed / this.timingWindow, 0, 1) * 100
       : 0
-    const action = this.sm.is(State.AIMING)
-      ? 'Space / Tap: Lock Angle'
+    const action = this.sm.is(State.TITLE)
+      ? 'Space / Tap: Start'
+      : this.sm.is(State.AIMING)
+        ? 'Space / Tap: Lock Angle'
       : this.sm.is(State.POWERING)
-        ? 'Space / Tap: Lock Power'
+        ? this.powerCharging ? 'Release: Launch' : 'Hold Space / Touch: Charge'
       : this.sm.is(State.ROLLING)
         ? this.timingPending ? 'Space / Tap: Timing' : 'Rolling'
         : this.sm.is(State.GAMEOVER)
@@ -1040,6 +1074,13 @@ class Game {
       </div>
 
       ${this.isPaused ? '<div class="pause-layer">PAUSED</div>' : ''}
+      ${this.sm.is(State.TITLE) ? `
+        <div class="start-layer">
+          <div class="start-title">ARMADILLO RUSH</div>
+          <div class="start-subtitle">Space / Tap to Start</div>
+          <div class="start-best">BEST ${this.bestRecord.score}</div>
+        </div>
+      ` : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
       ${this.sm.is(State.GAMEOVER) ? `
         <div class="modal-layer">
