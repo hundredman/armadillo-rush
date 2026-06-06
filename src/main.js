@@ -80,6 +80,7 @@ class Game {
     this.currentIsland = null
     this.obstacles = []
     this.particles = []
+    this.scenery = []
     this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
@@ -115,6 +116,7 @@ class Game {
 
   // ── 2단계 placeholder: 대포 + 섬 + 발사 가능한 아르마딜로 ──
   _buildPlaceholderWorld() {
+    this._buildScenery()
     this.islands = []
     for (const spec of DEFAULT_ISLAND_LAYOUT) {
       const island = createCurvedTerrain(spec)
@@ -131,6 +133,21 @@ class Game {
     cannonBase.position.set(CANNON_POS.x, CANNON_POS.y - 14, 0)
     this.renderer.add(cannonBase)
 
+    for (const x of [-28, 28]) {
+      const wheel = new THREE.Mesh(
+        new THREE.CircleGeometry(15, 24),
+        new THREE.MeshBasicMaterial({ color: 0x263238 }),
+      )
+      const hub = new THREE.Mesh(
+        new THREE.CircleGeometry(6, 16),
+        new THREE.MeshBasicMaterial({ color: 0xffd54f }),
+      )
+      wheel.position.set(CANNON_POS.x + x, CANNON_POS.y - 28, 0.03)
+      hub.position.set(CANNON_POS.x + x, CANNON_POS.y - 28, 0.05)
+      this.renderer.add(wheel)
+      this.renderer.add(hub)
+    }
+
     this.cannonBarrel = new THREE.Mesh(
       new THREE.BoxGeometry(78, 18, 1),
       new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
@@ -139,11 +156,80 @@ class Game {
     this.cannonBarrel.rotation.z = this.aimAngle
     this.renderer.add(this.cannonBarrel)
 
+    this.cannonMuzzle = new THREE.Mesh(
+      new THREE.BoxGeometry(18, 24, 1),
+      new THREE.MeshBasicMaterial({ color: 0x3e2723 }),
+    )
+    this.cannonMuzzle.position.set(CANNON_POS.x + 64, CANNON_POS.y + 28, 0.04)
+    this.cannonMuzzle.rotation.z = this.aimAngle
+    this.renderer.add(this.cannonMuzzle)
+
     this.armadillo = this._createArmadillo()
     this.renderer.add(this.armadillo)
     this._resetRun()
 
     this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240   // 배경 heightRatio 정규화 기준
+  }
+
+  _buildScenery() {
+    const sun = new THREE.Mesh(
+      new THREE.CircleGeometry(58, 40),
+      new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.85 }),
+    )
+    this._addScenery(sun, 0.04, 270, 210, 0.2)
+
+    for (const spec of [
+      { x: -360, y: -330, scale: 1.15, color: 0x2f4f5f, layer: 0.18 },
+      { x: 120, y: -360, scale: 1.35, color: 0x355c65, layer: 0.14 },
+      { x: 620, y: -345, scale: 1.05, color: 0x426b69, layer: 0.2 },
+      { x: 1180, y: -365, scale: 1.25, color: 0x314c5b, layer: 0.16 },
+    ]) {
+      const mountain = this._createMountain(spec.color)
+      mountain.scale.setScalar(spec.scale)
+      this._addScenery(mountain, spec.layer, spec.x, spec.y, 0)
+    }
+
+    for (const spec of [
+      { x: -260, y: 180, scale: 0.85, layer: 0.32, drift: 0.9 },
+      { x: 320, y: 250, scale: 1.1, layer: 0.28, drift: 0.7 },
+      { x: 900, y: 150, scale: 0.75, layer: 0.36, drift: 1.1 },
+    ]) {
+      const cloud = this._createCloud()
+      cloud.scale.setScalar(spec.scale)
+      this._addScenery(cloud, spec.layer, spec.x, spec.y, spec.drift)
+    }
+  }
+
+  _addScenery(mesh, layer, baseX, baseY, drift) {
+    mesh.position.set(baseX, baseY, -20)
+    mesh.userData = { layer, baseX, baseY, drift }
+    this.scenery.push(mesh)
+    this.renderer.add(mesh)
+  }
+
+  _createMountain(color) {
+    const group = new THREE.Group()
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.72, side: THREE.DoubleSide })
+    for (const [x, w, h] of [[-120, 220, 250], [40, 280, 320], [210, 190, 230]]) {
+      const shape = new THREE.Shape()
+      shape.moveTo(x - w / 2, 0)
+      shape.lineTo(x, h)
+      shape.lineTo(x + w / 2, 0)
+      shape.closePath()
+      group.add(new THREE.Mesh(new THREE.ShapeGeometry(shape), mat))
+    }
+    return group
+  }
+
+  _createCloud() {
+    const group = new THREE.Group()
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 })
+    for (const [x, y, r] of [[-28, 0, 23], [0, 12, 30], [32, 3, 24], [58, -2, 16]]) {
+      const puff = new THREE.Mesh(new THREE.CircleGeometry(r, 24), mat)
+      puff.position.set(x, y, -21)
+      group.add(puff)
+    }
+    return group
   }
 
   _createArmadillo() {
@@ -152,6 +238,11 @@ class Game {
     const bellyMat = new THREE.MeshBasicMaterial({ color: 0xff8a65 })
     const darkMat = new THREE.MeshBasicMaterial({ color: 0x271512 })
     const faceMat = new THREE.MeshBasicMaterial({ color: 0xffb088 })
+    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x1b1f24 })
+
+    const outline = new THREE.Mesh(new THREE.CircleGeometry(20, 28), outlineMat)
+    outline.scale.set(1.16, 0.92, 1)
+    outline.position.set(-1, 0, 0.01)
 
     const shell = new THREE.Mesh(new THREE.CircleGeometry(18, 28), shellMat)
     shell.scale.set(1.12, 0.88, 1)
@@ -172,6 +263,21 @@ class Game {
     const eye = new THREE.Mesh(new THREE.CircleGeometry(1.6, 10), darkMat)
     eye.position.set(18, 7, 0.08)
 
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(4, 8, 3), faceMat)
+    ear.position.set(12, 12, 0.06)
+    ear.rotation.z = -0.35
+
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(4, 16, 10), outlineMat)
+    tail.position.set(-23, 0, 0.02)
+    tail.rotation.z = THREE.MathUtils.degToRad(90)
+
+    const legGeom = new THREE.BoxGeometry(5, 7, 1)
+    for (const x of [-8, 8]) {
+      const leg = new THREE.Mesh(legGeom, darkMat)
+      leg.position.set(x, -15, 0.02)
+      group.add(leg)
+    }
+
     const stripeGeom = new THREE.BoxGeometry(3, 26, 1)
     for (const x of [-9, -3, 3, 9]) {
       const stripe = new THREE.Mesh(stripeGeom, new THREE.MeshBasicMaterial({ color: 0xc62828 }))
@@ -180,7 +286,7 @@ class Game {
       group.add(stripe)
     }
 
-    group.add(shell, belly, head, snout, eye)
+    group.add(tail, outline, shell, belly, head, snout, ear, eye)
     this.armadilloParts = { shellMat, bellyMat, faceMat }
     return group
   }
@@ -300,7 +406,7 @@ class Game {
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
-    if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
+    this._updateCannonPose(this.aimAngle)
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.AIMING)
   }
 
@@ -340,7 +446,7 @@ class Game {
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
-    if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
+    this._updateCannonPose(this.aimAngle)
     this.sm.current = State.AIMING
   }
 
@@ -452,12 +558,21 @@ class Game {
     }
     this._updateParticles(simDt)
     this._updateEffects(dt)
+    this._updateScenery()
 
     this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - CANNON_POS.y)
     this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - CANNON_POS.x)
 
     // 카메라 추적 대상 = 아르마딜로 위치
     this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+  }
+
+  _updateScenery() {
+    for (const mesh of this.scenery) {
+      const { layer, baseX, baseY, drift } = mesh.userData
+      mesh.position.x = this.camTarget.x * layer + baseX + Math.sin(this.time * drift + baseX * 0.01) * 18
+      mesh.position.y = this.camTarget.y * layer + baseY + Math.cos(this.time * drift + baseY * 0.01) * 6
+    }
   }
 
   _updateAiming(dt) {
@@ -472,7 +587,18 @@ class Game {
       this.powerRatio = THREE.MathUtils.lerp(POWER_MIN, POWER_MAX, t)
     }
 
-    this.cannonBarrel.rotation.z = this.lockedAimAngle
+    this._updateCannonPose(this.lockedAimAngle)
+  }
+
+  _updateCannonPose(angle) {
+    if (this.cannonBarrel) this.cannonBarrel.rotation.z = angle
+    if (!this.cannonMuzzle) return
+    this.cannonMuzzle.rotation.z = angle
+    this.cannonMuzzle.position.set(
+      CANNON_POS.x + 28 + Math.cos(angle) * 38,
+      CANNON_POS.y + 10 + Math.sin(angle) * 38,
+      0.04,
+    )
   }
 
   _updateFlight(dt) {
