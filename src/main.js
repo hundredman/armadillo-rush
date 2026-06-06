@@ -13,6 +13,10 @@ import {
   PX_PER_METER,
   SLOPE_RESIST_PER_SEC,
   SPEED_BONUS,
+  SCORE,
+  STALL_DANGER_SEC,
+  STALL_GAMEOVER_SEC,
+  STALL_SPEED_RATIO,
   TIMING_GOOD_RATIO,
   TIMING_PERFECT_RATIO,
 } from './config.js'
@@ -39,7 +43,6 @@ const POWER_MIN = 0.85
 const POWER_MAX = 1.0
 const POWER_SWEEP_SPEED = 2.8
 const ROLLING_MIN_SPEED_RATIO = 0.38
-const ROLLING_STALL_SPEED_RATIO = 0.06
 const TERRAIN_THICKNESS = 64
 const UNDER_BREAK_SPEED = 520
 const UI_CANNON_X = 92
@@ -70,6 +73,7 @@ class Game {
     this.lastRating = 'READY'
     this.combo = 0
     this.bufferedInputTime = -Infinity
+    this.stallTime = 0
     this.isPaused = false
 
     // 카메라가 추적할 목표
@@ -137,7 +141,9 @@ class Game {
 
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
     const handleControlButton = (event) => {
-      const button = event.target.closest('[data-action]')
+      const button = event.target instanceof Element
+        ? event.target.closest('[data-action]')
+        : null
       if (!button) return false
 
       event.preventDefault()
@@ -255,6 +261,7 @@ class Game {
     this.lastRating = 'READY'
     this.combo = 0
     this.bufferedInputTime = -Infinity
+    this.stallTime = 0
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
@@ -278,6 +285,7 @@ class Game {
     this.lastRating = 'READY'
     this.combo = 0
     this.bufferedInputTime = -Infinity
+    this.stallTime = 0
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
@@ -324,6 +332,7 @@ class Game {
     this.speedRatio = this.powerRatio
     this.timingPending = false
     this.lastRating = 'LAUNCH'
+    this.stallTime = 0
     this.armadillo.material.color.set(0xff1744)
     this.velocity.set(
       Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
@@ -332,6 +341,10 @@ class Game {
   }
 
   _launchFromIsland() {
+    if (this.timingPending) {
+      this._applyTimingRating('MISS')
+    }
+
     if (!this.sm.transition(State.FALLING)) return
     const launchSpeed = (0.55 + Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO) * 0.45) * LAUNCH_SPEED
     const launchAngle = Math.PI / 4
@@ -340,6 +353,7 @@ class Game {
       Math.sin(launchAngle) * launchSpeed,
     )
     this.currentIsland = null
+    this.timingPending = false
   }
 
   _update(dt) {
@@ -484,7 +498,7 @@ class Game {
     const slope = Math.sin(slopeAngle)
     this.speedRatio = THREE.MathUtils.clamp(
       this.speedRatio - FRICTION_PER_SEC * dt - slope * SLOPE_RESIST_PER_SEC * dt,
-      ROLLING_STALL_SPEED_RATIO,
+      0,
       1,
     )
     this.armadillo.position.x += this.speedRatio * MAX_SPEED * dt
@@ -495,10 +509,27 @@ class Game {
       this._applyTimingRating('MISS')
     }
 
+    this._updateStallState(dt)
+
     if (this.armadillo.position.x >= bounds.right - ARMADILLO_SIZE / 2) {
       this.armadillo.position.x = bounds.right - ARMADILLO_SIZE / 2
       this._launchFromIsland()
     }
+  }
+
+  _updateStallState(dt) {
+    if (this.speedRatio <= STALL_SPEED_RATIO) {
+      this.stallTime += dt
+      if (this.stallTime >= STALL_GAMEOVER_SEC) {
+        this.sm.transition(State.GAMEOVER)
+        this.velocity.set(0, 0)
+        this.timingPending = false
+        this.lastRating = 'STOP'
+      }
+      return
+    }
+
+    this.stallTime = 0
   }
 
   _getTimingWindow() {
@@ -569,6 +600,7 @@ class Game {
     if (!this.ui) return
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
+    const score = heightM * SCORE.perM_height + distanceM * SCORE.perM_distance + this.combo * SCORE.comboPerLevel
     const speed = Math.round(this.speedRatio * 100)
     const aimDeg = Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))
     const aimActiveDeg = Math.round(THREE.MathUtils.radToDeg(this.aimAngle))
@@ -593,10 +625,14 @@ class Game {
           : 'Flying'
     const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
     const phaseText = this.isPaused ? 'PAUSED' : this.sm.current
+    const dangerText = this.stallTime >= STALL_DANGER_SEC
+      ? `<div style="color:#ff7043">DANGER ${Math.max(0, STALL_GAMEOVER_SEC - this.stallTime).toFixed(1)}s</div>`
+      : ''
 
     this.ui.innerHTML = `
       <div style="position:fixed;left:18px;top:16px;font-weight:700;line-height:1.5">
         <div>STATE ${phaseText}</div>
+        <div>SCORE ${score}</div>
         <div>HEIGHT ${heightM}m</div>
         <div>DIST ${distanceM}m</div>
         <div>SPEED ${speed}%</div>
@@ -604,6 +640,7 @@ class Game {
         <div>POWER ${powerPercent}%</div>
         <div>HIT ${this.lastRating}</div>
         <div>COMBO ${this.combo}</div>
+        ${dangerText}
       </div>
 
       <div style="position:fixed;left:18px;top:132px;width:180px;height:130px">
