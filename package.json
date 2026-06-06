@@ -1,0 +1,17 @@
+{
+  "name": "armadillo-rush",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "대포로 쏴라. 타이밍을 맞춰라. 최대한 높이 올라가라.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "three": "^0.171.0"
+  }
+}

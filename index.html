@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Armadillo Rush</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #000011;
+      font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+      touch-action: none;            /* 모바일 스크롤/줌 방지 */
+      -webkit-user-select: none; user-select: none;
+    }
+    #game-canvas { display: block; width: 100%; height: 100%; }
+    /* HUD/UI는 캔버스 위 HTML overlay (기획서 §12 ui/) */
+    #ui-overlay {
+      position: fixed; inset: 0; pointer-events: none;
+      color: #fff; text-shadow: 0 0 2px #000, 1px 1px 2px #000;
+    }
+    #ui-overlay .clickable { pointer-events: auto; }
+  </style>
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="ui-overlay"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
