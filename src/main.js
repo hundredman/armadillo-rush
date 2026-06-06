@@ -27,6 +27,9 @@ const POWER_MAX = 1.0
 const POWER_SWEEP_SPEED = 2.8
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const TIMING_TEST_BONUS = 0.15
+const UI_CANNON_X = 92
+const UI_CANNON_Y = 104
+const UI_AIM_RADIUS = 72
 
 class Game {
   constructor() {
@@ -45,6 +48,7 @@ class Game {
     this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
+    this.isPaused = false
 
     // 카메라가 추적할 목표
     this.camTarget = new THREE.Vector2(0, 0)
@@ -115,15 +119,33 @@ class Game {
     if (isTouchDevice) {
       window.addEventListener('pointerdown', (event) => {
         if (event.pointerType === 'mouse') return
+        if (event.target.closest('.clickable')) return
         triggerAction()
       })
-      return
     }
 
     window.addEventListener('keydown', (event) => {
-      if (event.code !== 'Space' || event.repeat) return
-      event.preventDefault()
-      triggerAction()
+      if (event.repeat) return
+
+      if (event.code === 'Space') {
+        event.preventDefault()
+        triggerAction()
+        return
+      }
+
+      if (event.code === 'Escape') {
+        event.preventDefault()
+        this._togglePause()
+      }
+    })
+
+    this.ui?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action]')
+      if (!button) return
+      event.stopPropagation()
+
+      if (button.dataset.action === 'pause') this._togglePause()
+      if (button.dataset.action === 'restart') this._restartToAim()
     })
   }
 
@@ -144,13 +166,36 @@ class Game {
     this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
+    this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.material.color.set(0xff1744)
     if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.AIMING)
   }
 
+  _restartToAim() {
+    this.velocity.set(0, 0)
+    this.speedRatio = 0.75
+    this.aimAngle = AIM_MIN_ANGLE
+    this.lockedAimAngle = AIM_MIN_ANGLE
+    this.powerRatio = POWER_MIN
+    this.currentIsland = null
+    this.bestHeightPx = 0
+    this.isPaused = false
+    this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
+    this.armadillo.material.color.set(0xff1744)
+    if (this.cannonBarrel) this.cannonBarrel.rotation.z = this.aimAngle
+    this.sm.current = State.AIMING
+  }
+
+  _togglePause() {
+    if (this.sm.is(State.GAMEOVER)) return
+    this.isPaused = !this.isPaused
+  }
+
   _handleAction() {
+    if (this.isPaused) return
+
     if (this.sm.is(State.AIMING)) {
       this.lockedAimAngle = this.aimAngle
       this.sm.transition(State.POWERING)
@@ -195,6 +240,11 @@ class Game {
   }
 
   _update(dt) {
+    if (this.isPaused) {
+      this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+      return
+    }
+
     this.time += dt
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this._updateFlight(dt)
@@ -308,6 +358,14 @@ class Game {
     if (!this.ui) return
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const speed = Math.round(this.speedRatio * 100)
+    const aimDeg = Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))
+    const aimActiveDeg = Math.round(THREE.MathUtils.radToDeg(this.aimAngle))
+    const aimLineX = UI_CANNON_X + Math.cos(this.lockedAimAngle) * UI_AIM_RADIUS
+    const aimLineY = UI_CANNON_Y - Math.sin(this.lockedAimAngle) * UI_AIM_RADIUS
+    const aimDotX = UI_CANNON_X + Math.cos(this.aimAngle) * UI_AIM_RADIUS
+    const aimDotY = UI_CANNON_Y - Math.sin(this.aimAngle) * UI_AIM_RADIUS
+    const powerPercent = Math.round(this.powerRatio * 100)
+    const powerFill = THREE.MathUtils.clamp((this.powerRatio - POWER_MIN) / (POWER_MAX - POWER_MIN), 0, 1) * 100
     const action = this.sm.is(State.AIMING)
       ? 'Space / Tap: Lock Angle'
       : this.sm.is(State.POWERING)
@@ -317,15 +375,43 @@ class Game {
         : this.sm.is(State.GAMEOVER)
           ? 'Space / Tap: Retry'
           : 'Flying'
+    const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
+    const phaseText = this.isPaused ? 'PAUSED' : this.sm.current
 
     this.ui.innerHTML = `
       <div style="position:fixed;left:18px;top:16px;font-weight:700;line-height:1.5">
-        <div>STATE ${this.sm.current}</div>
+        <div>STATE ${phaseText}</div>
         <div>HEIGHT ${heightM}m</div>
         <div>SPEED ${speed}%</div>
-        <div>ANGLE ${Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))}deg</div>
-        <div>POWER ${Math.round(this.powerRatio * 100)}%</div>
+        <div>ANGLE ${this.sm.is(State.AIMING) ? aimActiveDeg : aimDeg}deg</div>
+        <div>POWER ${powerPercent}%</div>
       </div>
+
+      <div style="position:fixed;left:18px;top:132px;width:180px;height:130px">
+        <svg width="180" height="130" viewBox="0 0 180 130" aria-hidden="true">
+          <path d="M ${UI_CANNON_X} ${UI_CANNON_Y} L 149 60 A 72 72 0 0 0 128 42 Z"
+            fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
+          <line x1="${UI_CANNON_X}" y1="${UI_CANNON_Y}" x2="${aimLineX}" y2="${aimLineY}"
+            stroke="#ffd54f" stroke-width="5" stroke-linecap="round"/>
+          <circle cx="${aimDotX}" cy="${aimDotY}" r="${this.sm.is(State.AIMING) ? 7 : 4}"
+            fill="${this.sm.is(State.AIMING) ? '#ffffff' : '#ffd54f'}"/>
+          <circle cx="${UI_CANNON_X}" cy="${UI_CANNON_Y}" r="8" fill="#8d6e63"/>
+        </svg>
+      </div>
+
+      <div style="position:fixed;left:18px;top:258px;width:190px">
+        <div style="height:12px;border:2px solid rgba(255,255,255,0.72);background:rgba(0,0,0,0.24)">
+          <div style="height:100%;width:${powerFill}%;background:#ff7043"></div>
+        </div>
+      </div>
+
+      ${this.isPaused ? '<div style="position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,0.28);font-size:42px;font-weight:900;z-index:10">PAUSED</div>' : ''}
+
+      <div style="position:fixed;right:16px;top:16px;display:flex;gap:8px;pointer-events:auto;z-index:20">
+        <button class="clickable" data-action="pause" style="min-width:78px;height:40px;border:0;background:rgba(255,255,255,0.9);color:#111;font-weight:800">${pauseLabel}</button>
+        <button class="clickable" data-action="restart" style="min-width:86px;height:40px;border:0;background:rgba(255,213,79,0.95);color:#111;font-weight:800">Restart</button>
+      </div>
+
       <div style="position:fixed;left:18px;bottom:18px;font-weight:700">${action}</div>
     `
   }
