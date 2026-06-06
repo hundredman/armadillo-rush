@@ -2,7 +2,20 @@ import * as THREE from 'three'
 import { Renderer } from './renderer/scene.js'
 import { Background } from './renderer/background.js'
 import { StateMachine, State } from './state.js'
-import { CAMERA_LERP, FRICTION_PER_SEC, GRAVITY, MAX_SPEED, PX_PER_METER } from './config.js'
+import {
+  CAMERA_LERP,
+  COMBO_BONUS,
+  DISTANCE_TIERS,
+  FRICTION_PER_SEC,
+  GRAVITY,
+  INPUT_BUFFER_SEC,
+  MAX_SPEED,
+  PX_PER_METER,
+  SLOPE_RESIST_PER_SEC,
+  SPEED_BONUS,
+  TIMING_GOOD_RATIO,
+  TIMING_PERFECT_RATIO,
+} from './config.js'
 
 /**
  * 진입점 + 게임 루프.
@@ -26,7 +39,7 @@ const POWER_MIN = 0.85
 const POWER_MAX = 1.0
 const POWER_SWEEP_SPEED = 2.8
 const ROLLING_MIN_SPEED_RATIO = 0.38
-const TIMING_TEST_BONUS = 0.15
+const ROLLING_STALL_SPEED_RATIO = 0.06
 const TERRAIN_THICKNESS = 64
 const UNDER_BREAK_SPEED = 520
 const UI_CANNON_X = 92
@@ -50,6 +63,13 @@ class Game {
     this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
+    this.bestDistancePx = 0
+    this.landingTime = 0
+    this.timingWindow = DISTANCE_TIERS[0].window
+    this.timingPending = false
+    this.lastRating = 'READY'
+    this.combo = 0
+    this.bufferedInputTime = -Infinity
     this.isPaused = false
 
     // 카메라가 추적할 목표
@@ -228,6 +248,13 @@ class Game {
     this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
+    this.bestDistancePx = 0
+    this.landingTime = 0
+    this.timingWindow = DISTANCE_TIERS[0].window
+    this.timingPending = false
+    this.lastRating = 'READY'
+    this.combo = 0
+    this.bufferedInputTime = -Infinity
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
@@ -244,6 +271,13 @@ class Game {
     this.powerRatio = POWER_MIN
     this.currentIsland = null
     this.bestHeightPx = 0
+    this.bestDistancePx = 0
+    this.landingTime = 0
+    this.timingWindow = DISTANCE_TIERS[0].window
+    this.timingPending = false
+    this.lastRating = 'READY'
+    this.combo = 0
+    this.bufferedInputTime = -Infinity
     this.isPaused = false
     this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
@@ -272,9 +306,12 @@ class Game {
     }
 
     if (this.sm.is(State.ROLLING)) {
-      this.speedRatio = Math.min(1, this.speedRatio + TIMING_TEST_BONUS)
-      this.armadillo.material.color.set(this.speedRatio >= 0.7 ? 0xffd54f : 0xff1744)
+      this._judgeTiming()
       return
+    }
+
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.bufferedInputTime = this.time
     }
 
     if (this.sm.is(State.GAMEOVER)) {
@@ -285,6 +322,8 @@ class Game {
   _launchFromCannon() {
     if (!this.sm.transition(State.FLYING)) return
     this.speedRatio = this.powerRatio
+    this.timingPending = false
+    this.lastRating = 'LAUNCH'
     this.armadillo.material.color.set(0xff1744)
     this.velocity.set(
       Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
@@ -319,6 +358,7 @@ class Game {
     }
 
     this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - CANNON_POS.y)
+    this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - CANNON_POS.x)
 
     // 카메라 추적 대상 = 아르마딜로 위치
     this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
@@ -421,9 +461,18 @@ class Game {
     this.velocity.set(0, 0)
     this.speedRatio = Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO)
     this.armadillo.position.y = this._getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    this.landingTime = this.time
+    this.timingWindow = this._getTimingWindow()
+    this.timingPending = true
+    this.lastRating = 'LANDED'
 
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
+    }
+
+    if (this.time - this.bufferedInputTime <= INPUT_BUFFER_SEC) {
+      this._applyTimingRating('GOOD')
+      this.bufferedInputTime = -Infinity
     }
   }
 
@@ -431,15 +480,74 @@ class Game {
     if (!this.currentIsland) return
 
     const bounds = this.currentIsland.bounds
-    this.speedRatio = Math.max(ROLLING_MIN_SPEED_RATIO, this.speedRatio - FRICTION_PER_SEC * dt)
+    const slopeAngle = this._getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+    const slope = Math.sin(slopeAngle)
+    this.speedRatio = THREE.MathUtils.clamp(
+      this.speedRatio - FRICTION_PER_SEC * dt - slope * SLOPE_RESIST_PER_SEC * dt,
+      ROLLING_STALL_SPEED_RATIO,
+      1,
+    )
     this.armadillo.position.x += this.speedRatio * MAX_SPEED * dt
     this.armadillo.position.y = this._getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
-    this.armadillo.rotation.z = this._getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+    this.armadillo.rotation.z = slopeAngle
+
+    if (this.timingPending && this.time - this.landingTime > this.timingWindow) {
+      this._applyTimingRating('MISS')
+    }
 
     if (this.armadillo.position.x >= bounds.right - ARMADILLO_SIZE / 2) {
       this.armadillo.position.x = bounds.right - ARMADILLO_SIZE / 2
       this._launchFromIsland()
     }
+  }
+
+  _getTimingWindow() {
+    const distanceM = Math.max(0, this.bestDistancePx / PX_PER_METER)
+    return DISTANCE_TIERS.find((tier) => distanceM < tier.maxM)?.window ?? DISTANCE_TIERS[DISTANCE_TIERS.length - 1].window
+  }
+
+  _judgeTiming() {
+    if (!this.timingPending) return
+
+    const elapsed = this.time - this.landingTime
+    if (elapsed < 0) return
+
+    if (elapsed <= this.timingWindow * TIMING_PERFECT_RATIO) {
+      this._applyTimingRating('PERFECT')
+    } else if (elapsed <= this.timingWindow * TIMING_GOOD_RATIO) {
+      this._applyTimingRating('GOOD')
+    } else if (elapsed <= this.timingWindow) {
+      this._applyTimingRating('OK')
+    } else {
+      this._applyTimingRating('MISS')
+    }
+  }
+
+  _applyTimingRating(rating) {
+    if (!this.timingPending && rating !== 'MISS') return
+
+    this.timingPending = false
+    this.lastRating = rating
+    this.combo = rating === 'PERFECT' ? this.combo + 1 : 0
+
+    const comboBonus = this._getComboBonus()
+    const speedBonus = SPEED_BONUS[rating] + (rating === 'PERFECT' ? comboBonus : 0)
+    this.speedRatio = Math.min(1, this.speedRatio + speedBonus)
+
+    const colorByRating = {
+      PERFECT: 0xffd54f,
+      GOOD: 0xff7043,
+      OK: 0xff1744,
+      MISS: 0x9e9e9e,
+    }
+    this.armadillo.material.color.set(colorByRating[rating] ?? 0xff1744)
+  }
+
+  _getComboBonus() {
+    for (const rule of COMBO_BONUS) {
+      if (this.combo >= rule.min) return rule.bonus
+    }
+    return 0
   }
 
   _render() {
@@ -460,6 +568,7 @@ class Game {
   _renderHud() {
     if (!this.ui) return
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
+    const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
     const speed = Math.round(this.speedRatio * 100)
     const aimDeg = Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))
     const aimActiveDeg = Math.round(THREE.MathUtils.radToDeg(this.aimAngle))
@@ -469,12 +578,16 @@ class Game {
     const aimDotY = UI_CANNON_Y - Math.sin(this.aimAngle) * UI_AIM_RADIUS
     const powerPercent = Math.round(this.powerRatio * 100)
     const powerFill = THREE.MathUtils.clamp((this.powerRatio - POWER_MIN) / (POWER_MAX - POWER_MIN), 0, 1) * 100
+    const timingElapsed = this.time - this.landingTime
+    const timingFill = this.timingPending
+      ? THREE.MathUtils.clamp(1 - timingElapsed / this.timingWindow, 0, 1) * 100
+      : 0
     const action = this.sm.is(State.AIMING)
       ? 'Space / Tap: Lock Angle'
       : this.sm.is(State.POWERING)
         ? 'Space / Tap: Lock Power'
       : this.sm.is(State.ROLLING)
-        ? 'Space / Tap: Boost'
+        ? this.timingPending ? 'Space / Tap: Timing' : 'Rolling'
         : this.sm.is(State.GAMEOVER)
           ? 'Space / Tap: Retry'
           : 'Flying'
@@ -485,9 +598,12 @@ class Game {
       <div style="position:fixed;left:18px;top:16px;font-weight:700;line-height:1.5">
         <div>STATE ${phaseText}</div>
         <div>HEIGHT ${heightM}m</div>
+        <div>DIST ${distanceM}m</div>
         <div>SPEED ${speed}%</div>
         <div>ANGLE ${this.sm.is(State.AIMING) ? aimActiveDeg : aimDeg}deg</div>
         <div>POWER ${powerPercent}%</div>
+        <div>HIT ${this.lastRating}</div>
+        <div>COMBO ${this.combo}</div>
       </div>
 
       <div style="position:fixed;left:18px;top:132px;width:180px;height:130px">
@@ -505,6 +621,12 @@ class Game {
       <div style="position:fixed;left:18px;top:258px;width:190px">
         <div style="height:12px;border:2px solid rgba(255,255,255,0.72);background:rgba(0,0,0,0.24)">
           <div style="height:100%;width:${powerFill}%;background:#ff7043"></div>
+        </div>
+      </div>
+
+      <div style="position:fixed;left:18px;top:282px;width:190px">
+        <div style="height:10px;border:2px solid rgba(255,255,255,0.72);background:rgba(0,0,0,0.24)">
+          <div style="height:100%;width:${timingFill}%;background:#ffd54f"></div>
         </div>
       </div>
 
