@@ -3,15 +3,21 @@ import { Renderer } from './renderer/scene.js'
 import { Background } from './renderer/background.js'
 import { StateMachine, State } from './state.js'
 import {
+  DEFAULT_ISLAND_LAYOUT,
+  DEFAULT_OBSTACLE_PLACEMENTS,
+  createCurvedTerrain,
+  createObstacle,
+  getTerrainSlopeAngle,
+  getTerrainTopY,
+} from './game/terrain.js'
+import {
   CAMERA_LERP,
   COMBO_BONUS,
   DISTANCE_TIERS,
   FRICTION_PER_SEC,
   GRAVITY,
   INPUT_BUFFER_SEC,
-  MATERIAL,
   MAX_SPEED,
-  OBSTACLE,
   PX_PER_METER,
   SLOPE_RESIST_PER_SEC,
   SPEED_BONUS,
@@ -46,10 +52,10 @@ const AIM_SWEEP_SPEED = 1.9
 const POWER_MIN = 0.85
 const POWER_MAX = 1.0
 const POWER_SWEEP_SPEED = 2.8
+const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
+const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
 const ROLLING_MIN_SPEED_RATIO = 0.38
-const TERRAIN_THICKNESS = 64
 const UNDER_BREAK_SPEED = 520
-const OBSTACLE_SIZE = 34
 const PARTICLE_COUNT = 18
 const UI_CANNON_X = 92
 const UI_CANNON_Y = 104
@@ -80,7 +86,10 @@ class Game {
     this.timingWindow = DISTANCE_TIERS[0].window
     this.timingPending = false
     this.lastRating = 'READY'
+    this.launchRating = 'MISS'
     this.combo = 0
+    this.maxCombo = 0
+    this.timingScore = 0
     this.bufferedInputTime = -Infinity
     this.stallTime = 0
     this.trauma = 0
@@ -105,20 +114,8 @@ class Game {
   // ── 2단계 placeholder: 대포 + 섬 + 발사 가능한 아르마딜로 ──
   _buildPlaceholderWorld() {
     this.islands = []
-    const islandLayout = [
-      { x: 150, y: -250, w: 1000, rise: 18, amp: 18 },
-      { x: 1080, y: -185, w: 1320, rise: 70, amp: 26 },
-      { x: 1960, y: -20, w: 760, rise: 90, amp: 34 },
-      { x: 2720, y: 140, w: 660, rise: 105, amp: 38 },
-      { x: 3440, y: 320, w: 560, rise: 120, amp: 42 },
-      { x: 4120, y: 525, w: 500, rise: 135, amp: 42 },
-      { x: 4770, y: 750, w: 440, rise: 150, amp: 46 },
-      { x: 5380, y: 1000, w: 390, rise: 165, amp: 48 },
-      { x: 5960, y: 1275, w: 340, rise: 180, amp: 50 },
-      { x: 6500, y: 1580, w: 300, rise: 195, amp: 52 },
-    ]
-    for (const spec of islandLayout) {
-      const island = this._createCurvedTerrain(spec)
+    for (const spec of DEFAULT_ISLAND_LAYOUT) {
+      const island = createCurvedTerrain(spec)
       this.renderer.add(island.mesh)
       this.islands.push(island)
     }
@@ -192,101 +189,15 @@ class Game {
     })
   }
 
-  _createCurvedTerrain({ x, y, w, rise, amp }) {
-    const left = x - w / 2
-    const right = x + w / 2
-    const controls = [
-      new THREE.Vector3(left, y, 0),
-      new THREE.Vector3(left + w * 0.28, y + rise * 0.28 + amp, 0),
-      new THREE.Vector3(left + w * 0.62, y + rise * 0.72 - amp * 0.35, 0),
-      new THREE.Vector3(right, y + rise, 0),
-    ]
-    const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal', 0.35)
-    const topPoints = curve.getPoints(32).map((point) => new THREE.Vector2(point.x, point.y))
-    const minY = Math.min(...topPoints.map((point) => point.y))
-    const maxY = Math.max(...topPoints.map((point) => point.y))
-    const bottomY = minY - TERRAIN_THICKNESS
-    const shape = new THREE.Shape()
-    shape.moveTo(topPoints[0].x, topPoints[0].y)
-    for (let i = 1; i < topPoints.length; i++) {
-      shape.lineTo(topPoints[i].x, topPoints[i].y)
-    }
-    shape.lineTo(right, bottomY)
-    shape.lineTo(left, bottomY)
-    shape.closePath()
-
-    const mesh = new THREE.Mesh(
-      new THREE.ShapeGeometry(shape, 12),
-      new THREE.MeshBasicMaterial({ color: 0x4caf50, side: THREE.DoubleSide }),
-    )
-
-    return {
-      mesh,
-      points: topPoints,
-      destroyed: false,
-      bounds: {
-        left,
-        right,
-        top: maxY,
-        bottom: bottomY,
-      },
-    }
-  }
-
   _buildObstacles() {
-    const placements = [
-      { island: 1, t: 0.42, type: 'wood' },
-      { island: 1, t: 0.72, type: 'spike' },
-      { island: 2, t: 0.36, type: 'stone' },
-      { island: 2, t: 0.68, type: 'wood' },
-      { island: 3, t: 0.48, type: 'moving' },
-      { island: 4, t: 0.34, type: 'stone' },
-      { island: 4, t: 0.68, type: 'spike' },
-      { island: 5, t: 0.44, type: 'iron' },
-      { island: 6, t: 0.55, type: 'stone' },
-      { island: 7, t: 0.45, type: 'wood' },
-      { island: 8, t: 0.55, type: 'iron' },
-    ]
-
-    for (const placement of placements) {
+    for (const placement of DEFAULT_OBSTACLE_PLACEMENTS) {
       const terrain = this.islands[placement.island]
       if (!terrain) continue
       const x = THREE.MathUtils.lerp(terrain.bounds.left, terrain.bounds.right, placement.t)
-      const y = this._getTerrainTopY(terrain, x)
-      const obstacle = this._createObstacle(terrain, placement.type, x, y)
+      const y = getTerrainTopY(terrain, x)
+      const obstacle = createObstacle(terrain, placement.type, x, y)
       this.obstacles.push(obstacle)
       this.renderer.add(obstacle.mesh)
-    }
-  }
-
-  _createObstacle(terrain, type, x, groundY) {
-    const obstacleConfig = OBSTACLE[type]
-    const materialConfig = obstacleConfig.material ? MATERIAL[obstacleConfig.material] : null
-    const color = materialConfig?.color ?? 0xe53935
-    const height = type === 'spike' ? 26 : OBSTACLE_SIZE
-    const width = type === 'spike' ? 38 : OBSTACLE_SIZE
-    const geometry = type === 'spike'
-      ? new THREE.ConeGeometry(width / 2, height, 3)
-      : new THREE.BoxGeometry(width, height, 1)
-    const mesh = new THREE.Mesh(
-      geometry,
-      new THREE.MeshBasicMaterial({ color }),
-    )
-    mesh.position.set(x, groundY + height / 2, 0)
-
-    return {
-      terrain,
-      type,
-      mesh,
-      width,
-      height,
-      hit: false,
-      destroyed: false,
-      config: obstacleConfig,
-      material: materialConfig,
-      baseX: x,
-      baseY: groundY,
-      phase: x * 0.01,
     }
   }
 
@@ -305,34 +216,6 @@ class Game {
         life: 0,
       })
     }
-  }
-
-  _getTerrainTopY(terrain, x) {
-    const points = terrain.points
-    if (x <= points[0].x) return points[0].y
-    if (x >= points[points.length - 1].x) return points[points.length - 1].y
-
-    for (let i = 1; i < points.length; i++) {
-      const prev = points[i - 1]
-      const next = points[i]
-      if (x >= prev.x && x <= next.x) {
-        const t = (x - prev.x) / (next.x - prev.x)
-        return THREE.MathUtils.lerp(prev.y, next.y, t)
-      }
-    }
-
-    return points[points.length - 1].y
-  }
-
-  _getTerrainSlopeAngle(terrain, x) {
-    const points = terrain.points
-    let nearest = 1
-    for (let i = 1; i < points.length; i++) {
-      if (Math.abs(points[i].x - x) < Math.abs(points[nearest].x - x)) nearest = i
-    }
-    const prev = points[Math.max(0, nearest - 1)]
-    const next = points[Math.min(points.length - 1, nearest + 1)]
-    return Math.atan2(next.y - prev.y, next.x - prev.x)
   }
 
   _resetRun() {
@@ -358,7 +241,10 @@ class Game {
     this.timingWindow = DISTANCE_TIERS[0].window
     this.timingPending = false
     this.lastRating = 'READY'
+    this.launchRating = 'MISS'
     this.combo = 0
+    this.maxCombo = 0
+    this.timingScore = 0
     this.bufferedInputTime = -Infinity
     this.stallTime = 0
     this.trauma = 0
@@ -395,7 +281,10 @@ class Game {
     this.timingWindow = DISTANCE_TIERS[0].window
     this.timingPending = false
     this.lastRating = 'READY'
+    this.launchRating = 'MISS'
     this.combo = 0
+    this.maxCombo = 0
+    this.timingScore = 0
     this.bufferedInputTime = -Infinity
     this.stallTime = 0
     this.trauma = 0
@@ -469,13 +358,32 @@ class Game {
 
     if (!this.sm.transition(State.FALLING)) return
     const launchSpeed = (0.55 + Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO) * 0.45) * LAUNCH_SPEED
-    const launchAngle = Math.PI / 4
+    const launchAngle = this._getExitLaunchAngle(this.currentIsland)
     this.velocity.set(
       Math.cos(launchAngle) * launchSpeed,
       Math.sin(launchAngle) * launchSpeed,
     )
     this.currentIsland = null
     this.timingPending = false
+  }
+
+  _getExitLaunchAngle(island) {
+    if (!island) return Math.PI / 4
+
+    const exitX = island.bounds.right - ARMADILLO_SIZE / 2
+    const slopeAngle = getTerrainSlopeAngle(island, exitX)
+    const timingLift = {
+      PERFECT: THREE.MathUtils.degToRad(10),
+      GOOD: THREE.MathUtils.degToRad(5),
+      OK: 0,
+      MISS: THREE.MathUtils.degToRad(-8),
+    }[this.launchRating] ?? 0
+    const slopeLift = slopeAngle * 0.75
+    return THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(40) + slopeLift + timingLift,
+      EXIT_LAUNCH_MIN_ANGLE,
+      EXIT_LAUNCH_MAX_ANGLE,
+    )
   }
 
   _update(dt) {
@@ -554,7 +462,7 @@ class Game {
     for (const island of this.islands) {
       if (island.destroyed) continue
       const bounds = island.bounds
-      const topY = this._getTerrainTopY(island, this.armadillo.position.x)
+      const topY = getTerrainTopY(island, this.armadillo.position.x)
       const withinX = this.armadillo.position.x >= bounds.left - ARMADILLO_SIZE / 2
         && this.armadillo.position.x <= bounds.right + ARMADILLO_SIZE / 2
       const crossedTop = prevBottom >= topY && nextBottom <= topY
@@ -601,7 +509,7 @@ class Game {
     this.currentIsland = island
     this.velocity.set(0, 0)
     this.speedRatio = Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO)
-    this.armadillo.position.y = this._getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.landingTime = this.time
     this.timingWindow = this._getTimingWindow()
     this.timingPending = true
@@ -622,7 +530,7 @@ class Game {
 
     const bounds = this.currentIsland.bounds
     this._updateActiveObstacles(dt)
-    const slopeAngle = this._getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+    const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
     const slope = Math.sin(slopeAngle)
     this.speedRatio = THREE.MathUtils.clamp(
       this.speedRatio - FRICTION_PER_SEC * dt - slope * SLOPE_RESIST_PER_SEC * dt,
@@ -630,7 +538,7 @@ class Game {
       1,
     )
     this.armadillo.position.x += this.speedRatio * MAX_SPEED * dt
-    this.armadillo.position.y = this._getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.armadillo.rotation.z = slopeAngle
     this._checkObstacleCollisions()
 
@@ -653,7 +561,7 @@ class Game {
 
       const offset = Math.sin(this.time * 2.2 + obstacle.phase) * 28
       obstacle.mesh.position.x = obstacle.baseX + offset
-      obstacle.mesh.position.y = this._getTerrainTopY(obstacle.terrain, obstacle.mesh.position.x) + obstacle.height / 2
+      obstacle.mesh.position.y = getTerrainTopY(obstacle.terrain, obstacle.mesh.position.x) + obstacle.height / 2
     }
   }
 
@@ -744,7 +652,10 @@ class Game {
 
     this.timingPending = false
     this.lastRating = rating
+    this.launchRating = rating
     this.combo = rating === 'PERFECT' ? this.combo + 1 : 0
+    this.maxCombo = Math.max(this.maxCombo, this.combo)
+    this.timingScore += SCORE.timing[rating] ?? 0
 
     const comboBonus = this._getComboBonus()
     const speedBonus = SPEED_BONUS[rating] + (rating === 'PERFECT' ? comboBonus : 0)
@@ -828,7 +739,8 @@ class Game {
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
     return heightM * SCORE.perM_height
       + distanceM * SCORE.perM_distance
-      + this.combo * SCORE.comboPerLevel
+      + this.timingScore
+      + this.maxCombo * SCORE.comboPerLevel
       + this.breakCount * SCORE.chainPerBreak
   }
 
@@ -955,6 +867,7 @@ class Game {
               <div>HEIGHT ${heightM}m</div>
               <div>DIST ${distanceM}m</div>
               <div>BREAK ${this.breakCount}</div>
+              <div>MAX COMBO ${this.maxCombo}</div>
               <div>BEST ${this.bestRecord.score}</div>
             </div>
             <button class="clickable" data-action="restart" style="margin-top:16px;width:100%;height:42px;border:0;background:#ffd54f;color:#111;font-weight:900">Restart</button>
