@@ -138,6 +138,9 @@ class Game {
     // 클릭 유지 시간 측정 (착지 후 hold duration 가속)
     this.inputHoldStart = -Infinity  // pointerdown 시각 (game time)
 
+    // 불꽃 트레일 스폰 쿨다운 (매 프레임 방출 방지)
+    this.flameTrailCooldown = 0
+
     // 카메라가 추적할 목표
     this.camTarget = new THREE.Vector2(0, 0)
     this.camPos = new THREE.Vector2(0, 0)
@@ -1303,8 +1306,8 @@ class Game {
 
     // hold 지속시간 기반 추가 가속 (착지 이후 누른 시간)
     const holdSec = Math.max(0, this.time - Math.max(this.inputHoldStart, this.landingTime))
-    // 0~0.4s 유지 → 최대 +0.12 추가 가속
-    const holdBonus = Math.min(holdSec / 0.4, 1.0) * 0.12
+    // 0~0.35s 유지 → 최대 +0.16 추가 가속
+    const holdBonus = Math.min(holdSec / 0.35, 1.0) * 0.16
     this.speedRatio = Math.min(1, this.speedRatio + holdBonus)
   }
 
@@ -1360,11 +1363,38 @@ class Game {
   _updateParticles(dt) {
     this.particleSystem.update(dt, GRAVITY)
     this._updateRipples(dt)
+    this._updateFlameTrail(dt)
     // 지형 파편 + 크레이터 애니메이션
     for (const island of this.islands) {
       updateTerrainChunks(island, dt)
       updateTerrainCraters(island, dt)
     }
+  }
+
+  // speedRatio ≥ 0.55 이상이면 불꽃 트레일 방출
+  // ROLLING 중 지형 파괴 가능성을 직관적으로 표시
+  _updateFlameTrail(dt) {
+    const FLAME_THRESHOLD = 0.55
+    const isActive = (this.sm.is(State.ROLLING) || this.sm.is(State.FLYING) || this.sm.is(State.FALLING))
+      && this.speedRatio >= FLAME_THRESHOLD
+
+    this.flameTrailCooldown = Math.max(0, this.flameTrailCooldown - dt)
+    if (!isActive || this.flameTrailCooldown > 0) return
+
+    const intensity = THREE.MathUtils.clamp((this.speedRatio - FLAME_THRESHOLD) / (1 - FLAME_THRESHOLD), 0, 1)
+    const interval = THREE.MathUtils.lerp(0.045, 0.015, intensity)  // 빠를수록 촘촘히
+    this.flameTrailCooldown = interval
+
+    const velAngle = this.sm.is(State.ROLLING)
+      ? 0  // ROLLING 중은 오른쪽으로 이동하므로 불꽃은 왼쪽(뒤)
+      : Math.atan2(this.velocity.y, this.velocity.x)
+
+    this.particleSystem.spawnFlameTrail(
+      this.armadillo.position.x,
+      this.armadillo.position.y,
+      intensity,
+      velAngle,
+    )
   }
 
   _clearParticles() {

@@ -11,11 +11,11 @@ export const MAX_SPEED = 400          // px/s, speedRatio 1.0 일 때 실제 속
 export const HIGH_SPEED_THRESHOLD = 0.4  // 고속/저속 연출 분기
 
 // 시간 기반 (연속, /초 — deltaTime 곱함)
-export const FRICTION_PER_SEC = 0.12     // 구름 마찰
-export const SLOPE_RESIST_PER_SEC = 0.18 // 경사 최대 저항/가속
+export const FRICTION_PER_SEC = 0.08     // 구름 마찰 (낮을수록 속도감 살아남)
+export const SLOPE_RESIST_PER_SEC = 0.14 // 경사 저항 (낮을수록 올라가기 수월)
 
 // 이벤트 기반 (순간, 1회 가감)
-export const SPEED_BONUS = { PERFECT: 0.30, GOOD: 0.15, OK: 0.05, MISS: 0.0 }
+export const SPEED_BONUS = { PERFECT: 0.35, GOOD: 0.18, OK: 0.07, MISS: 0.0 }
 export const SPRING_BOOST = 0.50
 export const STEEP_LANDING_PENALTY = 0.10  // 착지각 > 45도
 export const TERRAIN_BREAK_COST = 0.15     // 파괴 가능 지형 통과

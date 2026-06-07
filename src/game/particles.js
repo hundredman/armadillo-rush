@@ -156,6 +156,48 @@ export class ParticleSystem {
     })
   }
 
+  /**
+   * 불꽃 트레일 — 아르마딜로 속도 방향 반대쪽으로 뿜어나오는 불꽃.
+   * intensity: 0~1, velAngle: 진행 방향 radian (불꽃은 반대 방향으로)
+   */
+  spawnFlameTrail(x, y, intensity, velAngle) {
+    const count = Math.max(1, Math.round(intensity * 4))
+    const backAngle = velAngle + Math.PI  // 진행 반대
+
+    // 주황 코어
+    this.spawn(x, y, 0xff6600, count, 180 + intensity * 120, {
+      spreadAngle: 0.9,
+      sizeMin: 5 + intensity * 8,
+      sizeMax: 10 + intensity * 16,
+      lifeMin: 0.07,
+      lifeMax: 0.18,
+      biasAngle: backAngle,
+      gravityScale: 0.04,
+    })
+    // 노란 스파크
+    this.spawn(x, y, 0xffdd00, Math.max(1, Math.round(count * 0.5)), 260 + intensity * 80, {
+      spreadAngle: 0.6,
+      sizeMin: 3,
+      sizeMax: 7 + intensity * 6,
+      lifeMin: 0.04,
+      lifeMax: 0.13,
+      biasAngle: backAngle,
+      gravityScale: 0.02,
+    })
+    // 흰 코어 (아주 짧고 밝게)
+    if (intensity > 0.7) {
+      this.spawn(x, y, 0xffffff, 1, 120, {
+        spreadAngle: 0.3,
+        sizeMin: 4,
+        sizeMax: 8,
+        lifeMin: 0.04,
+        lifeMax: 0.09,
+        biasAngle: backAngle,
+        gravityScale: 0.01,
+      })
+    }
+  }
+
   update(dt, gravityPx = 980) {
     let dirty = false
 
