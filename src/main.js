@@ -1657,11 +1657,6 @@ class Game {
   }
 
   start() {
-    // canvas가 레이아웃된 후 실제 크기로 composer를 재초기화
-    const w = window.innerWidth
-    const h = window.innerHeight
-    this.renderer.renderer.setSize(w, h, false)
-    this.postfx.setSize(w, h)
     requestAnimationFrame(() => this.loop())
   }
 }

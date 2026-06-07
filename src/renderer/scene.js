@@ -21,6 +21,10 @@ export class Renderer {
     })
     this.renderer.setClearColor(0x000011, 1)
 
+    // 즉시 실제 viewport 크기로 초기화 (EffectComposer 생성 전에 크기가 확정되어야 함)
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setSize(window.innerWidth, window.innerHeight)
+
     this._resize()
     window.addEventListener('resize', () => this._resize())
   }
@@ -45,7 +49,7 @@ export class Renderer {
 
     // devicePixelRatio 는 2 로 상한 (모바일 과부하 방지)
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    this.renderer.setSize(w, h, false)
+    this.renderer.setSize(w, h)
 
     // PostFX composer도 리사이즈 (등록된 경우)
     if (this._postfx) this._postfx.setSize(w, h)
