@@ -52,23 +52,21 @@ import {
 const FIXED_DT = 1 / 60       // 물리 스텝 (초)
 const MAX_FRAME_DT = 0.25     // 탭 비활성 후 복귀 시 스파이럴 방지 상한
 const ARMADILLO_SIZE = 30
-const LAUNCH_SPEED = 850      // 현재 placeholder 섬 배치에 맞춘 2단계 검증용 발사 속도
-const CANNON_POS = new THREE.Vector2(-280, -330)
-const AIM_MIN_ANGLE = THREE.MathUtils.degToRad(38)
-const AIM_MAX_ANGLE = THREE.MathUtils.degToRad(60)
-const AIM_SWEEP_SPEED = 1.9
-const POWER_MIN = 0.85
-const POWER_MAX = 1.0
-const POWER_CHARGE_PER_SEC = 0.55
+const LAUNCH_SPEED = 850
+
+// 슬링 상수
+const SLING_POS = new THREE.Vector2(-280, -330)  // 슬링 중심 (월드 좌표)
+const SLING_MAX_PULL = 120      // 최대 당김 거리 (월드 px)
+const SLING_MIN_PULL = 18       // 이 이하로 당기면 취소
+const SLING_POWER_MIN = 0.78    // 최소 당김 시 파워 비율
+const SLING_POWER_MAX = 1.0     // 최대 당김 시 파워 비율
+
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const UNDER_BREAK_SPEED = 520
 const DAMAGE_SPEED_FULL = 940
 const LAUNCH_BLAST_POWER = 0.96
-const UI_CANNON_X = 92
-const UI_CANNON_Y = 104
-const UI_AIM_RADIUS = 72
 
 class Game {
   constructor() {
@@ -92,10 +90,11 @@ class Game {
     this.lastNow = performance.now()
     this.velocity = new THREE.Vector2(0, 0)
     this.speedRatio = 0.75
-    this.aimAngle = AIM_MIN_ANGLE
-    this.lockedAimAngle = AIM_MIN_ANGLE
-    this.powerRatio = POWER_MIN
-    this.powerCharging = false
+    // 슬링 상태
+    this.slingDragging = false          // 드래그 중 여부
+    this.slingPull = new THREE.Vector2(0, 0)  // 당김 벡터 (월드 좌표 기준)
+    this.slingPower = 0                  // 0~1 파워 비율
+    this.slingAngle = Math.PI / 4        // 발사 각도 (radian)
     this.currentIsland = null
     this.obstacles = []
     this.scenery = []
@@ -130,7 +129,7 @@ class Game {
     this.sm.onChange((from, to) => console.log(`[state] ${from} → ${to}`))
   }
 
-  // ── 2단계 placeholder: 대포 + 섬 + 발사 가능한 아르마딜로 ──
+  // ── 월드 빌드: 슬링 + 섬 + 아르마딜로 ──
   _buildPlaceholderWorld() {
     this._buildScenery()
     this.islands = []
@@ -140,50 +139,115 @@ class Game {
       this.islands.push(island)
     }
     this._buildObstacles()
-
-    const cannonBase = new THREE.Mesh(
-      new THREE.BoxGeometry(80, 24, 1),
-      new THREE.MeshBasicMaterial({ color: 0x5d4037 }),
-    )
-    cannonBase.position.set(CANNON_POS.x, CANNON_POS.y - 14, 0)
-    this.renderer.add(cannonBase)
-
-    for (const x of [-28, 28]) {
-      const wheel = new THREE.Mesh(
-        new THREE.CircleGeometry(15, 24),
-        new THREE.MeshBasicMaterial({ color: 0x263238 }),
-      )
-      const hub = new THREE.Mesh(
-        new THREE.CircleGeometry(6, 16),
-        new THREE.MeshBasicMaterial({ color: 0xffd54f }),
-      )
-      wheel.position.set(CANNON_POS.x + x, CANNON_POS.y - 28, 0.03)
-      hub.position.set(CANNON_POS.x + x, CANNON_POS.y - 28, 0.05)
-      this.renderer.add(wheel)
-      this.renderer.add(hub)
-    }
-
-    this.cannonBarrel = new THREE.Mesh(
-      new THREE.BoxGeometry(78, 18, 1),
-      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
-    )
-    this.cannonBarrel.position.set(CANNON_POS.x + 28, CANNON_POS.y + 10, 0)
-    this.cannonBarrel.rotation.z = this.aimAngle
-    this.renderer.add(this.cannonBarrel)
-
-    this.cannonMuzzle = new THREE.Mesh(
-      new THREE.BoxGeometry(18, 24, 1),
-      new THREE.MeshBasicMaterial({ color: 0x3e2723 }),
-    )
-    this.cannonMuzzle.position.set(CANNON_POS.x + 64, CANNON_POS.y + 28, 0.04)
-    this.cannonMuzzle.rotation.z = this.aimAngle
-    this.renderer.add(this.cannonMuzzle)
+    this._buildSling()
 
     this.armadillo = this._createArmadillo()
     this.renderer.add(this.armadillo)
     this._resetRun()
 
-    this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240   // 배경 heightRatio 정규화 기준
+    this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
+  }
+
+  _buildSling() {
+    const woodMat  = new THREE.MeshBasicMaterial({ color: 0x6d4c41 })
+    const darkMat  = new THREE.MeshBasicMaterial({ color: 0x4e342e })
+
+    // 슬링 중심 지지대 (수직 막대)
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(10, 90, 1), woodMat)
+    pole.position.set(SLING_POS.x, SLING_POS.y - 2, -0.05)
+
+    // Y자 두 갈래 (왼쪽 / 오른쪽 fork)
+    const forkL = new THREE.Mesh(new THREE.BoxGeometry(8, 60, 1), woodMat)
+    forkL.position.set(SLING_POS.x - 26, SLING_POS.y + 54, -0.04)
+    forkL.rotation.z = THREE.MathUtils.degToRad(30)
+
+    const forkR = new THREE.Mesh(new THREE.BoxGeometry(8, 60, 1), woodMat)
+    forkR.position.set(SLING_POS.x + 26, SLING_POS.y + 54, -0.04)
+    forkR.rotation.z = THREE.MathUtils.degToRad(-30)
+
+    // 갈래 끝 마디 장식
+    const knobMat = new THREE.MeshBasicMaterial({ color: 0x3e2723 })
+    for (const [dx, dy] of [[-44, 80], [44, 80]]) {
+      const knob = new THREE.Mesh(new THREE.CircleGeometry(6, 12), knobMat)
+      knob.position.set(SLING_POS.x + dx, SLING_POS.y + dy, 0.02)
+      this.renderer.add(knob)
+    }
+
+    // 고무줄 (두 갈래 끝 → 구슬 위치) — 매 프레임 업데이트
+    const bandMat = new THREE.LineBasicMaterial({ color: 0xffe082, linewidth: 2 })
+    const bandGeomL = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(SLING_POS.x - 44, SLING_POS.y + 80, 0.06),
+      new THREE.Vector3(SLING_POS.x, SLING_POS.y, 0.06),
+    ])
+    const bandGeomR = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(SLING_POS.x + 44, SLING_POS.y + 80, 0.06),
+      new THREE.Vector3(SLING_POS.x, SLING_POS.y, 0.06),
+    ])
+    this.slingBandL = new THREE.Line(bandGeomL, bandMat)
+    this.slingBandR = new THREE.Line(bandGeomR, bandMat)
+
+    // 가죽 포켓 (공을 올려놓는 작은 원)
+    this.slingPouch = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 16),
+      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
+    )
+    this.slingPouch.position.set(SLING_POS.x, SLING_POS.y, 0.07)
+
+    this.renderer.add(pole)
+    this.renderer.add(forkL)
+    this.renderer.add(forkR)
+    this.renderer.add(this.slingBandL)
+    this.renderer.add(this.slingBandR)
+    this.renderer.add(this.slingPouch)
+
+    // 발사 가이드 점선 (드래그 중 표시)
+    const dottedMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 8, gapSize: 6, opacity: 0.5, transparent: true })
+    const dottedGeom = new THREE.BufferGeometry().setFromPoints(
+      Array.from({ length: 16 }, (_, i) => new THREE.Vector3(0, 0, 0)),
+    )
+    this.slingGuide = new THREE.Line(dottedGeom, dottedMat)
+    this.slingGuide.visible = false
+    this.slingGuide.computeLineDistances()
+    this.renderer.add(this.slingGuide)
+  }
+
+  /** 고무줄 + 포켓 + 가이드 업데이트 — _update() 에서 매 프레임 호출 */
+  _updateSlingVisuals() {
+    const px = SLING_POS.x + this.slingPull.x
+    const py = SLING_POS.y + this.slingPull.y
+
+    // 고무줄 끝점 = 현재 당김 위치
+    const posL = this.slingBandL.geometry.attributes.position
+    posL.setXYZ(1, px, py, 0.06)
+    posL.needsUpdate = true
+
+    const posR = this.slingBandR.geometry.attributes.position
+    posR.setXYZ(1, px, py, 0.06)
+    posR.needsUpdate = true
+
+    // 포켓
+    this.slingPouch.position.set(px, py, 0.07)
+
+    // 가이드 점선 (발사 방향으로 포물선 예측)
+    if (this.slingDragging && this.slingPower > 0.05) {
+      const speed = this.slingPower * LAUNCH_SPEED
+      const vx = Math.cos(this.slingAngle) * speed
+      const vy = Math.sin(this.slingAngle) * speed
+      const pts = this.slingGuide.geometry.attributes.position
+      for (let i = 0; i < 16; i++) {
+        const t = i * 0.06
+        pts.setXYZ(i,
+          SLING_POS.x + vx * t,
+          SLING_POS.y + vy * t - 0.5 * GRAVITY * t * t,
+          0.05,
+        )
+      }
+      pts.needsUpdate = true
+      this.slingGuide.computeLineDistances()
+      this.slingGuide.visible = true
+    } else {
+      this.slingGuide.visible = false
+    }
   }
 
   _buildScenery() {
@@ -275,16 +339,11 @@ class Game {
   }
 
   _bindInput() {
-    const triggerPress = () => this._handlePress()
-    const triggerRelease = () => this._handleRelease()
-
-    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
     const handleControlButton = (event) => {
       const button = event.target instanceof Element
         ? event.target.closest('[data-action]')
         : null
       if (!button) return false
-
       event.preventDefault()
       event.stopPropagation()
       this._ensureAudio()
@@ -293,42 +352,181 @@ class Game {
       return true
     }
 
+    // ── 슬링 드래그 (마우스 + 터치 공통) ──
     window.addEventListener('pointerdown', (event) => {
       if (handleControlButton(event)) return
+      event.preventDefault()
+      this._ensureAudio()
+      this._handlePointerDown(event.clientX, event.clientY)
+    }, { passive: false })
 
-      if (!isTouchDevice && event.pointerType === 'mouse') return
-      triggerPress()
-    })
+    window.addEventListener('pointermove', (event) => {
+      if (!this.slingDragging) return
+      event.preventDefault()
+      this._handlePointerMove(event.clientX, event.clientY)
+    }, { passive: false })
 
     window.addEventListener('pointerup', (event) => {
-      if (!isTouchDevice && event.pointerType === 'mouse') return
-      triggerRelease()
-    })
-
-    window.addEventListener('pointercancel', () => {
-      triggerRelease()
-    })
-
-    window.addEventListener('keydown', (event) => {
-      if (event.repeat) return
-
-      if (event.code === 'Space') {
-        event.preventDefault()
-        triggerPress()
+      if (!this.slingDragging) {
+        // 슬링 외 상태 탭 처리 (타이밍 판정 등)
+        this._handleTap()
         return
       }
+      event.preventDefault()
+      this._handlePointerRelease()
+    }, { passive: false })
 
+    window.addEventListener('pointercancel', () => {
+      this.slingDragging = false
+      this.slingPull.set(0, 0)
+    })
+
+    // 키보드: Space = 슬링 당기기 시뮬레이션 (고정 45도 + 풀파워)
+    window.addEventListener('keydown', (event) => {
+      if (event.repeat) return
+      if (event.code === 'Space') {
+        event.preventDefault()
+        this._handleKeyboardLaunch()
+        return
+      }
       if (event.code === 'Escape') {
         event.preventDefault()
         this._togglePause()
       }
     })
+  }
 
-    window.addEventListener('keyup', (event) => {
-      if (event.code !== 'Space') return
-      event.preventDefault()
-      triggerRelease()
-    })
+  /** 화면 좌표 → 월드 좌표 변환 */
+  _screenToWorld(clientX, clientY) {
+    const canvas = this.renderer.renderer.domElement
+    const rect = canvas.getBoundingClientRect()
+    // NDC (-1~1)
+    const ndcX = ((clientX - rect.left) / rect.width)  * 2 - 1
+    const ndcY = -(((clientY - rect.top)  / rect.height) * 2 - 1)
+    // OrthographicCamera: NDC → 월드
+    const cam = this.renderer.camera
+    const halfW = (cam.right - cam.left) / 2
+    const halfH = (cam.top   - cam.bottom) / 2
+    return new THREE.Vector2(
+      this.camPos.x + ndcX * halfW,
+      this.camPos.y + ndcY * halfH,
+    )
+  }
+
+  _handlePointerDown(clientX, clientY) {
+    if (this.isPaused) return
+
+    if (this.sm.is(State.TITLE)) {
+      this._resetRun()
+      this.sm.transition(State.SLINGING)
+      return
+    }
+
+    if (this.sm.is(State.GAMEOVER)) {
+      this._resetRun()
+      this.sm.transition(State.SLINGING)
+      return
+    }
+
+    if (this.sm.is(State.SLINGING)) {
+      this.slingDragging = true
+      this._handlePointerMove(clientX, clientY)
+      return
+    }
+
+    // ROLLING 중 타이밍 탭
+    if (this.sm.is(State.ROLLING)) {
+      this._judgeTiming()
+      return
+    }
+
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.bufferedInputTime = this.time
+    }
+  }
+
+  _handlePointerMove(clientX, clientY) {
+    if (!this.slingDragging || !this.sm.is(State.SLINGING)) return
+
+    const world = this._screenToWorld(clientX, clientY)
+    // 당김 벡터 = 터치 위치 - 슬링 중심 (클램프)
+    const raw = new THREE.Vector2(world.x - SLING_POS.x, world.y - SLING_POS.y)
+    const len = Math.min(raw.length(), SLING_MAX_PULL)
+    if (raw.length() > 0.001) raw.normalize().multiplyScalar(len)
+
+    this.slingPull.copy(raw)
+
+    // 당김 반대 방향 = 발사 방향
+    if (len > SLING_MIN_PULL) {
+      this.slingAngle = Math.atan2(-raw.y, -raw.x)
+      this.slingPower = THREE.MathUtils.lerp(
+        SLING_POWER_MIN, SLING_POWER_MAX,
+        (len - SLING_MIN_PULL) / (SLING_MAX_PULL - SLING_MIN_PULL),
+      )
+    } else {
+      this.slingPower = 0
+    }
+  }
+
+  _handlePointerRelease() {
+    if (!this.slingDragging) return
+    this.slingDragging = false
+
+    if (!this.sm.is(State.SLINGING)) return
+    if (this.slingPower < 0.05) {
+      // 너무 약하게 당기면 취소, 리셋
+      this.slingPull.set(0, 0)
+      return
+    }
+    this._launchFromSling()
+  }
+
+  _handleTap() {
+    if (this.isPaused) return
+    this._ensureAudio()
+    if (this.sm.is(State.TITLE)) {
+      this._resetRun()
+      this.sm.transition(State.SLINGING)
+      return
+    }
+    if (this.sm.is(State.ROLLING)) {
+      this._judgeTiming()
+      return
+    }
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.bufferedInputTime = this.time
+    }
+    if (this.sm.is(State.GAMEOVER)) {
+      this._resetRun()
+      this.sm.transition(State.SLINGING)
+    }
+  }
+
+  _handleKeyboardLaunch() {
+    if (this.isPaused) return
+    this._ensureAudio()
+
+    if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
+      this._resetRun()
+      this.sm.transition(State.SLINGING)
+      return
+    }
+
+    if (this.sm.is(State.SLINGING)) {
+      // 키보드: 45도 고정, 풀파워
+      this.slingAngle = THREE.MathUtils.degToRad(50)
+      this.slingPower = SLING_POWER_MAX
+      this.slingPull.set(
+        -Math.cos(this.slingAngle) * SLING_MAX_PULL,
+        -Math.sin(this.slingAngle) * SLING_MAX_PULL,
+      )
+      this._launchFromSling()
+      return
+    }
+
+    if (this.sm.is(State.ROLLING)) {
+      this._judgeTiming()
+    }
   }
 
   _buildObstacles() {
@@ -347,10 +545,10 @@ class Game {
   _resetRun() {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
-    this.aimAngle = AIM_MIN_ANGLE
-    this.lockedAimAngle = AIM_MIN_ANGLE
-    this.powerRatio = POWER_MIN
-    this.powerCharging = false
+    this.slingDragging = false
+    this.slingPull.set(0, 0)
+    this.slingPower = 0
+    this.slingAngle = Math.PI / 4
     this.currentIsland = null
     this._restoreTerrain()
     for (const obstacle of this.obstacles) {
@@ -378,20 +576,20 @@ class Game {
     this.flashTime = 0
     this.slowmoTime = 0
     this.isPaused = false
-    this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
+    this.armadillo.position.set(SLING_POS.x, SLING_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
-    this._updateCannonPose(this.aimAngle)
+    this._updateSlingVisuals()
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.TITLE)
   }
 
   _restartToTitle() {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
-    this.aimAngle = AIM_MIN_ANGLE
-    this.lockedAimAngle = AIM_MIN_ANGLE
-    this.powerRatio = POWER_MIN
-    this.powerCharging = false
+    this.slingDragging = false
+    this.slingPull.set(0, 0)
+    this.slingPower = 0
+    this.slingAngle = Math.PI / 4
     this.currentIsland = null
     this._restoreTerrain()
     for (const obstacle of this.obstacles) {
@@ -419,10 +617,10 @@ class Game {
     this.flashTime = 0
     this.slowmoTime = 0
     this.isPaused = false
-    this.armadillo.position.set(CANNON_POS.x, CANNON_POS.y + ARMADILLO_SIZE / 2, 0)
+    this.armadillo.position.set(SLING_POS.x, SLING_POS.y + ARMADILLO_SIZE / 2, 0)
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
-    this._updateCannonPose(this.aimAngle)
+    this._updateSlingVisuals()
     this.sm.current = State.TITLE
   }
 
@@ -453,66 +651,28 @@ class Game {
     this.isPaused = !this.isPaused
   }
 
-  _handlePress() {
-    this._ensureAudio()
-    if (this.isPaused) return
-
-    if (this.sm.is(State.TITLE)) {
-      this._resetRun()
-      this.sm.transition(State.AIMING)
-      return
-    }
-
-    if (this.sm.is(State.AIMING)) {
-      this.lockedAimAngle = this.aimAngle
-      this.powerRatio = POWER_MIN
-      this.powerCharging = false
-      this.sm.transition(State.POWERING)
-      return
-    }
-
-    if (this.sm.is(State.POWERING)) {
-      this.powerCharging = true
-      return
-    }
-
-    if (this.sm.is(State.ROLLING)) {
-      this._judgeTiming()
-      return
-    }
-
-    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this.bufferedInputTime = this.time
-    }
-
-    if (this.sm.is(State.GAMEOVER)) {
-      this._resetRun()
-    }
-  }
-
-  _handleRelease() {
-    if (this.isPaused) return
-    if (!this.sm.is(State.POWERING) || !this.powerCharging) return
-
-    this.powerCharging = false
-    this._launchFromCannon()
-  }
-
-  _launchFromCannon() {
+  _launchFromSling() {
     if (!this.sm.transition(State.FLYING)) return
-    this.speedRatio = this.powerRatio
-    this.powerCharging = false
+
+    const speed = this.slingPower * LAUNCH_SPEED
+    this.speedRatio = this.slingPower
     this.timingPending = false
     this.lastRating = 'LAUNCH'
     this.stallTime = 0
     this._setArmadilloColor(0xff1744)
+
     this.velocity.set(
-      Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio * (1 + this._getLaunchForce() * 0.12),
-      Math.sin(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio * (1 + this._getLaunchForce() * 0.12),
+      Math.cos(this.slingAngle) * speed,
+      Math.sin(this.slingAngle) * speed,
     )
+
+    // 슬링 고무줄 리셋 (발사 후)
+    this.slingPull.set(0, 0)
+    this.slingPower = 0
+
     this._carveLaunchPath()
     this._triggerLaunchImpact()
-    this._playTone(220 + this.powerRatio * 260, 0.12, 0.08 + this.powerRatio * 0.06, 'square')
+    this._playTone(220 + this.slingPower * 260, 0.12, 0.08 + this.slingPower * 0.06, 'square')
   }
 
   _launchFromIsland() {
@@ -565,16 +725,16 @@ class Game {
     } else if (this.sm.is(State.ROLLING)) {
       this._setArmadilloSprite(Math.floor(this.time * 10) % 2 === 0 ? 'walk1' : 'walk2')
       this._updateRolling(simDt)
-    } else if (this.sm.is(State.AIMING) || this.sm.is(State.POWERING)) {
+    } else if (this.sm.is(State.SLINGING)) {
       this._setArmadilloSprite('idle')
-      this._updateAiming(simDt)
+      this._updateSlinging()
     }
     this._updateParticles(simDt)
     this._updateEffects(dt)
     this._updateScenery()
 
-    this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - CANNON_POS.y)
-    this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - CANNON_POS.x)
+    this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - SLING_POS.y)
+    this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - SLING_POS.x)
 
     // 카메라 추적 대상 = 아르마딜로 위치
     this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
@@ -588,31 +748,14 @@ class Game {
     }
   }
 
-  _updateAiming(dt) {
-    if (this.sm.is(State.AIMING)) {
-      const t = (Math.sin(this.time * AIM_SWEEP_SPEED) + 1) * 0.5
-      this.aimAngle = THREE.MathUtils.lerp(AIM_MIN_ANGLE, AIM_MAX_ANGLE, t)
-      this.lockedAimAngle = this.aimAngle
+  _updateSlinging() {
+    // 아르마딜로를 포켓 위치에 고정 (드래그 중)
+    if (this.sm.is(State.SLINGING)) {
+      const px = SLING_POS.x + this.slingPull.x
+      const py = SLING_POS.y + this.slingPull.y
+      this.armadillo.position.set(px, py + ARMADILLO_SIZE / 2, 0)
     }
-
-    if (this.sm.is(State.POWERING)) {
-      if (this.powerCharging) {
-        this.powerRatio = Math.min(POWER_MAX, this.powerRatio + POWER_CHARGE_PER_SEC * dt)
-      }
-    }
-
-    this._updateCannonPose(this.lockedAimAngle)
-  }
-
-  _updateCannonPose(angle) {
-    if (this.cannonBarrel) this.cannonBarrel.rotation.z = angle
-    if (!this.cannonMuzzle) return
-    this.cannonMuzzle.rotation.z = angle
-    this.cannonMuzzle.position.set(
-      CANNON_POS.x + 28 + Math.cos(angle) * 38,
-      CANNON_POS.y + 10 + Math.sin(angle) * 38,
-      0.04,
-    )
+    this._updateSlingVisuals()
   }
 
   _updateFlight(dt) {
@@ -642,7 +785,7 @@ class Game {
 
     if (this.armadillo.position.y < this.camPos.y - 520) {
       if (this.sm.is(State.FLYING)) {
-        this.sm.transition(State.AIMING)
+        this.sm.transition(State.SLINGING)
         this._resetRun()
       } else {
         this._gameOver('FALL')
@@ -734,11 +877,11 @@ class Game {
   }
 
   _carveLaunchPath() {
-    const forward = new THREE.Vector2(Math.cos(this.lockedAimAngle), Math.sin(this.lockedAimAngle))
+    const forward = new THREE.Vector2(Math.cos(this.slingAngle), Math.sin(this.slingAngle))
     const samples = [0, 34, 68, 102]
     for (const sample of samples) {
-      const x = CANNON_POS.x + forward.x * sample
-      const y = CANNON_POS.y + ARMADILLO_SIZE / 2 + forward.y * sample
+      const x = SLING_POS.x + forward.x * sample
+      const y = SLING_POS.y + ARMADILLO_SIZE / 2 + forward.y * sample
       for (const island of this.islands) {
         if (island.destroyed) continue
         if (x < island.bounds.left - ARMADILLO_SIZE || x > island.bounds.right + ARMADILLO_SIZE) continue
@@ -756,19 +899,15 @@ class Game {
   }
 
   _triggerLaunchImpact() {
-    const force = this._getLaunchForce()
+    const force = THREE.MathUtils.clamp((this.slingPower - SLING_POWER_MIN) / (SLING_POWER_MAX - SLING_POWER_MIN), 0, 1)
     const strength = 0.35 + force * 0.65
-    const burstX = CANNON_POS.x + Math.cos(this.lockedAimAngle) * 68
-    const burstY = CANNON_POS.y + 10 + Math.sin(this.lockedAimAngle) * 68
+    const burstX = SLING_POS.x + Math.cos(this.slingAngle) * 68
+    const burstY = SLING_POS.y + 10 + Math.sin(this.slingAngle) * 68
     this.trauma = Math.min(1, this.trauma + strength)
     this.flashTime = Math.max(this.flashTime, force > 0.85 ? 0.18 : 0.09)
     this.slowmoTime = Math.max(this.slowmoTime, force > 0.85 ? SLOWMO_SEC * 1.8 : SLOWMO_SEC)
     this._spawnParticles(burstX, burstY, force > 0.85 ? 0xfff176 : 0xff7043, force > 0.85 ? 16 : 9, 220 + force * 260)
     if (force > 0.85) this._setArmadilloColor(0xfff176)
-  }
-
-  _getLaunchForce() {
-    return THREE.MathUtils.clamp((this.powerRatio - POWER_MIN) / (POWER_MAX - POWER_MIN), 0, 1)
   }
 
   _landOnIsland(island) {
@@ -1095,34 +1234,37 @@ class Game {
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
     const score = this._getScore()
     const speed = Math.round(this.speedRatio * 100)
-    const aimDeg = Math.round(THREE.MathUtils.radToDeg(this.lockedAimAngle))
-    const aimActiveDeg = Math.round(THREE.MathUtils.radToDeg(this.aimAngle))
-    const aimLineX = UI_CANNON_X + Math.cos(this.lockedAimAngle) * UI_AIM_RADIUS
-    const aimLineY = UI_CANNON_Y - Math.sin(this.lockedAimAngle) * UI_AIM_RADIUS
-    const aimDotX = UI_CANNON_X + Math.cos(this.aimAngle) * UI_AIM_RADIUS
-    const aimDotY = UI_CANNON_Y - Math.sin(this.aimAngle) * UI_AIM_RADIUS
-    const powerPercent = Math.round(this.powerRatio * 100)
-    const powerFill = THREE.MathUtils.clamp((this.powerRatio - POWER_MIN) / (POWER_MAX - POWER_MIN), 0, 1) * 100
+    const slingDeg = Math.round(THREE.MathUtils.radToDeg(this.slingAngle))
+    const slingPowerPct = Math.round(this.slingPower * 100)
+    const pullLen = this.slingPull.length()
+    const pullPct = Math.round(THREE.MathUtils.clamp(pullLen / SLING_MAX_PULL, 0, 1) * 100)
+
     const timingElapsed = this.time - this.landingTime
     const timingFill = this.timingPending
       ? THREE.MathUtils.clamp(1 - timingElapsed / this.timingWindow, 0, 1) * 100
       : 0
+
     const action = this.sm.is(State.TITLE)
-      ? 'Space / Tap: Start'
-      : this.sm.is(State.AIMING)
-        ? 'Space / Tap: Lock Angle'
-      : this.sm.is(State.POWERING)
-        ? this.powerCharging ? 'Release: Launch' : 'Hold Space / Touch: Charge'
+      ? 'Drag sling / Space to launch'
+      : this.sm.is(State.SLINGING)
+        ? this.slingDragging ? 'Release to fire!' : 'Drag to aim & power'
       : this.sm.is(State.ROLLING)
-        ? this.timingPending ? 'Space / Tap: Timing' : 'Rolling'
+        ? this.timingPending ? 'Tap: Timing!' : 'Rolling...'
         : this.sm.is(State.GAMEOVER)
-          ? 'Space / Tap: Retry'
+          ? 'Tap / Space: Retry'
           : 'Flying'
+
     const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
     const phaseText = this.isPaused ? 'PAUSED' : this.sm.current
     const dangerText = this.stallTime >= STALL_DANGER_SEC
       ? `<div class="hud-danger">DANGER ${Math.max(0, STALL_GAMEOVER_SEC - this.stallTime).toFixed(1)}s</div>`
       : ''
+
+    // 슬링 파워 미터 (드래그 중일 때만 표시)
+    const slingMeter = this.sm.is(State.SLINGING) ? `
+      <div class="meter meter-power">
+        <div class="meter-fill power-fill" style="width:${pullPct}%"></div>
+      </div>` : ''
 
     this.ui.innerHTML = `
       <div class="hud-panel hud-stats">
@@ -1131,29 +1273,15 @@ class Game {
         <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
         <div><span>DIST</span><strong>${distanceM}m</strong></div>
         <div><span>SPEED</span><strong>${speed}%</strong></div>
-        <div><span>ANGLE</span><strong>${this.sm.is(State.AIMING) ? aimActiveDeg : aimDeg}deg</strong></div>
-        <div><span>POWER</span><strong>${powerPercent}%</strong></div>
+        <div><span>ANGLE</span><strong>${slingDeg}°</strong></div>
+        <div><span>POWER</span><strong>${slingPowerPct}%</strong></div>
         <div><span>HIT</span><strong>${this.lastRating}</strong></div>
         <div><span>COMBO</span><strong>${this.combo}</strong></div>
         <div><span>BREAK</span><strong>${this.breakCount}</strong></div>
         ${dangerText}
       </div>
 
-      <div class="hud-aim">
-        <svg width="180" height="130" viewBox="0 0 180 130" aria-hidden="true">
-          <path d="M ${UI_CANNON_X} ${UI_CANNON_Y} L 149 60 A 72 72 0 0 0 128 42 Z"
-            fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
-          <line x1="${UI_CANNON_X}" y1="${UI_CANNON_Y}" x2="${aimLineX}" y2="${aimLineY}"
-            stroke="#ffd54f" stroke-width="5" stroke-linecap="round"/>
-          <circle cx="${aimDotX}" cy="${aimDotY}" r="${this.sm.is(State.AIMING) ? 7 : 4}"
-            fill="${this.sm.is(State.AIMING) ? '#ffffff' : '#ffd54f'}"/>
-          <circle cx="${UI_CANNON_X}" cy="${UI_CANNON_Y}" r="8" fill="#8d6e63"/>
-        </svg>
-      </div>
-
-      <div class="meter meter-power">
-        <div class="meter-fill power-fill" style="width:${powerFill}%"></div>
-      </div>
+      ${slingMeter}
 
       <div class="meter meter-timing">
         <div class="meter-fill timing-fill" style="width:${timingFill}%"></div>
@@ -1163,7 +1291,7 @@ class Game {
       ${this.sm.is(State.TITLE) ? `
         <div class="start-layer">
           <div class="start-title">ARMADILLO RUSH</div>
-          <div class="start-subtitle">Space / Tap to Start</div>
+          <div class="start-subtitle">Drag the sling to launch!</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
         </div>
       ` : ''}
