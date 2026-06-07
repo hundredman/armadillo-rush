@@ -149,6 +149,9 @@ class Game {
     this._buildPlaceholderWorld()
     this._bindInput()
 
+    // 첫 프레임 전에 카메라를 슬링 위치로 즉시 배치
+    this.renderer.setCenter(SLING_POS.x, SLING_POS.y)
+
     this.sm.onChange((from, to) => console.log(`[state] ${from} → ${to}`))
   }
 
@@ -1627,10 +1630,12 @@ class Game {
         </div>
       ` : ''}
 
-      <div class="control-row">
-        <button class="clickable secondary-button" data-action="pause">${pauseLabel}</button>
-        <button class="clickable primary-button" data-action="restart">Restart</button>
-      </div>
+      ${!this.isPaused ? `
+        <div class="control-row">
+          <button class="clickable secondary-button" data-action="pause">${pauseLabel}</button>
+          <button class="clickable primary-button" data-action="restart">Restart</button>
+        </div>
+      ` : ''}
 
       <div class="action-hint">${action}</div>
     `
