@@ -55,11 +55,11 @@ const ARMADILLO_SIZE = 30
 const LAUNCH_SPEED = 1400
 
 // 세계관 경계
-const SEA_LEVEL_Y  = -420   // 바다 수면 Y (월드 좌표) — 이 아래로 떨어지면 SPLASH
-const MOON_TARGET_Y = 18000  // 달 목표 고도 (px) — 도달 시 클리어 연출
+const SEA_LEVEL_Y  = -1800  // 바다 수면 Y — 슬링보다 훨씬 아래
+const MOON_TARGET_Y = 18000  // 달 목표 고도 (px)
 
 // 슬링 상수
-const SLING_POS = new THREE.Vector2(-280, -330)  // 슬링 중심 (월드 좌표)
+const SLING_POS = new THREE.Vector2(-280, 0)  // 슬링 중심 — 화면 중간 높이에서 시작
 const SLING_MAX_PULL = 120      // 최대 당김 거리 (월드 px)
 const SLING_MIN_PULL = 18       // 이 이하로 당기면 취소
 const SLING_POWER_MIN = 0.78    // 최소 당김 시 파워 비율

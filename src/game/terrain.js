@@ -6,17 +6,31 @@ export const TERRAIN_THICKNESS = 64
 export const BASE_DAMAGE_RADIUS = 42
 
 // 그릇(bowl) 모양 섬 레이아웃: x=중심, y=그릇 바닥 높이, w=폭, depth=그릇 깊이, rimH=테두리 높이
+// 슬링 위치 y=0 기준. 초반 20개는 촘촘하고 완만하게, 후반으로 갈수록 점프 간격 증가.
 export const DEFAULT_ISLAND_LAYOUT = [
-  { x: 580,  y: -340, w: 380,  depth: 28,  rimH: 20 },   // left=390, 슬링(-280) 앞 공간
-  { x: 1200, y: -280, w: 420,  depth: 32,  rimH: 22 },
-  { x: 1860, y: -160, w: 380,  depth: 36,  rimH: 24 },
-  { x: 2480, y: -20,  w: 340,  depth: 38,  rimH: 26 },
-  { x: 3060, y: 140,  w: 300,  depth: 40,  rimH: 28 },
-  { x: 3600, y: 320,  w: 280,  depth: 42,  rimH: 30 },
-  { x: 4100, y: 520,  w: 260,  depth: 44,  rimH: 32 },
-  { x: 4570, y: 740,  w: 240,  depth: 46,  rimH: 34 },
-  { x: 5010, y: 980,  w: 220,  depth: 48,  rimH: 36 },
-  { x: 5420, y: 1240, w: 200,  depth: 50,  rimH: 38 },
+  // ── 초반: 넓고 촘촘, 높이 변화 거의 없음 ──
+  { x:  540, y:  -30, w: 420, depth: 22, rimH: 16 },
+  { x: 1040, y:  -20, w: 400, depth: 24, rimH: 17 },
+  { x: 1520, y:  -10, w: 380, depth: 25, rimH: 18 },
+  { x: 1980, y:    0, w: 360, depth: 26, rimH: 18 },
+  { x: 2420, y:   20, w: 340, depth: 27, rimH: 19 },
+  { x: 2840, y:   50, w: 320, depth: 28, rimH: 20 },
+  { x: 3240, y:   90, w: 300, depth: 29, rimH: 20 },
+  { x: 3620, y:  140, w: 290, depth: 30, rimH: 21 },
+  // ── 중반: 조금씩 높아지고 간격 늘어남 ──
+  { x: 3990, y:  200, w: 280, depth: 31, rimH: 22 },
+  { x: 4350, y:  270, w: 270, depth: 32, rimH: 22 },
+  { x: 4700, y:  350, w: 260, depth: 33, rimH: 23 },
+  { x: 5040, y:  440, w: 250, depth: 34, rimH: 24 },
+  { x: 5370, y:  540, w: 240, depth: 35, rimH: 24 },
+  { x: 5690, y:  650, w: 230, depth: 36, rimH: 25 },
+  { x: 6000, y:  770, w: 220, depth: 37, rimH: 26 },
+  { x: 6300, y:  900, w: 210, depth: 38, rimH: 26 },
+  // ── 후반: 본격적으로 높아짐 ──
+  { x: 6590, y: 1040, w: 200, depth: 39, rimH: 27 },
+  { x: 6870, y: 1190, w: 190, depth: 40, rimH: 28 },
+  { x: 7140, y: 1350, w: 180, depth: 41, rimH: 29 },
+  { x: 7400, y: 1520, w: 170, depth: 42, rimH: 30 },
 ]
 
 /**
@@ -318,8 +332,8 @@ export function generateNextIslandSpec(lastIsland, index) {
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
-  // y: 상승 폭 (진행할수록 상승폭이 줄어듦 — 섬이 더 좁아지는 것과 균형)
-  const heightStep = Math.round(THREE.MathUtils.lerp(210, 110, progress) + (Math.random() - 0.5) * 60)
+  // y: 상승 폭
+  const heightStep = Math.round(THREE.MathUtils.lerp(140, 200, progress) + (Math.random() - 0.5) * 40)
   const newY = lastIsland.bowlFloor + heightStep
 
   // 형태 순환 (bowl 위주, 가끔 ramp/wave 삽입)
