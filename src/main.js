@@ -435,82 +435,39 @@ class Game {
   _createArmadillo() {
     const group = new THREE.Group()
 
-    // 꼬리
-    const tail = new THREE.Mesh(
-      new THREE.CapsuleGeometry(3, 16, 4, 8),
-      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
-    )
-    tail.rotation.z = Math.PI / 2 + 0.4
-    tail.position.set(-22, -4, 0.05)
-
-    // 몸통 (타원)
+    // 공 본체 — 선명한 빨강
     const body = new THREE.Mesh(
-      new THREE.CircleGeometry(18, 32),
-      new THREE.MeshBasicMaterial({ color: 0xa1887f }),
+      new THREE.CircleGeometry(15, 48),
+      new THREE.MeshBasicMaterial({ color: 0xff1744 }),
     )
-    body.scale.set(1.3, 1, 1)
     body.position.z = 0.06
 
-    // 등껍질 돔 (위쪽 반원, 더 크게)
-    const shellGeom = new THREE.CircleGeometry(20, 32, 0, Math.PI)
-    const shell = new THREE.Mesh(
-      shellGeom,
-      new THREE.MeshBasicMaterial({ color: 0x6d4c41 }),
+    // 광택 하이라이트 (작은 흰 원, 좌상단)
+    const shine = new THREE.Mesh(
+      new THREE.CircleGeometry(4.5, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 }),
     )
-    shell.position.set(0, 2, 0.08)
+    shine.position.set(-5, 6, 0.08)
 
-    // 껍질 밴드 4개
-    const bandColors = [0x795548, 0x8d6e63, 0x795548, 0x8d6e63]
-    for (let i = 0; i < 4; i++) {
-      const band = new THREE.Mesh(
-        new THREE.PlaneGeometry(36 - i * 6, 3.5),
-        new THREE.MeshBasicMaterial({ color: bandColors[i] }),
-      )
-      band.position.set(-i * 1.5, 14 - i * 6, 0.09)
-      group.add(band)
-    }
-
-    // 머리 (작은 원)
-    const head = new THREE.Mesh(
-      new THREE.CircleGeometry(9, 24),
-      new THREE.MeshBasicMaterial({ color: 0xa1887f }),
+    // 보조 하이라이트 (더 작고 투명)
+    const shine2 = new THREE.Mesh(
+      new THREE.CircleGeometry(2, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }),
     )
-    head.position.set(20, 2, 0.07)
+    shine2.position.set(-2, 9, 0.08)
 
-    // 코끝 (뾰족)
-    const snout = new THREE.Mesh(
-      new THREE.CircleGeometry(5, 16),
-      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
+    // 가장자리 어두운 링 (depth 표현)
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(13, 15, 48),
+      new THREE.MeshBasicMaterial({ color: 0xb71c1c, transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
     )
-    snout.scale.set(1.6, 0.8, 1)
-    snout.position.set(28, 0, 0.08)
+    rim.position.z = 0.07
 
-    // 눈
-    const eyeWhite = new THREE.Mesh(
-      new THREE.CircleGeometry(3.5, 16),
-      new THREE.MeshBasicMaterial({ color: 0xffffff }),
-    )
-    eyeWhite.position.set(22, 6, 0.10)
-    const eyePupil = new THREE.Mesh(
-      new THREE.CircleGeometry(2, 12),
-      new THREE.MeshBasicMaterial({ color: 0x1a1a1a }),
-    )
-    eyePupil.position.set(23, 6, 0.11)
-
-    // 귀
-    const earShape = new THREE.Shape()
-    earShape.moveTo(0, 0); earShape.lineTo(-5, 14); earShape.lineTo(5, 14); earShape.closePath()
-    const ear = new THREE.Mesh(
-      new THREE.ShapeGeometry(earShape),
-      new THREE.MeshBasicMaterial({ color: 0xa1887f }),
-    )
-    ear.position.set(18, 10, 0.07)
-
-    group.add(tail, body, shell, head, snout, eyeWhite, eyePupil, ear)
+    group.add(body, rim, shine, shine2)
     this.armadilloBody = body
-    this.armadilloShell = shell
+    this.armadilloShell = body   // 호환성
     this.armadilloBodyMat = body.material
-    this.armadilloShellMat = shell.material
+    this.armadilloShellMat = body.material
     return group
   }
 
@@ -1520,14 +1477,14 @@ class Game {
       : 0
 
     const action = this.sm.is(State.TITLE)
-      ? 'Drag sling / Space to launch'
+      ? '슬링 드래그 or 스페이스로 발사!'
       : this.sm.is(State.SLINGING)
-        ? this.slingDragging ? 'Release to fire!' : 'Drag to aim & power'
+        ? this.slingDragging ? '놓으면 발사!' : '드래그로 조준'
       : this.sm.is(State.ROLLING)
-        ? this.timingPending ? 'Tap: Timing!' : 'Rolling...'
+        ? '클릭 / 스페이스 → 점프!'
         : this.sm.is(State.GAMEOVER)
-          ? 'Tap / Space: Retry'
-          : 'Flying'
+          ? '클릭 / 스페이스 → 재시작'
+          : '비행 중...'
 
     const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
     const phaseText = this.isPaused ? 'PAUSED' : this.sm.current
@@ -1564,15 +1521,11 @@ class Game {
 
       ${slingMeter}
 
-      <div class="meter meter-timing">
-        <div class="meter-fill timing-fill" style="width:${timingFill}%"></div>
-      </div>
-
       ${this.sm.is(State.TITLE) ? `
         <div class="start-layer">
-          <div class="start-title">ARMADILLO RUSH</div>
-          <div class="start-subtitle">🌊 Sea → Sky → 🌕 Moon</div>
-          <div class="start-subtitle">Drag the sling to launch!</div>
+          <div class="start-title">BOUNCY RUSH</div>
+          <div class="start-subtitle">🌊 바다 → 하늘 → 🌕 달</div>
+          <div class="start-subtitle">슬링 드래그 or 스페이스로 발사!</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
         </div>
       ` : ''}
