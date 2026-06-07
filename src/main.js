@@ -499,13 +499,13 @@ class Game {
     }, { passive: false })
 
     window.addEventListener('pointerup', (event) => {
-      if (!this.slingDragging) {
-        // 슬링 외 상태 탭 처리 (타이밍 판정 등)
-        this._handleTap()
+      if (this.slingDragging) {
+        event.preventDefault()
+        this._handlePointerRelease()
         return
       }
-      event.preventDefault()
-      this._handlePointerRelease()
+      // 슬링 외 상태: ROLLING이면 hold 포함 부스트, 나머지는 일반 탭
+      this._handleBoostRelease()
     }, { passive: false })
 
     window.addEventListener('pointercancel', () => {
@@ -513,17 +513,27 @@ class Game {
       this.slingPull.set(0, 0)
     })
 
-    // 키보드: Space = 슬링 당기기 시뮬레이션 (고정 45도 + 풀파워)
+    // 키보드
     window.addEventListener('keydown', (event) => {
       if (event.repeat) return
       if (event.code === 'Space') {
         event.preventDefault()
-        this._handleKeyboardLaunch()
+        this._ensureAudio()
+        this.inputHoldStart = this.time
+        this._handleKeyboardPress()
         return
       }
       if (event.code === 'Escape') {
         event.preventDefault()
         this._togglePause()
+      }
+    })
+
+    // Space 뗄 때: ROLLING이면 hold 포함 부스트
+    window.addEventListener('keyup', (event) => {
+      if (event.code === 'Space') {
+        event.preventDefault()
+        this._handleBoostRelease()
       }
     })
   }
@@ -563,12 +573,6 @@ class Game {
     if (this.sm.is(State.SLINGING)) {
       this.slingDragging = true
       this._handlePointerMove(clientX, clientY)
-      return
-    }
-
-    // ROLLING 중 타이밍 탭
-    if (this.sm.is(State.ROLLING)) {
-      this._judgeTiming()
       return
     }
 
@@ -613,16 +617,23 @@ class Game {
     this._launchFromSling()
   }
 
+  // pointerup / keyup(Space) 공통: ROLLING이면 hold 부스트, 나머지는 일반 탭
+  _handleBoostRelease() {
+    if (this.isPaused) return
+    if (this.sm.is(State.ROLLING)) {
+      this._judgeTimingWithHold()
+      return
+    }
+    // ROLLING 이외 상태의 일반 탭 처리
+    this._handleTap()
+  }
+
   _handleTap() {
     if (this.isPaused) return
     this._ensureAudio()
     if (this.sm.is(State.TITLE)) {
       this._resetRun()
       this.sm.transition(State.SLINGING)
-      return
-    }
-    if (this.sm.is(State.ROLLING)) {
-      this._judgeTimingWithHold()
       return
     }
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
@@ -634,9 +645,9 @@ class Game {
     }
   }
 
-  _handleKeyboardLaunch() {
+  // Space keydown: 슬링 발사 or TITLE/GAMEOVER 진입 (ROLLING hold는 keyup에서 처리)
+  _handleKeyboardPress() {
     if (this.isPaused) return
-    this._ensureAudio()
 
     if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
       this._resetRun()
@@ -645,7 +656,6 @@ class Game {
     }
 
     if (this.sm.is(State.SLINGING)) {
-      // 키보드: 45도 고정, 풀파워
       this.slingAngle = THREE.MathUtils.degToRad(50)
       this.slingPower = SLING_POWER_MAX
       this.slingPull.set(
@@ -653,12 +663,8 @@ class Game {
         -Math.sin(this.slingAngle) * SLING_MAX_PULL,
       )
       this._launchFromSling()
-      return
     }
-
-    if (this.sm.is(State.ROLLING)) {
-      this._judgeTiming()
-    }
+    // ROLLING 중에는 keydown에서 hold 시작(inputHoldStart 설정됨), keyup에서 부스트
   }
 
 
