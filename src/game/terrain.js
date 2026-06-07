@@ -332,9 +332,10 @@ export function generateNextIslandSpec(lastIsland, index) {
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
-  // y: 상승 폭
-  const heightStep = Math.round(THREE.MathUtils.lerp(140, 200, progress) + (Math.random() - 0.5) * 40)
-  const newY = lastIsland.bowlFloor + heightStep
+  // Random direction: mostly up but sometimes down
+  const dir = Math.random() < 0.25 ? -1 : 1
+  const heightStep = Math.round((80 + Math.random() * 120) * dir)
+  const newY = Math.max(-200, lastIsland.bowlFloor + heightStep)
 
   // 형태 순환 (bowl 위주, 가끔 ramp/wave 삽입)
   const shapeType = SHAPE_SEQUENCE[index % SHAPE_SEQUENCE.length]

@@ -138,6 +138,9 @@ class Game {
     // 불꽃 트레일 스폰 쿨다운 (매 프레임 방출 방지)
     this.flameTrailCooldown = 0
 
+    // 부스트 쿨다운 (연속 부스트 방지)
+    this.boostCooldown = 0
+
     // 카메라가 추적할 목표
     this.camTarget = new THREE.Vector2(SLING_POS.x, SLING_POS.y)
     this.camPos = new THREE.Vector2(SLING_POS.x, SLING_POS.y)
@@ -188,47 +191,57 @@ class Game {
   }
 
   _buildSling() {
-    const woodMat = new THREE.MeshBasicMaterial({ color: 0x6d4c41 })
+    const woodMat = new THREE.MeshBasicMaterial({ color: 0x4e342e })
 
-    // 슬링 중심 지지대 (수직 막대)
-    const pole = new THREE.Mesh(new THREE.BoxGeometry(10, 90, 1), woodMat)
+    // 슬링 중심 지지대 (수직 막대) — 더 두껍게
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(12, 117, 1), woodMat)
     pole.position.set(SLING_POS.x, SLING_POS.y - 2, -0.05)
 
-    // Y자 두 갈래 (왼쪽 / 오른쪽 fork)
-    const forkL = new THREE.Mesh(new THREE.BoxGeometry(8, 60, 1), woodMat)
-    forkL.position.set(SLING_POS.x - 26, SLING_POS.y + 54, -0.04)
-    forkL.rotation.z = THREE.MathUtils.degToRad(30)
+    // 나뭇결 장식선
+    for (const dy of [-20, 0, 20]) {
+      const grain = new THREE.Mesh(
+        new THREE.PlaneGeometry(9, 1.5),
+        new THREE.MeshBasicMaterial({ color: 0x3e2723 }),
+      )
+      grain.position.set(SLING_POS.x, SLING_POS.y + dy, -0.04)
+      this.renderer.add(grain)
+    }
 
-    const forkR = new THREE.Mesh(new THREE.BoxGeometry(8, 60, 1), woodMat)
-    forkR.position.set(SLING_POS.x + 26, SLING_POS.y + 54, -0.04)
-    forkR.rotation.z = THREE.MathUtils.degToRad(-30)
+    // Y자 두 갈래 — 더 두껍고 넓게 벌어짐
+    const forkL = new THREE.Mesh(new THREE.BoxGeometry(10, 78, 1), woodMat)
+    forkL.position.set(SLING_POS.x - 34, SLING_POS.y + 61, -0.04)
+    forkL.rotation.z = THREE.MathUtils.degToRad(35)
+
+    const forkR = new THREE.Mesh(new THREE.BoxGeometry(10, 78, 1), woodMat)
+    forkR.position.set(SLING_POS.x + 34, SLING_POS.y + 61, -0.04)
+    forkR.rotation.z = THREE.MathUtils.degToRad(-35)
 
     // 갈래 끝 마디 장식
     const knobMat = new THREE.MeshBasicMaterial({ color: 0x3e2723 })
-    for (const [dx, dy] of [[-44, 80], [44, 80]]) {
-      const knob = new THREE.Mesh(new THREE.CircleGeometry(6, 12), knobMat)
+    for (const [dx, dy] of [[-57, 90], [57, 90]]) {
+      const knob = new THREE.Mesh(new THREE.CircleGeometry(7, 12), knobMat)
       knob.position.set(SLING_POS.x + dx, SLING_POS.y + dy, 0.02)
       this.renderer.add(knob)
     }
 
-    // 고무줄 (두 갈래 끝 → 구슬 위치) — 매 프레임 업데이트
-    const bandMat = new THREE.LineBasicMaterial({ color: 0xffe082, linewidth: 2 })
-    const bandGeomL = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(SLING_POS.x - 44, SLING_POS.y + 80, 0.06),
-      new THREE.Vector3(SLING_POS.x, SLING_POS.y, 0.06),
-    ])
-    const bandGeomR = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(SLING_POS.x + 44, SLING_POS.y + 80, 0.06),
-      new THREE.Vector3(SLING_POS.x, SLING_POS.y, 0.06),
-    ])
-    this.slingBandL = new THREE.Line(bandGeomL, bandMat)
-    this.slingBandR = new THREE.Line(bandGeomR, bandMat)
+    // 고무줄 — PlaneGeometry로 두껍게 표현 (따뜻한 앰버색)
+    const bandMatMesh = new THREE.MeshBasicMaterial({ color: 0xffc107 })
 
-    // 가죽 포켓 (공을 올려놓는 작은 원)
+    // 고무줄 왼쪽: 두 점 사이를 얇은 PlaneGeometry로 표현
+    const bandLGeom = new THREE.PlaneGeometry(4, 1)
+    this.slingBandL = new THREE.Mesh(bandLGeom, bandMatMesh.clone())
+    this.slingBandL.position.set(SLING_POS.x - 28, SLING_POS.y + 45, 0.06)
+
+    const bandRGeom = new THREE.PlaneGeometry(4, 1)
+    this.slingBandR = new THREE.Mesh(bandRGeom, bandMatMesh.clone())
+    this.slingBandR.position.set(SLING_POS.x + 28, SLING_POS.y + 45, 0.06)
+
+    // 가죽 포켓 (타원)
     this.slingPouch = new THREE.Mesh(
       new THREE.CircleGeometry(9, 16),
-      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
+      new THREE.MeshBasicMaterial({ color: 0x5d4037 }),
     )
+    this.slingPouch.scale.set(1.5, 1.0, 1)
     this.slingPouch.position.set(SLING_POS.x, SLING_POS.y, 0.07)
 
     this.renderer.add(pole)
@@ -264,14 +277,23 @@ class Game {
       py += amp * Math.sin(this.slingAngle + Math.PI)
     }
 
-    // 고무줄 끝점 = 현재 당김 위치
-    const posL = this.slingBandL.geometry.attributes.position
-    posL.setXYZ(1, px, py, 0.06)
-    posL.needsUpdate = true
+    // 고무줄: fork 끝 → pouch 위치로 Mesh를 늘여서 표현
+    const forkLX = SLING_POS.x - 57
+    const forkLY = SLING_POS.y + 90
+    const forkRX = SLING_POS.x + 57
+    const forkRY = SLING_POS.y + 90
 
-    const posR = this.slingBandR.geometry.attributes.position
-    posR.setXYZ(1, px, py, 0.06)
-    posR.needsUpdate = true
+    const dxL = px - forkLX; const dyL = py - forkLY
+    const lenL = Math.sqrt(dxL * dxL + dyL * dyL)
+    this.slingBandL.position.set((forkLX + px) / 2, (forkLY + py) / 2, 0.06)
+    this.slingBandL.rotation.z = Math.atan2(dyL, dxL)
+    this.slingBandL.scale.set(lenL / 4, 1, 1)
+
+    const dxR = px - forkRX; const dyR = py - forkRY
+    const lenR = Math.sqrt(dxR * dxR + dyR * dyR)
+    this.slingBandR.position.set((forkRX + px) / 2, (forkRY + py) / 2, 0.06)
+    this.slingBandR.rotation.z = Math.atan2(dyR, dxR)
+    this.slingBandR.scale.set(lenR / 4, 1, 1)
 
     // 포켓
     this.slingPouch.position.set(px, py, 0.07)
@@ -413,50 +435,82 @@ class Game {
   _createArmadillo() {
     const group = new THREE.Group()
 
-    // 그림자
-    const shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(20, 24),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }),
-    )
-    shadow.scale.set(1.2, 0.28, 1)
-    shadow.position.set(0, -18, -0.04)
-
-    // 몸통 (원)
-    this.armadilloBody = new THREE.Mesh(
-      new THREE.CircleGeometry(15, 32),
+    // 꼬리
+    const tail = new THREE.Mesh(
+      new THREE.CapsuleGeometry(3, 16, 4, 8),
       new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
     )
-    this.armadilloBody.position.z = 0.06
+    tail.rotation.z = Math.PI / 2 + 0.4
+    tail.position.set(-22, -4, 0.05)
 
-    // 등껍질 (약간 납작한 반원 — 위쪽 호)
-    this.armadilloShell = new THREE.Mesh(
-      new THREE.CircleGeometry(14, 24, 0, Math.PI),
-      new THREE.MeshBasicMaterial({ color: 0x5d4037 }),
+    // 몸통 (타원)
+    const body = new THREE.Mesh(
+      new THREE.CircleGeometry(18, 32),
+      new THREE.MeshBasicMaterial({ color: 0xa1887f }),
     )
-    this.armadilloShell.position.set(0, 1, 0.07)
+    body.scale.set(1.3, 1, 1)
+    body.position.z = 0.06
 
-    // 껍질 줄무늬 3개
-    this.armadilloStripes = []
-    for (let i = 0; i < 3; i++) {
-      const stripe = new THREE.Mesh(
-        new THREE.PlaneGeometry(22 - i * 5, 2.5),
-        new THREE.MeshBasicMaterial({ color: 0x4e342e }),
+    // 등껍질 돔 (위쪽 반원, 더 크게)
+    const shellGeom = new THREE.CircleGeometry(20, 32, 0, Math.PI)
+    const shell = new THREE.Mesh(
+      shellGeom,
+      new THREE.MeshBasicMaterial({ color: 0x6d4c41 }),
+    )
+    shell.position.set(0, 2, 0.08)
+
+    // 껍질 밴드 4개
+    const bandColors = [0x795548, 0x8d6e63, 0x795548, 0x8d6e63]
+    for (let i = 0; i < 4; i++) {
+      const band = new THREE.Mesh(
+        new THREE.PlaneGeometry(36 - i * 6, 3.5),
+        new THREE.MeshBasicMaterial({ color: bandColors[i] }),
       )
-      stripe.position.set(0, 5 - i * 5, 0.08)
-      this.armadilloStripes.push(stripe)
-      group.add(stripe)
+      band.position.set(-i * 1.5, 14 - i * 6, 0.09)
+      group.add(band)
     }
 
-    // 눈 (작은 흰 점)
-    const eye = new THREE.Mesh(
-      new THREE.CircleGeometry(2.5, 12),
+    // 머리 (작은 원)
+    const head = new THREE.Mesh(
+      new THREE.CircleGeometry(9, 24),
+      new THREE.MeshBasicMaterial({ color: 0xa1887f }),
+    )
+    head.position.set(20, 2, 0.07)
+
+    // 코끝 (뾰족)
+    const snout = new THREE.Mesh(
+      new THREE.CircleGeometry(5, 16),
+      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
+    )
+    snout.scale.set(1.6, 0.8, 1)
+    snout.position.set(28, 0, 0.08)
+
+    // 눈
+    const eyeWhite = new THREE.Mesh(
+      new THREE.CircleGeometry(3.5, 16),
       new THREE.MeshBasicMaterial({ color: 0xffffff }),
     )
-    eye.position.set(10, 3, 0.09)
+    eyeWhite.position.set(22, 6, 0.10)
+    const eyePupil = new THREE.Mesh(
+      new THREE.CircleGeometry(2, 12),
+      new THREE.MeshBasicMaterial({ color: 0x1a1a1a }),
+    )
+    eyePupil.position.set(23, 6, 0.11)
 
-    group.add(shadow, this.armadilloBody, this.armadilloShell, eye)
-    this.armadilloBodyMat = this.armadilloBody.material
-    this.armadilloShellMat = this.armadilloShell.material
+    // 귀
+    const earShape = new THREE.Shape()
+    earShape.moveTo(0, 0); earShape.lineTo(-5, 14); earShape.lineTo(5, 14); earShape.closePath()
+    const ear = new THREE.Mesh(
+      new THREE.ShapeGeometry(earShape),
+      new THREE.MeshBasicMaterial({ color: 0xa1887f }),
+    )
+    ear.position.set(18, 10, 0.07)
+
+    group.add(tail, body, shell, head, snout, eyeWhite, eyePupil, ear)
+    this.armadilloBody = body
+    this.armadilloShell = shell
+    this.armadilloBodyMat = body.material
+    this.armadilloShellMat = shell.material
     return group
   }
 
@@ -576,6 +630,12 @@ class Game {
       return
     }
 
+    // ROLLING 중 클릭 = 즉시 점프
+    if (this.sm.is(State.ROLLING)) {
+      this._launchFromIsland()
+      return
+    }
+
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.bufferedInputTime = this.time
     }
@@ -617,14 +677,8 @@ class Game {
     this._launchFromSling()
   }
 
-  // pointerup / keyup(Space) 공통: ROLLING이면 hold 부스트, 나머지는 일반 탭
+  // pointerup / keyup(Space) 공통 — 항상 _handleTap 위임
   _handleBoostRelease() {
-    if (this.isPaused) return
-    if (this.sm.is(State.ROLLING)) {
-      this._judgeTimingWithHold()
-      return
-    }
-    // ROLLING 이외 상태의 일반 탭 처리
     this._handleTap()
   }
 
@@ -636,8 +690,10 @@ class Game {
       this.sm.transition(State.SLINGING)
       return
     }
-    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this.bufferedInputTime = this.time
+    // ROLLING 중 클릭/스페이스 = 즉시 점프
+    if (this.sm.is(State.ROLLING)) {
+      this._launchFromIsland()
+      return
     }
     if (this.sm.is(State.GAMEOVER)) {
       this._resetRun()
@@ -645,9 +701,10 @@ class Game {
     }
   }
 
-  // Space keydown: 슬링 발사 or TITLE/GAMEOVER 진입 (ROLLING hold는 keyup에서 처리)
+  // Space keydown
   _handleKeyboardPress() {
     if (this.isPaused) return
+    this._ensureAudio()
 
     if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
       this._resetRun()
@@ -655,6 +712,7 @@ class Game {
       return
     }
 
+    // SLINGING: 풀파워 발사
     if (this.sm.is(State.SLINGING)) {
       this.slingAngle = THREE.MathUtils.degToRad(50)
       this.slingPower = SLING_POWER_MAX
@@ -663,8 +721,13 @@ class Game {
         -Math.sin(this.slingAngle) * SLING_MAX_PULL,
       )
       this._launchFromSling()
+      return
     }
-    // ROLLING 중에는 keydown에서 hold 시작(inputHoldStart 설정됨), keyup에서 부스트
+
+    // ROLLING: 즉시 점프
+    if (this.sm.is(State.ROLLING)) {
+      this._launchFromIsland()
+    }
   }
 
 
@@ -826,19 +889,13 @@ class Game {
   }
 
   _getExitLaunchAngle(island) {
-    if (!island) return Math.PI / 4
+    if (!island) return THREE.MathUtils.degToRad(45)
 
-    const exitX = island.bounds.right - ARMADILLO_SIZE / 2
-    const slopeAngle = getTerrainSlopeAngle(island, exitX)
-    const timingLift = {
-      PERFECT: THREE.MathUtils.degToRad(10),
-      GOOD: THREE.MathUtils.degToRad(5),
-      OK: 0,
-      MISS: THREE.MathUtils.degToRad(-8),
-    }[this.launchRating] ?? 0
+    // 현재 아르마딜로 위치의 경사각 기준으로 발사각 결정
+    const slopeAngle = getTerrainSlopeAngle(island, this.armadillo.position.x)
     const slopeLift = slopeAngle * 0.75
     return THREE.MathUtils.clamp(
-      THREE.MathUtils.degToRad(40) + slopeLift + timingLift,
+      THREE.MathUtils.degToRad(42) + slopeLift,
       EXIT_LAUNCH_MIN_ANGLE,
       EXIT_LAUNCH_MAX_ANGLE,
     )
@@ -947,8 +1004,8 @@ class Game {
       return
     }
 
-    // ② 아래로 착지 — Planck 충돌로 감지 (prevVelY < 0 이었을 때)
-    if (prevVelY < 0 && this.physics.isGrounded()) {
+    // ② 아래로 착지 — 근접 감지 (속도가 낮거나 하강 중)
+    if (this.velocity.y <= 30) {
       const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
       if (landedIsland) {
         this._landOnIsland(landedIsland)
@@ -1009,19 +1066,20 @@ class Game {
   }
 
   _findLandingIsland(prevBottom, nextBottom) {
-    if (this.velocity.y > 0) return null
-
+    if (this.velocity.y > 30) return null   // still moving up fast
+    const x = this.armadillo.position.x
+    const bottom = this.armadillo.position.y - ARMADILLO_SIZE / 2
     for (const island of this.islands) {
       if (island.destroyed) continue
       const bounds = island.bounds
-      const topY = getTerrainTopY(island, this.armadillo.position.x)
-      if (isTerrainDamagedAt(island, this.armadillo.position.x, ARMADILLO_SIZE / 2)) continue
-      const withinX = this.armadillo.position.x >= bounds.left - ARMADILLO_SIZE / 2
-        && this.armadillo.position.x <= bounds.right + ARMADILLO_SIZE / 2
-      const crossedTop = prevBottom >= topY && nextBottom <= topY
-      if (withinX && crossedTop) return island
+      if (x < bounds.left - ARMADILLO_SIZE / 2 || x > bounds.right + ARMADILLO_SIZE / 2) continue
+      if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
+      const topY = getTerrainTopY(island, x)
+      // landed if bottom is near or below topY (proximity: 30px window)
+      if (bottom <= topY + 15 && bottom >= topY - 30) return island
+      // also catch the cross-through case
+      if (prevBottom >= topY - 5 && nextBottom <= topY + 5) return island
     }
-
     return null
   }
 
@@ -1135,9 +1193,7 @@ class Game {
     this.velocity.set(0, 0)
     this.physics.setArmadilloVelocity(0, 0)
     this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
-    this.landingTime = this.time
-    this.timingWindow = this._getTimingWindow()
-    this.timingPending = true
+    this.timingPending = false
     this.lastRating = 'LANDED'
 
     // 착지 즉시 지형 파괴 (속도 무관, 항상)
@@ -1156,13 +1212,9 @@ class Game {
     )
     this._triggerImpact(0.3 + this.speedRatio * 0.3, 0x6d4c41, this.armadillo.position.x, this.armadillo.position.y)
 
+    // 자동으로 ROLLING 상태로 전환
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
-    }
-
-    if (this.time - this.bufferedInputTime <= INPUT_BUFFER_SEC) {
-      this._applyTimingRating('GOOD')
-      this.bufferedInputTime = -Infinity
     }
   }
 
@@ -1184,11 +1236,6 @@ class Game {
     }
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.armadillo.rotation.z = slopeAngle
-
-    // 타이밍 윈도우 종료 → 자동 GOOD (미스 없음)
-    if (this.timingPending && this.time - this.landingTime > this.timingWindow) {
-      this._applyTimingRating('GOOD')
-    }
 
     this._updateStallState(dt)
 
@@ -1512,8 +1559,6 @@ class Game {
         <div><span>SPEED</span><strong>${speed}%</strong></div>
         <div><span>ANGLE</span><strong>${slingDeg}°</strong></div>
         <div><span>POWER</span><strong>${slingPowerPct}%</strong></div>
-        <div><span>HIT</span><strong>${this.lastRating}</strong></div>
-        <div><span>COMBO</span><strong>${this.combo}</strong></div>
         ${dangerText}
       </div>
 
