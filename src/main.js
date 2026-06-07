@@ -66,7 +66,6 @@ const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const UNDER_BREAK_SPEED = 520
 const DAMAGE_SPEED_FULL = 940
-const LAUNCH_BLAST_POWER = 0.96
 
 class Game {
   constructor() {
@@ -149,8 +148,7 @@ class Game {
   }
 
   _buildSling() {
-    const woodMat  = new THREE.MeshBasicMaterial({ color: 0x6d4c41 })
-    const darkMat  = new THREE.MeshBasicMaterial({ color: 0x4e342e })
+    const woodMat = new THREE.MeshBasicMaterial({ color: 0x6d4c41 })
 
     // 슬링 중심 지지대 (수직 막대)
     const pole = new THREE.Mesh(new THREE.BoxGeometry(10, 90, 1), woodMat)
@@ -654,8 +652,9 @@ class Game {
   _launchFromSling() {
     if (!this.sm.transition(State.FLYING)) return
 
-    const speed = this.slingPower * LAUNCH_SPEED
-    this.speedRatio = this.slingPower
+    const power = this.slingPower          // 리셋 전에 저장
+    const speed = power * LAUNCH_SPEED
+    this.speedRatio = power
     this.timingPending = false
     this.lastRating = 'LAUNCH'
     this.stallTime = 0
@@ -672,7 +671,7 @@ class Game {
 
     this._carveLaunchPath()
     this._triggerLaunchImpact()
-    this._playTone(220 + this.slingPower * 260, 0.12, 0.08 + this.slingPower * 0.06, 'square')
+    this._playTone(220 + power * 260, 0.12, 0.08 + power * 0.06, 'square')
   }
 
   _launchFromIsland() {
