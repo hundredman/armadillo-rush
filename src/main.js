@@ -142,8 +142,8 @@ class Game {
     this.flameTrailCooldown = 0
 
     // 카메라가 추적할 목표
-    this.camTarget = new THREE.Vector2(0, 0)
-    this.camPos = new THREE.Vector2(0, 0)
+    this.camTarget = new THREE.Vector2(SLING_POS.x, SLING_POS.y)
+    this.camPos = new THREE.Vector2(SLING_POS.x, SLING_POS.y)
     this.ui = document.getElementById('ui-overlay')
 
     this._buildPlaceholderWorld()
@@ -857,7 +857,7 @@ class Game {
 
   _update(dt) {
     if (this.isPaused) {
-      if (this.sm.is(State.SLINGING)) {
+      if (this.sm.is(State.TITLE) || this.sm.is(State.SLINGING)) {
         this.camTarget.set(SLING_POS.x, SLING_POS.y)
       } else {
         this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
@@ -902,9 +902,9 @@ class Game {
       }
     }
 
-    // SLINGING 상태에서는 슬링 중심을 카메라 기준점으로,
+    // TITLE/SLINGING 상태에서는 슬링 중심을 카메라 기준점으로,
     // 나머지 상태에서는 아르마딜로를 추적
-    if (this.sm.is(State.SLINGING)) {
+    if (this.sm.is(State.TITLE) || this.sm.is(State.SLINGING)) {
       this.camTarget.set(SLING_POS.x, SLING_POS.y)
     } else {
       this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
