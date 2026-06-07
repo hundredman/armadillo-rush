@@ -1591,7 +1591,6 @@ class Game {
         <div class="meter-fill timing-fill" style="width:${timingFill}%"></div>
       </div>
 
-      ${this.isPaused ? '<div class="pause-layer">PAUSED</div>' : ''}
       ${this.sm.is(State.TITLE) ? `
         <div class="start-layer">
           <div class="start-title">ARMADILLO RUSH</div>
@@ -1614,6 +1613,16 @@ class Game {
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
             </div>
             <button class="clickable primary-button" data-action="restart">Retry</button>
+          </div>
+        </div>
+      ` : ''}
+
+      ${this.isPaused ? `
+        <div class="pause-layer">
+          <div class="pause-menu">
+            <div class="pause-title">PAUSED</div>
+            <button class="clickable primary-button" data-action="pause">Resume</button>
+            <button class="clickable secondary-button" data-action="restart">Restart</button>
           </div>
         </div>
       ` : ''}
