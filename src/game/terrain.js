@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { SPRITES, createSprite } from '../assets.js'
 import craterVert from '../shaders/crater.vert?raw'
 import craterFrag from '../shaders/crater.frag?raw'
 
@@ -118,28 +117,6 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl' }
 
   const mesh = new THREE.Group()
   mesh.add(soil, grass, ridge)
-
-  // 데코 스프라이트 (가장자리에만 — 바닥 중심에는 배치하지 않음)
-  for (let i = 3; i < topPoints.length - 3; i += 5) {
-    const point = topPoints[i]
-    const normI = i / (topPoints.length - 1)  // 0~1, 중심=0.5
-    // 중심 부근(0.35~0.65)에는 스프라이트 생략
-    if (normI > 0.35 && normI < 0.65) continue
-    const tile = createSprite(SPRITES.terrain.grass, 48, 48)
-    tile.position.set(point.x, point.y + 17, 0.08)
-    tile.material.rotation = ((i % 2) - 0.5) * 0.08
-    tile.userData.damageable = true
-    mesh.add(tile)
-  }
-  for (let i = 6; i < topPoints.length - 2; i += 9) {
-    const point = topPoints[i]
-    const normI = i / (topPoints.length - 1)
-    if (normI > 0.3 && normI < 0.7) continue
-    const rock = createSprite(SPRITES.terrain.rock, 34, 34)
-    rock.position.set(point.x + 6, point.y - 22, 0.07)
-    rock.userData.damageable = true
-    mesh.add(rock)
-  }
 
   return {
     mesh,
