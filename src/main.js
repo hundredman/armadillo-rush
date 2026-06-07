@@ -191,65 +191,109 @@ class Game {
   }
 
   _buildSling() {
-    const woodMat = new THREE.MeshBasicMaterial({ color: 0x4e342e })
+    // 슬링은 옆으로 누운 Y자: 손잡이가 왼쪽(아래), 갈래 끝이 오른쪽 위아래로
+    // SLING_POS = 슬링 갈래 분기점 (공이 걸리는 중심)
+    //
+    //   tipU (위 갈래 끝)
+    //      \
+    //       fork분기 ─── 손잡이(왼쪽 아래)
+    //      /
+    //   tipD (아래 갈래 끝)
 
-    // 슬링 중심 지지대 (수직 막대) — 더 두껍게
-    const pole = new THREE.Mesh(new THREE.BoxGeometry(12, 117, 1), woodMat)
-    pole.position.set(SLING_POS.x, SLING_POS.y - 2, -0.05)
+    const C = SLING_POS  // 분기점
 
-    // 나뭇결 장식선
-    for (const dy of [-20, 0, 20]) {
-      const grain = new THREE.Mesh(
-        new THREE.PlaneGeometry(9, 1.5),
-        new THREE.MeshBasicMaterial({ color: 0x3e2723 }),
-      )
-      grain.position.set(SLING_POS.x, SLING_POS.y + dy, -0.04)
-      this.renderer.add(grain)
+    // 갈래 끝: 분기점에서 오른쪽 위/아래로 45px
+    const FORK_TIP_U = { x: C.x + 14, y: C.y + 45 }
+    const FORK_TIP_D = { x: C.x + 14, y: C.y - 45 }
+    // 손잡이 끝: 분기점에서 왼쪽 아래로
+    const HANDLE_END = { x: C.x - 80, y: C.y - 90 }
+
+    const midWood   = new THREE.MeshBasicMaterial({ color: 0x5d4037 })
+    const lightWood = new THREE.MeshBasicMaterial({ color: 0x8d6e63 })
+    const darkWood  = new THREE.MeshBasicMaterial({ color: 0x3e2723 })
+
+    // 막대 하나를 두 점 사이 BoxGeometry로 만드는 헬퍼
+    const makeBar = (ax, ay, bx, by, thickness, mat, zOff = 0) => {
+      const dx = bx - ax, dy = by - ay
+      const len = Math.sqrt(dx * dx + dy * dy)
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, len, 1), mat)
+      mesh.position.set((ax + bx) / 2, (ay + by) / 2, -0.05 + zOff)
+      mesh.rotation.z = Math.atan2(dy, dx) - Math.PI / 2
+      return mesh
     }
 
-    // Y자 두 갈래 — 더 두껍고 넓게 벌어짐
-    const forkL = new THREE.Mesh(new THREE.BoxGeometry(10, 78, 1), woodMat)
-    forkL.position.set(SLING_POS.x - 34, SLING_POS.y + 61, -0.04)
-    forkL.rotation.z = THREE.MathUtils.degToRad(35)
+    // ── 손잡이 ──
+    const handle = makeBar(C.x, C.y, HANDLE_END.x, HANDLE_END.y, 13, midWood)
+    const handleHL = makeBar(C.x - 2, C.y, HANDLE_END.x - 2, HANDLE_END.y, 5, lightWood, 0.01)
+    // 손잡이 끝 캡
+    const cap = new THREE.Mesh(new THREE.CircleGeometry(8, 20), darkWood)
+    cap.position.set(HANDLE_END.x, HANDLE_END.y, -0.04)
 
-    const forkR = new THREE.Mesh(new THREE.BoxGeometry(10, 78, 1), woodMat)
-    forkR.position.set(SLING_POS.x + 34, SLING_POS.y + 61, -0.04)
-    forkR.rotation.z = THREE.MathUtils.degToRad(-35)
+    // ── 위 갈래 ──
+    const forkU = makeBar(C.x, C.y, FORK_TIP_U.x, FORK_TIP_U.y, 11, midWood)
+    const forkUHL = makeBar(C.x - 1, C.y, FORK_TIP_U.x - 1, FORK_TIP_U.y, 4, lightWood, 0.01)
 
-    // 갈래 끝 마디 장식
-    const knobMat = new THREE.MeshBasicMaterial({ color: 0x3e2723 })
-    for (const [dx, dy] of [[-57, 90], [57, 90]]) {
-      const knob = new THREE.Mesh(new THREE.CircleGeometry(7, 12), knobMat)
-      knob.position.set(SLING_POS.x + dx, SLING_POS.y + dy, 0.02)
+    // ── 아래 갈래 ──
+    const forkD = makeBar(C.x, C.y, FORK_TIP_D.x, FORK_TIP_D.y, 11, midWood)
+    const forkDHL = makeBar(C.x - 1, C.y, FORK_TIP_D.x - 1, FORK_TIP_D.y, 4, lightWood, 0.01)
+
+    // 분기점 마디 (두꺼운 원)
+    const joint = new THREE.Mesh(new THREE.CircleGeometry(10, 20), darkWood)
+    joint.position.set(C.x, C.y, -0.03)
+    const jointHL = new THREE.Mesh(new THREE.CircleGeometry(5, 16), lightWood)
+    jointHL.position.set(C.x - 2, C.y + 2, -0.02)
+
+    // 갈래 끝 마디
+    for (const tip of [FORK_TIP_U, FORK_TIP_D]) {
+      const knob = new THREE.Mesh(new THREE.CircleGeometry(7, 18), darkWood)
+      knob.position.set(tip.x, tip.y, -0.02)
+      const knobHL = new THREE.Mesh(new THREE.CircleGeometry(3, 12), lightWood)
+      knobHL.position.set(tip.x - 1, tip.y + 1, -0.01)
       this.renderer.add(knob)
+      this.renderer.add(knobHL)
     }
 
-    // 고무줄 — PlaneGeometry로 두껍게 표현 (따뜻한 앰버색)
-    const bandMatMesh = new THREE.MeshBasicMaterial({ color: 0xffc107 })
-
-    // 고무줄 왼쪽: 두 점 사이를 얇은 PlaneGeometry로 표현
-    const bandLGeom = new THREE.PlaneGeometry(4, 1)
-    this.slingBandL = new THREE.Mesh(bandLGeom, bandMatMesh.clone())
-    this.slingBandL.position.set(SLING_POS.x - 28, SLING_POS.y + 45, 0.06)
-
-    const bandRGeom = new THREE.PlaneGeometry(4, 1)
-    this.slingBandR = new THREE.Mesh(bandRGeom, bandMatMesh.clone())
-    this.slingBandR.position.set(SLING_POS.x + 28, SLING_POS.y + 45, 0.06)
-
-    // 가죽 포켓 (타원)
-    this.slingPouch = new THREE.Mesh(
-      new THREE.CircleGeometry(9, 16),
-      new THREE.MeshBasicMaterial({ color: 0x5d4037 }),
+    // ── 고무줄 (두 겹: 외곽 어두운 + 내부 밝은) ──
+    const makeBand = (col) => new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color: col }),
     )
-    this.slingPouch.scale.set(1.5, 1.0, 1)
-    this.slingPouch.position.set(SLING_POS.x, SLING_POS.y, 0.07)
+    this.slingBandL  = makeBand(0xe65100)   // 위 고무줄 (어두운 주황)
+    this.slingBandLH = makeBand(0xffcc02)   // 위 고무줄 하이라이트
+    this.slingBandR  = makeBand(0xe65100)   // 아래 고무줄
+    this.slingBandRH = makeBand(0xffcc02)
 
-    this.renderer.add(pole)
-    this.renderer.add(forkL)
-    this.renderer.add(forkR)
+    // ── 포켓 (공이 앉는 자리) ──
+    this.slingPouch = new THREE.Mesh(
+      new THREE.CircleGeometry(12, 24),
+      new THREE.MeshBasicMaterial({ color: 0x6d4c41 }),
+    )
+    // 포켓 테두리
+    const pouchRim = new THREE.Mesh(
+      new THREE.RingGeometry(12, 15, 24),
+      new THREE.MeshBasicMaterial({ color: 0x3e2723, side: THREE.DoubleSide }),
+    )
+
+    this.slingPouchGroup = new THREE.Group()
+    this.slingPouchGroup.add(pouchRim, this.slingPouch)
+
+    this.renderer.add(handle)
+    this.renderer.add(handleHL)
+    this.renderer.add(cap)
+    this.renderer.add(forkU)
+    this.renderer.add(forkUHL)
+    this.renderer.add(forkD)
+    this.renderer.add(forkDHL)
+    this.renderer.add(joint)
+    this.renderer.add(jointHL)
     this.renderer.add(this.slingBandL)
+    this.renderer.add(this.slingBandLH)
     this.renderer.add(this.slingBandR)
-    this.renderer.add(this.slingPouch)
+    this.renderer.add(this.slingBandRH)
+    this.renderer.add(this.slingPouchGroup)
+
+    this._forkTipU = FORK_TIP_U
+    this._forkTipD = FORK_TIP_D
 
     // 발사 가이드 점선 (드래그 중 표시)
     const dottedMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 8, gapSize: 6, opacity: 0.5, transparent: true })
@@ -277,26 +321,27 @@ class Game {
       py += amp * Math.sin(this.slingAngle + Math.PI)
     }
 
-    // 고무줄: fork 끝 → pouch 위치로 Mesh를 늘여서 표현
-    const forkLX = SLING_POS.x - 57
-    const forkLY = SLING_POS.y + 90
-    const forkRX = SLING_POS.x + 57
-    const forkRY = SLING_POS.y + 90
+    // 고무줄: 갈래 끝 → 포켓 위치
+    const updateBand = (band, bandHL, tipX, tipY, pouX, pouY) => {
+      const dx = pouX - tipX, dy = pouY - tipY
+      const len = Math.sqrt(dx * dx + dy * dy)
+      const angle = Math.atan2(dy, dx)
+      const mx = (tipX + pouX) / 2, my = (tipY + pouY) / 2
+      band.position.set(mx, my, 0.05)
+      band.rotation.z = angle + Math.PI / 2
+      band.scale.set(5, len, 1)          // 두께 5px
+      bandHL.position.set(mx, my, 0.06)
+      bandHL.rotation.z = angle + Math.PI / 2
+      bandHL.scale.set(2, len - 4, 1)    // 내부 하이라이트 2px
+    }
 
-    const dxL = px - forkLX; const dyL = py - forkLY
-    const lenL = Math.sqrt(dxL * dxL + dyL * dyL)
-    this.slingBandL.position.set((forkLX + px) / 2, (forkLY + py) / 2, 0.06)
-    this.slingBandL.rotation.z = Math.atan2(dyL, dxL)
-    this.slingBandL.scale.set(lenL / 4, 1, 1)
+    updateBand(this.slingBandL, this.slingBandLH,
+      this._forkTipU.x, this._forkTipU.y, px, py)
+    updateBand(this.slingBandR, this.slingBandRH,
+      this._forkTipD.x, this._forkTipD.y, px, py)
 
-    const dxR = px - forkRX; const dyR = py - forkRY
-    const lenR = Math.sqrt(dxR * dxR + dyR * dyR)
-    this.slingBandR.position.set((forkRX + px) / 2, (forkRY + py) / 2, 0.06)
-    this.slingBandR.rotation.z = Math.atan2(dyR, dxR)
-    this.slingBandR.scale.set(lenR / 4, 1, 1)
-
-    // 포켓
-    this.slingPouch.position.set(px, py, 0.07)
+    // 포켓 그룹 위치
+    this.slingPouchGroup.position.set(px, py, 0.07)
 
     // 가이드 점선 (발사 방향으로 포물선 예측) — 아르마딜로 현재 위치에서 출발
     if (this.slingDragging && this.slingPower > 0.05) {
