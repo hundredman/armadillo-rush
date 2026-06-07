@@ -8,80 +8,130 @@ export const TERRAIN_THICKNESS = 64
 export const OBSTACLE_SIZE = 34
 export const BASE_DAMAGE_RADIUS = 42
 
+// 그릇(bowl) 모양 섬 레이아웃: x=중심, y=그릇 바닥 높이, w=폭, depth=그릇 깊이, rimH=테두리 높이
 export const DEFAULT_ISLAND_LAYOUT = [
-  { x: 150, y: -250, w: 1000, rise: 18, amp: 18 },
-  { x: 1080, y: -185, w: 1320, rise: 70, amp: 26 },
-  { x: 1960, y: -20, w: 760, rise: 90, amp: 34 },
-  { x: 2720, y: 140, w: 660, rise: 105, amp: 38 },
-  { x: 3440, y: 320, w: 560, rise: 120, amp: 42 },
-  { x: 4120, y: 525, w: 500, rise: 135, amp: 42 },
-  { x: 4770, y: 750, w: 440, rise: 150, amp: 46 },
-  { x: 5380, y: 1000, w: 390, rise: 165, amp: 48 },
-  { x: 5960, y: 1275, w: 340, rise: 180, amp: 50 },
-  { x: 6500, y: 1580, w: 300, rise: 195, amp: 52 },
+  { x: 200,  y: -310, w: 920,  depth: 55,  rimH: 38 },
+  { x: 1140, y: -240, w: 1180, depth: 70,  rimH: 52 },
+  { x: 2100, y: -80,  w: 900,  depth: 80,  rimH: 60 },
+  { x: 2940, y: 80,   w: 780,  depth: 88,  rimH: 65 },
+  { x: 3680, y: 260,  w: 680,  depth: 95,  rimH: 70 },
+  { x: 4340, y: 460,  w: 600,  depth: 100, rimH: 74 },
+  { x: 4940, y: 680,  w: 540,  depth: 105, rimH: 78 },
+  { x: 5500, y: 930,  w: 480,  depth: 110, rimH: 82 },
+  { x: 6020, y: 1210, w: 420,  depth: 115, rimH: 85 },
+  { x: 6500, y: 1520, w: 360,  depth: 120, rimH: 88 },
 ]
 
+// t는 0~1 (0=왼쪽 끝, 0.5=바닥 중심, 1=오른쪽 끝)
+// 그릇 형태이므로 장애물은 경사면(0.15~0.4, 0.6~0.85)에 배치
 export const DEFAULT_OBSTACLE_PLACEMENTS = [
-  { island: 1, t: 0.42, type: 'wood' },
-  { island: 1, t: 0.72, type: 'spike' },
-  { island: 2, t: 0.36, type: 'stone' },
-  { island: 2, t: 0.68, type: 'wood' },
-  { island: 3, t: 0.48, type: 'moving' },
-  { island: 4, t: 0.34, type: 'stone' },
-  { island: 4, t: 0.68, type: 'spike' },
-  { island: 5, t: 0.44, type: 'iron' },
-  { island: 6, t: 0.55, type: 'stone' },
-  { island: 7, t: 0.45, type: 'wood' },
-  { island: 8, t: 0.55, type: 'iron' },
+  { island: 1, t: 0.30, type: 'wood' },
+  { island: 1, t: 0.68, type: 'spike' },
+  { island: 2, t: 0.25, type: 'stone' },
+  { island: 2, t: 0.72, type: 'wood' },
+  { island: 3, t: 0.35, type: 'moving' },
+  { island: 3, t: 0.70, type: 'spike' },
+  { island: 4, t: 0.28, type: 'stone' },
+  { island: 4, t: 0.65, type: 'spike' },
+  { island: 5, t: 0.32, type: 'iron' },
+  { island: 5, t: 0.68, type: 'moving' },
+  { island: 6, t: 0.30, type: 'stone' },
+  { island: 7, t: 0.35, type: 'wood' },
+  { island: 8, t: 0.65, type: 'iron' },
 ]
 
-export function createCurvedTerrain({ x, y, w, rise, amp }) {
-  const left = x - w / 2
+/**
+ * 지형 상면 커브 생성.
+ * shapeType: 'bowl' (그릇), 'ramp' (경사 삼각), 'wave' (파도 S커브)
+ * 모든 형태는 매끄러운 CatmullRom 스플라인 — 울퉁불퉁함 없음.
+ *
+ * @param {number} x      중심 x (월드 좌표)
+ * @param {number} y      기준 바닥 y (월드 좌표)
+ * @param {number} w      전체 폭 (px)
+ * @param {number} depth  높이 변화 폭 (px)
+ * @param {number} rimH   가장자리 추가 높이 (px)
+ * @param {string} [shapeType='bowl']  'bowl' | 'ramp' | 'wave'
+ */
+export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl' }) {
+  const left  = x - w / 2
   const right = x + w / 2
-  const controls = [
-    new THREE.Vector3(left, y, 0),
-    new THREE.Vector3(left + w * 0.28, y + rise * 0.28 + amp, 0),
-    new THREE.Vector3(left + w * 0.62, y + rise * 0.72 - amp * 0.35, 0),
-    new THREE.Vector3(right, y + rise, 0),
-  ]
-  const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal', 0.35)
-  const topPoints = curve.getPoints(32).map((point) => new THREE.Vector2(point.x, point.y))
-  const minY = Math.min(...topPoints.map((point) => point.y))
-  const maxY = Math.max(...topPoints.map((point) => point.y))
+
+  let controls
+  if (shapeType === 'ramp') {
+    // 완만한 오르막 경사: 왼쪽 낮고 오른쪽 높음 (삼각/사다리꼴형)
+    const baseY = y
+    const topY  = y + depth + rimH
+    controls = [
+      new THREE.Vector3(left,             baseY,              0),
+      new THREE.Vector3(left  + w * 0.35, baseY + depth * 0.1, 0),
+      new THREE.Vector3(left  + w * 0.65, baseY + depth * 0.72, 0),
+      new THREE.Vector3(right,            topY,               0),
+    ]
+  } else if (shapeType === 'wave') {
+    // S자 파도: 왼쪽 낮 → 중간 낮은 고원 → 오른쪽 높은 끝
+    const baseY = y
+    const midY  = y + depth * 0.35
+    const topY  = y + depth + rimH
+    controls = [
+      new THREE.Vector3(left,             baseY + rimH * 0.6, 0),
+      new THREE.Vector3(left  + w * 0.25, baseY,              0),
+      new THREE.Vector3(left  + w * 0.5,  midY,               0),
+      new THREE.Vector3(right - w * 0.22, topY - rimH * 0.2,  0),
+      new THREE.Vector3(right,            topY,               0),
+    ]
+  } else {
+    // bowl (기본): 양 끝이 높고 중심이 낮은 U자
+    const rimY    = y + depth + rimH
+    const innerY  = y + depth * 0.18
+    const centerY = y
+    controls = [
+      new THREE.Vector3(left,             rimY,    0),
+      new THREE.Vector3(left  + w * 0.22, innerY,  0),
+      new THREE.Vector3(x,                centerY, 0),
+      new THREE.Vector3(right - w * 0.22, innerY,  0),
+      new THREE.Vector3(right,            rimY,    0),
+    ]
+  }
+
+  const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal', 0.5)
+  const topPoints = curve.getPoints(40).map((p) => new THREE.Vector2(p.x, p.y))
+
+  // bowl 계열의 중심 y = 최저점; ramp/wave는 왼쪽 끝이 기준
+  const centerY = shapeType === 'bowl' ? y : Math.min(...topPoints.map((p) => p.y))
+
+  const minY    = Math.min(...topPoints.map((p) => p.y))
+  const maxY    = Math.max(...topPoints.map((p) => p.y))
   const bottomY = minY - TERRAIN_THICKNESS
+
+  // 토양 메시 (그릇 안을 채우는 Shape)
   const shape = new THREE.Shape()
   shape.moveTo(topPoints[0].x, topPoints[0].y)
-  for (let i = 1; i < topPoints.length; i++) {
-    shape.lineTo(topPoints[i].x, topPoints[i].y)
-  }
+  for (let i = 1; i < topPoints.length; i++) shape.lineTo(topPoints[i].x, topPoints[i].y)
   shape.lineTo(right, bottomY)
-  shape.lineTo(left, bottomY)
+  shape.lineTo(left,  bottomY)
   shape.closePath()
 
   const soil = new THREE.Mesh(
-    new THREE.ShapeGeometry(shape, 12),
+    new THREE.ShapeGeometry(shape, 16),
     new THREE.MeshBasicMaterial({ color: 0x6d4c41, side: THREE.DoubleSide }),
   )
   soil.position.z = -0.02
 
+  // 잔디 레이어 (상면 안쪽)
   const grassShape = new THREE.Shape()
   grassShape.moveTo(topPoints[0].x, topPoints[0].y)
-  for (let i = 1; i < topPoints.length; i++) {
-    grassShape.lineTo(topPoints[i].x, topPoints[i].y)
-  }
-  for (let i = topPoints.length - 1; i >= 0; i--) {
-    grassShape.lineTo(topPoints[i].x, topPoints[i].y - 14)
-  }
+  for (let i = 1; i < topPoints.length; i++) grassShape.lineTo(topPoints[i].x, topPoints[i].y)
+  for (let i = topPoints.length - 1; i >= 0; i--) grassShape.lineTo(topPoints[i].x, topPoints[i].y - 14)
   grassShape.closePath()
 
   const grass = new THREE.Mesh(
-    new THREE.ShapeGeometry(grassShape, 12),
+    new THREE.ShapeGeometry(grassShape, 16),
     new THREE.MeshBasicMaterial({ color: 0x66bb6a, side: THREE.DoubleSide }),
   )
   grass.position.z = 0.02
 
   const ridge = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(topPoints.map((point) => new THREE.Vector3(point.x, point.y + 1, 0))),
+    new THREE.BufferGeometry().setFromPoints(topPoints.map((p) => new THREE.Vector3(p.x, p.y + 1, 0))),
     new THREE.LineBasicMaterial({ color: 0xc5e1a5 }),
   )
   ridge.position.z = 0.04
@@ -89,8 +139,12 @@ export function createCurvedTerrain({ x, y, w, rise, amp }) {
   const mesh = new THREE.Group()
   mesh.add(soil, grass, ridge)
 
+  // 데코 스프라이트 (가장자리에만 — 바닥 중심에는 배치하지 않음)
   for (let i = 3; i < topPoints.length - 3; i += 5) {
     const point = topPoints[i]
+    const normI = i / (topPoints.length - 1)  // 0~1, 중심=0.5
+    // 중심 부근(0.35~0.65)에는 스프라이트 생략
+    if (normI > 0.35 && normI < 0.65) continue
     const tile = createSprite(SPRITES.terrain.grass, 48, 48)
     tile.position.set(point.x, point.y + 17, 0.08)
     tile.material.rotation = ((i % 2) - 0.5) * 0.08
@@ -99,6 +153,8 @@ export function createCurvedTerrain({ x, y, w, rise, amp }) {
   }
   for (let i = 6; i < topPoints.length - 2; i += 9) {
     const point = topPoints[i]
+    const normI = i / (topPoints.length - 1)
+    if (normI > 0.3 && normI < 0.7) continue
     const rock = createSprite(SPRITES.terrain.rock, 34, 34)
     rock.position.set(point.x + 6, point.y - 22, 0.07)
     rock.userData.damageable = true
@@ -112,6 +168,8 @@ export function createCurvedTerrain({ x, y, w, rise, amp }) {
     damageZones: [],
     damageMarks: [],
     bounds: { left, right, top: maxY, bottom: bottomY },
+    bowlCenter: x,
+    bowlFloor: centerY,
   }
 }
 
@@ -273,6 +331,44 @@ function createDamageMark(radius, depth) {
   }
 
   return { mark: group, chunks }
+}
+
+// 절차적 섬에서 순환할 모양 패턴
+const SHAPE_SEQUENCE = ['bowl', 'bowl', 'ramp', 'bowl', 'wave', 'bowl', 'ramp', 'wave']
+
+/**
+ * 절차적 섬 파라미터 생성.
+ * lastIsland 다음 위치에 새 섬 스펙을 반환한다.
+ * 모든 형태(bowl/ramp/wave)는 매끄러운 CatmullRom 곡선으로 생성된다.
+ * @param {object} lastIsland  이전 섬 객체 (bounds, bowlFloor 포함)
+ * @param {number} index       전체 섬 인덱스 (높을수록 더 좁고 가파름)
+ */
+export function generateNextIslandSpec(lastIsland, index) {
+  const progress = Math.min(1, index / 28)  // 0→1로 서서히 어려워짐
+
+  // 폭: 시작 900 → 최저 240
+  const w = Math.round(THREE.MathUtils.lerp(900, 240, progress) + (Math.random() - 0.5) * 60)
+
+  // 높이 변화 폭: 점점 깊어짐 (55 → 150)
+  const depth = Math.round(THREE.MathUtils.lerp(55, 150, progress) + (Math.random() - 0.5) * 12)
+
+  // 가장자리 높이
+  const rimH = Math.round(THREE.MathUtils.lerp(38, 95, progress) + (Math.random() - 0.5) * 10)
+
+  // 섬 간격: 수평 갭
+  const gap = Math.round(THREE.MathUtils.lerp(160, 280, progress) + Math.random() * 80)
+
+  const newLeft = lastIsland.bounds.right + gap
+  const newX    = newLeft + w / 2
+
+  // y: 상승 폭 (진행할수록 상승폭이 줄어듦 — 섬이 더 좁아지는 것과 균형)
+  const heightStep = Math.round(THREE.MathUtils.lerp(210, 110, progress) + (Math.random() - 0.5) * 60)
+  const newY = lastIsland.bowlFloor + heightStep
+
+  // 형태 순환 (bowl 위주, 가끔 ramp/wave 삽입)
+  const shapeType = SHAPE_SEQUENCE[index % SHAPE_SEQUENCE.length]
+
+  return { x: newX, y: newY, w, depth, rimH, shapeType }
 }
 
 export function getTerrainTopY(terrain, x) {

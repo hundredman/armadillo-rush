@@ -6,12 +6,14 @@ import { Background } from './renderer/background.js'
 import { PostFX } from './renderer/postfx.js'
 import { ParticleSystem } from './game/particles.js'
 import { StateMachine, State } from './state.js'
+import { PhysicsWorld } from './game/physics.js'
 import {
   DEFAULT_ISLAND_LAYOUT,
   DEFAULT_OBSTACLE_PLACEMENTS,
   createCurvedTerrain,
   createObstacle,
   damageTerrain,
+  generateNextIslandSpec,
   updateTerrainChunks,
   updateTerrainCraters,
   getTerrainSlopeAngle,
@@ -54,12 +56,19 @@ const MAX_FRAME_DT = 0.25     // 탭 비활성 후 복귀 시 스파이럴 방�
 const ARMADILLO_SIZE = 30
 const LAUNCH_SPEED = 850
 
+// 세계관 경계
+const SEA_LEVEL_Y  = -420   // 바다 수면 Y (월드 좌표) — 이 아래로 떨어지면 SPLASH
+const MOON_TARGET_Y = 18000  // 달 목표 고도 (px) — 도달 시 클리어 연출
+
 // 슬링 상수
 const SLING_POS = new THREE.Vector2(-280, -330)  // 슬링 중심 (월드 좌표)
 const SLING_MAX_PULL = 120      // 최대 당김 거리 (월드 px)
 const SLING_MIN_PULL = 18       // 이 이하로 당기면 취소
 const SLING_POWER_MIN = 0.78    // 최소 당김 시 파워 비율
 const SLING_POWER_MAX = 1.0     // 최대 당김 시 파워 비율
+
+// 카메라 뷰포트보다 이 거리만큼 앞서 있으면 새 섬을 스폰
+const ISLAND_SPAWN_LOOKAHEAD = 1200
 
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
@@ -82,6 +91,7 @@ class Game {
     this.renderer.registerPostFX(this.postfx)
     this.particleSystem = new ParticleSystem()
     this.renderer.add(this.particleSystem.mesh)
+    this.physics = new PhysicsWorld()
     this.sm = new StateMachine(State.TITLE)
 
     this.time = 0
@@ -95,6 +105,7 @@ class Game {
     this.slingPower = 0                  // 0~1 파워 비율
     this.slingAngle = Math.PI / 4        // 발사 각도 (radian)
     this.currentIsland = null
+    this.islandIndex = DEFAULT_ISLAND_LAYOUT.length  // 절차적 생성 인덱스
     this.obstacles = []
     this.scenery = []
     this.breakCount = 0
@@ -117,6 +128,16 @@ class Game {
     this.isPaused = false
     this.audio = null
 
+    // 착지 ripple 이펙트 풀 (최대 4개 동시)
+    this.ripples = []
+    this._buildRipplePool()
+
+    // 슬링 고무줄 튕김 애니메이션
+    this.slingSnapTime = 0       // 발사 후 튕김 경과 시간
+
+    // 클릭 유지 시간 측정 (착지 후 hold duration 가속)
+    this.inputHoldStart = -Infinity  // pointerdown 시각 (game time)
+
     // 카메라가 추적할 목표
     this.camTarget = new THREE.Vector2(0, 0)
     this.camPos = new THREE.Vector2(0, 0)
@@ -131,12 +152,17 @@ class Game {
   // ── 월드 빌드: 슬링 + 섬 + 아르마딜로 ──
   _buildPlaceholderWorld() {
     this._buildScenery()
+    // 기본 섬은 islandIndex로 구분: 0 ~ DEFAULT_ISLAND_LAYOUT.length-1 = 고정, 이후 = 절차적
+    this.staticIslands = []
     this.islands = []
     for (const spec of DEFAULT_ISLAND_LAYOUT) {
       const island = createCurvedTerrain(spec)
       this.renderer.add(island.mesh)
       this.islands.push(island)
+      this.staticIslands.push(island)
+      this.physics.addTerrain(island)
     }
+    this.islandIndex = DEFAULT_ISLAND_LAYOUT.length
     this._buildObstacles()
     this._buildSling()
 
@@ -145,6 +171,31 @@ class Game {
     this._resetRun()
 
     this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
+  }
+
+  /** 절차적으로 섬을 추가 생성한다. */
+  _spawnNextIsland() {
+    const last = this.islands[this.islands.length - 1]
+    const spec = generateNextIslandSpec(last, this.islandIndex)
+    this.islandIndex += 1
+    const island = createCurvedTerrain(spec)
+    this.renderer.add(island.mesh)
+    this.islands.push(island)
+    this.physics.addTerrain(island)
+    this.maxHeightPx = Math.max(this.maxHeightPx, island.bounds.top + 240)
+
+    // 절차적 섬에 장애물 배치 (1/2 확률로 하나씩)
+    const obstacleTypes = ['wood', 'stone', 'spike', 'moving', 'iron']
+    const sideTs = [0.25, 0.30, 0.35, 0.65, 0.70, 0.75]
+    if (Math.random() > 0.5) {
+      const t = sideTs[Math.floor(Math.random() * sideTs.length)]
+      const ox = THREE.MathUtils.lerp(island.bounds.left, island.bounds.right, t)
+      const oy = getTerrainTopY(island, ox)
+      const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)]
+      const obstacle = createObstacle(island, type, ox, oy)
+      this.obstacles.push(obstacle)
+      this.renderer.add(obstacle.mesh)
+    }
   }
 
   _buildSling() {
@@ -211,8 +262,18 @@ class Game {
 
   /** 고무줄 + 포켓 + 가이드 업데이트 — _update() 에서 매 프레임 호출 */
   _updateSlingVisuals() {
-    const px = SLING_POS.x + this.slingPull.x
-    const py = SLING_POS.y + this.slingPull.y
+    let px = SLING_POS.x + this.slingPull.x
+    let py = SLING_POS.y + this.slingPull.y
+
+    // 발사 후 고무줄 튕김 감쇠 진동 — slingSnapTime이 남아 있으면 적용
+    if (this.slingSnapTime > 0) {
+      const snapT = 1 - this.slingSnapTime / 0.22    // 0→1 (시간 흐름)
+      const decay = Math.exp(-snapT * 14)            // 지수 감쇠
+      const osc   = Math.sin(snapT * Math.PI * 5)   // 5회 진동
+      const amp   = 28 * decay * osc                // 최대 ±28px
+      px += amp * Math.cos(this.slingAngle + Math.PI)
+      py += amp * Math.sin(this.slingAngle + Math.PI)
+    }
 
     // 고무줄 끝점 = 현재 당김 위치
     const posL = this.slingBandL.geometry.attributes.position
@@ -245,6 +306,55 @@ class Game {
       this.slingGuide.visible = true
     } else {
       this.slingGuide.visible = false
+    }
+  }
+
+  /** 착지 충격파 ripple 링 풀 (최대 4개) */
+  _buildRipplePool() {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      wireframe: true,
+      depthWrite: false,
+    })
+    for (let i = 0; i < 4; i++) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 32), mat.clone())
+      ring.visible = false
+      ring.renderOrder = 5
+      this.renderer.add(ring)
+      this.ripples.push({ mesh: ring, life: 0, maxLife: 0, x: 0, y: 0, maxRadius: 80 })
+    }
+  }
+
+  /** ripple 하나를 월드 위치에서 실행 */
+  _spawnRipple(x, y, color = 0xffffff, maxRadius = 80, duration = 0.45) {
+    const r = this.ripples.find((r) => r.life <= 0)
+    if (!r) return
+    r.x = x
+    r.y = y
+    r.life = duration
+    r.maxLife = duration
+    r.maxRadius = maxRadius
+    r.mesh.material.color.set(color)
+    r.mesh.position.set(x, y, 0.15)
+    r.mesh.visible = true
+  }
+
+  _updateRipples(dt) {
+    for (const r of this.ripples) {
+      if (r.life <= 0) continue
+      r.life -= dt
+      if (r.life <= 0) {
+        r.mesh.visible = false
+        continue
+      }
+      const t = 1 - r.life / r.maxLife        // 0→1
+      const radius = r.maxRadius * t
+      const opacity = (1 - t) * 0.7
+      // RingGeometry 교체 없이 scale로 크기 조절
+      r.mesh.scale.setScalar(radius)
+      r.mesh.material.opacity = opacity
     }
   }
 
@@ -355,6 +465,7 @@ class Game {
       if (handleControlButton(event)) return
       event.preventDefault()
       this._ensureAudio()
+      this.inputHoldStart = this.time
       this._handlePointerDown(event.clientX, event.clientY)
     }, { passive: false })
 
@@ -488,7 +599,7 @@ class Game {
       return
     }
     if (this.sm.is(State.ROLLING)) {
-      this._judgeTiming()
+      this._judgeTimingWithHold()
       return
     }
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
@@ -548,7 +659,7 @@ class Game {
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
     this.currentIsland = null
-    this._restoreTerrain()
+    this._restoreTerrain()  // 절차적 섬 + 장애물 정리 후 static만 남김
     for (const obstacle of this.obstacles) {
       obstacle.hit = false
       obstacle.destroyed = false
@@ -590,7 +701,7 @@ class Game {
     this.slingAngle = Math.PI / 4
     this.currentIsland = null
     this._restoreTerrain()
-    for (const obstacle of this.obstacles) {
+    for (const obstacle of this.obstacles) {  // 절차적 장애물은 _restoreTerrain에서 이미 제거됨
       obstacle.hit = false
       obstacle.destroyed = false
       obstacle.mesh.visible = true
@@ -623,6 +734,28 @@ class Game {
   }
 
   _restoreTerrain() {
+    this.physics.removeAllTerrain()
+
+    // 절차적으로 추가된 섬과 그 장애물 제거
+    if (this.staticIslands) {
+      const staticSet = new Set(this.staticIslands)
+      // 절차적 섬 메시를 씬에서 제거
+      for (const island of this.islands) {
+        if (!staticSet.has(island)) this.renderer.remove(island.mesh)
+      }
+      // 절차적 섬에 속한 장애물 제거
+      const staticIslandSet = staticSet
+      this.obstacles = this.obstacles.filter((obs) => {
+        if (!staticIslandSet.has(obs.terrain)) {
+          this.renderer.remove(obs.mesh)
+          return false
+        }
+        return true
+      })
+      this.islands = [...this.staticIslands]
+    }
+    this.islandIndex = DEFAULT_ISLAND_LAYOUT.length
+
     for (const island of this.islands) {
       island.destroyed = false
       island.mesh.visible = true
@@ -631,7 +764,6 @@ class Game {
         island.mesh.remove(mark)
       }
       island.damageMarks = []
-      // 비행 파편 메시 정리
       if (island.animChunks) {
         for (const chunk of island.animChunks) {
           island.mesh.remove(chunk.mesh)
@@ -641,7 +773,10 @@ class Game {
       for (const child of island.mesh.children) {
         if (child.userData.damageable) child.visible = true
       }
+      this.physics.addTerrain(island)
     }
+
+    this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
   }
 
   _togglePause() {
@@ -658,12 +793,16 @@ class Game {
     this.timingPending = false
     this.lastRating = 'LAUNCH'
     this.stallTime = 0
+    this.slingSnapTime = 0.22              // 고무줄 튕김 애니메이션 시작
     this._setArmadilloColor(0xff1744)
 
-    this.velocity.set(
-      Math.cos(this.slingAngle) * speed,
-      Math.sin(this.slingAngle) * speed,
-    )
+    const vx = Math.cos(this.slingAngle) * speed
+    const vy = Math.sin(this.slingAngle) * speed
+    this.velocity.set(vx, vy)
+
+    // Planck body 초기화 — 발사 위치·속도 동기화
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(vx, vy)
 
     // 슬링 고무줄 리셋 (발사 후)
     this.slingPull.set(0, 0)
@@ -682,10 +821,14 @@ class Game {
     if (!this.sm.transition(State.FALLING)) return
     const launchSpeed = (0.55 + Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO) * 0.45) * LAUNCH_SPEED
     const launchAngle = this._getExitLaunchAngle(this.currentIsland)
-    this.velocity.set(
-      Math.cos(launchAngle) * launchSpeed,
-      Math.sin(launchAngle) * launchSpeed,
-    )
+    const vx = Math.cos(launchAngle) * launchSpeed
+    const vy = Math.sin(launchAngle) * launchSpeed
+    this.velocity.set(vx, vy)
+
+    // Planck body에도 속도 동기화 (누락 시 이전 착지 속도로 비행)
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(vx, vy)
+
     this.currentIsland = null
     this.timingPending = false
   }
@@ -711,7 +854,11 @@ class Game {
 
   _update(dt) {
     if (this.isPaused) {
-      this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+      if (this.sm.is(State.SLINGING)) {
+        this.camTarget.set(SLING_POS.x, SLING_POS.y)
+      } else {
+        this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+      }
       return
     }
 
@@ -721,6 +868,14 @@ class Game {
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this._setArmadilloSprite('jump')
       this._updateFlight(simDt)
+      // 비행 중 아르마딜로를 velocity 방향으로 회전
+      if (this.velocity.lengthSq() > 1) {
+        const targetAngle = Math.atan2(this.velocity.y, this.velocity.x)
+        const diff = targetAngle - this.armadillo.rotation.z
+        // 최단 경로로 보간 (±π 래핑)
+        const wrapped = ((diff + Math.PI) % (Math.PI * 2)) - Math.PI
+        this.armadillo.rotation.z += wrapped * Math.min(1, simDt * 12)
+      }
     } else if (this.sm.is(State.ROLLING)) {
       this._setArmadilloSprite(Math.floor(this.time * 10) % 2 === 0 ? 'walk1' : 'walk2')
       this._updateRolling(simDt)
@@ -730,13 +885,27 @@ class Game {
     }
     this._updateParticles(simDt)
     this._updateEffects(dt)
+    this._tickSlingSnap(dt)
     this._updateScenery()
 
     this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - SLING_POS.y)
     this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - SLING_POS.x)
 
-    // 카메라 추적 대상 = 아르마딜로 위치
-    this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+    // 절차적 섬 스폰: 비행/추락 중일 때만 체크 (SLINGING 중 무한 스폰 방지)
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)) {
+      const lastIsland = this.islands[this.islands.length - 1]
+      if (lastIsland.bounds.left - this.armadillo.position.x < ISLAND_SPAWN_LOOKAHEAD) {
+        this._spawnNextIsland()
+      }
+    }
+
+    // SLINGING 상태에서는 슬링 중심을 카메라 기준점으로,
+    // 나머지 상태에서는 아르마딜로를 추적
+    if (this.sm.is(State.SLINGING)) {
+      this.camTarget.set(SLING_POS.x, SLING_POS.y)
+    } else {
+      this.camTarget.set(this.armadillo.position.x, this.armadillo.position.y)
+    }
   }
 
   _updateScenery() {
@@ -757,39 +926,94 @@ class Game {
     this._updateSlingVisuals()
   }
 
+  _tickSlingSnap(dt) {
+    if (this.slingSnapTime > 0) {
+      this.slingSnapTime = Math.max(0, this.slingSnapTime - dt)
+    }
+  }
+
   _updateFlight(dt) {
-    const prevBottom = this.armadillo.position.y - ARMADILLO_SIZE / 2
+    const prevY    = this.armadillo.position.y
+    const prevVelY = this.velocity.y
 
-    this.velocity.y -= GRAVITY * dt
-    this.armadillo.position.x += this.velocity.x * dt
-    this.armadillo.position.y += this.velocity.y * dt
+    // Planck 스텝 — 중력·충돌·탄성 처리
+    this.physics.step(dt)
+    const state = this.physics.getArmadilloState()
 
-    const nextBottom = this.armadillo.position.y - ARMADILLO_SIZE / 2
+    this.armadillo.position.x = state.x
+    this.armadillo.position.y = state.y
+    this.velocity.set(state.vx, state.vy)
+
+    const prevBottom = prevY - ARMADILLO_SIZE / 2
+    const nextBottom = state.y - ARMADILLO_SIZE / 2
+
+    // ① 위쪽으로 빠르게 통과 → 지형 파괴
     const piercedTerrain = this._findPiercedTerrain()
     if (piercedTerrain) {
       this._breakTerrain(piercedTerrain)
+      // 파괴 후 Planck 지형 갱신 (이미 damaged zone이 처리)
       return
     }
 
-    const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
-    if (landedIsland) {
-      this._landOnIsland(landedIsland)
+    // ② 아래로 착지 — Planck 충돌로 감지 (prevVelY < 0 이었을 때)
+    if (prevVelY < 0 && this.physics.isGrounded()) {
+      const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
+      if (landedIsland) {
+        this._landOnIsland(landedIsland)
+        return
+      }
+    }
+
+    // ③ 달 도달 — 최종 목표
+    if (state.y >= MOON_TARGET_Y) {
+      this._reachMoon()
       return
     }
 
-    const brokenTerrain = this._findUnderTerrainBreak(prevBottom, nextBottom)
-    if (brokenTerrain) {
-      this._breakTerrain(brokenTerrain)
+    // ④ 바다로 추락 감지
+    if (state.y < SEA_LEVEL_Y) {
+      if (this.sm.is(State.FLYING)) {
+        // 첫 발사가 바다로 빠지면 슬링 복귀
+        this.sm.transition(State.SLINGING)
+        this._resetRun()
+      } else {
+        this._gameOver('SPLASH')
+      }
+      return
     }
 
-    if (this.armadillo.position.y < this.camPos.y - 520) {
+    // ⑤ 화면 밖 하단 탈출 (바다 위지만 카메라 훨씬 아래 — 안전망)
+    if (state.y < this.camPos.y - 600) {
       if (this.sm.is(State.FLYING)) {
         this.sm.transition(State.SLINGING)
         this._resetRun()
       } else {
-        this._gameOver('FALL')
+        this._gameOver('SPLASH')
       }
     }
+  }
+
+  _reachMoon() {
+    if (this.sm.is(State.GAMEOVER)) return
+    this.sm.transition(State.GAMEOVER)
+    this.velocity.set(0, 0)
+    this.timingPending = false
+    this.lastRating = 'MOON'
+    this._saveBestRecord()
+    // 달 도달 축하 — 큰 파티클 폭발
+    this.particleSystem.spawnBurst(
+      this.armadillo.position.x, this.armadillo.position.y,
+      0xfff9c4, 48, 320,
+    )
+    this.particleSystem.spawnBurst(
+      this.armadillo.position.x, this.armadillo.position.y,
+      0x80deea, 32, 200,
+    )
+    this.trauma = 1.0
+    this.flashTime = 0.6
+    this._playTone(880, 0.4, 0.12, 'sine')
+    setTimeout(() => this._playTone(1100, 0.3, 0.10, 'sine'), 180)
+    setTimeout(() => this._playTone(1320, 0.5, 0.14, 'sine'), 380)
   }
 
   _findLandingIsland(prevBottom, nextBottom) {
@@ -911,13 +1135,30 @@ class Game {
 
   _landOnIsland(island) {
     this.currentIsland = island
+    // 착지 시 수평 운동량을 speedRatio에 반영, 수직은 소거
+    const hSpeed = Math.abs(this.velocity.x)
+    this.speedRatio = Math.max(
+      ROLLING_MIN_SPEED_RATIO,
+      Math.min(1, hSpeed / MAX_SPEED),
+    )
     this.velocity.set(0, 0)
-    this.speedRatio = Math.max(this.speedRatio, ROLLING_MIN_SPEED_RATIO)
+    this.physics.setArmadilloVelocity(0, 0)
     this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.landingTime = this.time
     this.timingWindow = this._getTimingWindow()
     this.timingPending = true
     this.lastRating = 'LANDED'
+
+    // 착지 충격파 ripple — 착지 속도에 비례한 크기
+    const landSpeed = Math.abs(this.velocity.length?.() ?? hSpeed)
+    const rippleRadius = 40 + this.speedRatio * 100
+    this._spawnRipple(
+      this.armadillo.position.x,
+      this.armadillo.position.y - ARMADILLO_SIZE / 2,
+      0xffffff,
+      rippleRadius,
+      0.38,
+    )
 
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
@@ -1055,6 +1296,18 @@ class Game {
     }
   }
 
+  /** pointerup 기준: 클릭 타이밍 판정 + hold 지속시간 보너스 */
+  _judgeTimingWithHold() {
+    if (!this.timingPending) return
+    this._judgeTiming()
+
+    // hold 지속시간 기반 추가 가속 (착지 이후 누른 시간)
+    const holdSec = Math.max(0, this.time - Math.max(this.inputHoldStart, this.landingTime))
+    // 0~0.4s 유지 → 최대 +0.12 추가 가속
+    const holdBonus = Math.min(holdSec / 0.4, 1.0) * 0.12
+    this.speedRatio = Math.min(1, this.speedRatio + holdBonus)
+  }
+
   _applyTimingRating(rating) {
     if (!this.timingPending && rating !== 'MISS') return
 
@@ -1106,6 +1359,7 @@ class Game {
 
   _updateParticles(dt) {
     this.particleSystem.update(dt, GRAVITY)
+    this._updateRipples(dt)
     // 지형 파편 + 크레이터 애니메이션
     for (const island of this.islands) {
       updateTerrainChunks(island, dt)
@@ -1129,7 +1383,18 @@ class Game {
     this.timingPending = false
     this.lastRating = reason
     this._saveBestRecord()
-    this._playTone(96, 0.22, 0.1, 'triangle')
+
+    if (reason === 'SPLASH') {
+      // 바다로 추락 — 물 튀김 파티클
+      this.particleSystem.spawnBurst(
+        this.armadillo.position.x, this.armadillo.position.y,
+        0x4dd0e1, 20, 180,
+      )
+      this.trauma = Math.min(1, this.trauma + 0.6)
+      this._playTone(140, 0.18, 0.08, 'sine')
+    } else {
+      this._playTone(96, 0.22, 0.1, 'triangle')
+    }
   }
 
   _ensureAudio() {
@@ -1209,16 +1474,17 @@ class Game {
   }
 
   _render(dt) {
-    // 카메라 lerp 추적 (§11)
-    this.camPos.lerp(this.camTarget, CAMERA_LERP)
+    // 카메라 lerp 추적 — FLYING 중 더 빠르게 (앞을 미리 봄), ROLLING/SLINGING은 부드럽게
+    const cameraLerp = this.sm.is(State.FLYING) ? CAMERA_LERP * 1.5 : CAMERA_LERP
+    this.camPos.lerp(this.camTarget, cameraLerp)
     const shake = this.trauma * this.trauma * 16
     const shakeX = (Math.random() - 0.5) * shake
     const shakeY = (Math.random() - 0.5) * shake
     this.renderer.setCenter(this.camPos.x, this.camPos.y, shakeX, shakeY)
 
-    // 배경 높이 진행도 갱신
+    // 배경 높이 진행도 — MOON_TARGET_Y 기준 고정 (절차적 섬이 늘어나도 비율 유지)
     const heightRatio = THREE.MathUtils.clamp(
-      (this.armadillo.position.y + 300) / (this.maxHeightPx + 300), 0, 1)
+      (this.armadillo.position.y - SEA_LEVEL_Y) / (MOON_TARGET_Y - SEA_LEVEL_Y), 0, 1)
     this.background.update(heightRatio, this.time)
 
     // PostFX 파라미터 갱신 후 한 번에 렌더 (BackgroundPass → RenderPass → Effects)
@@ -1259,11 +1525,19 @@ class Game {
       ? `<div class="hud-danger">DANGER ${Math.max(0, STALL_GAMEOVER_SEC - this.stallTime).toFixed(1)}s</div>`
       : ''
 
+    // 달까지 남은 거리
+    const moonDistM = Math.max(0, Math.floor((MOON_TARGET_Y - this.armadillo.position.y) / PX_PER_METER))
+    const moonDistText = moonDistM > 0 ? `${moonDistM}m` : '🌕 REACHED!'
+
     // 슬링 파워 미터 (드래그 중일 때만 표시)
     const slingMeter = this.sm.is(State.SLINGING) ? `
       <div class="meter meter-power">
         <div class="meter-fill power-fill" style="width:${pullPct}%"></div>
       </div>` : ''
+
+    const isMoonClear = this.lastRating === 'MOON'
+    const gameOverTitle = isMoonClear ? '🌕 MOON REACHED!' : (this.lastRating === 'SPLASH' ? '🌊 SPLASH!' : 'GAME OVER')
+    const gameOverTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
 
     this.ui.innerHTML = `
       <div class="hud-panel hud-stats">
@@ -1271,6 +1545,7 @@ class Game {
         <div><span>SCORE</span><strong>${score}</strong></div>
         <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
         <div><span>DIST</span><strong>${distanceM}m</strong></div>
+        <div><span>TO MOON</span><strong>${moonDistText}</strong></div>
         <div><span>SPEED</span><strong>${speed}%</strong></div>
         <div><span>ANGLE</span><strong>${slingDeg}°</strong></div>
         <div><span>POWER</span><strong>${slingPowerPct}%</strong></div>
@@ -1290,6 +1565,7 @@ class Game {
       ${this.sm.is(State.TITLE) ? `
         <div class="start-layer">
           <div class="start-title">ARMADILLO RUSH</div>
+          <div class="start-subtitle">🌊 Sea → Sky → 🌕 Moon</div>
           <div class="start-subtitle">Drag the sling to launch!</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
         </div>
@@ -1298,7 +1574,7 @@ class Game {
       ${this.sm.is(State.GAMEOVER) ? `
         <div class="modal-layer">
           <div class="result-card">
-            <div class="result-title">GAME OVER</div>
+            <div class="${gameOverTitleClass}">${gameOverTitle}</div>
             <div class="result-grid">
               <div><span>SCORE</span><strong>${score}</strong></div>
               <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
@@ -1307,7 +1583,7 @@ class Game {
               <div><span>MAX COMBO</span><strong>${this.maxCombo}</strong></div>
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
             </div>
-            <button class="clickable primary-button" data-action="restart">Restart</button>
+            <button class="clickable primary-button" data-action="restart">Retry</button>
           </div>
         </div>
       ` : ''}

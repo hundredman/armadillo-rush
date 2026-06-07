@@ -1,6 +1,6 @@
 # Armadillo Rush — 게임 디자인 문서
 
-> 대포로 쏴라. 타이밍을 맞춰라. 최대한 높이 올라가라.
+> 슬링으로 쏴라. 타이밍을 맞춰라. 최대한 높이 올라가라.
 
 ---
 
@@ -25,13 +25,23 @@
 
 ## 1. 한 줄 핵심
 
-**"속도가 곧 파괴력이자 도약력이다. 타이밍을 맞춰 가속하고, 공중 섬을 올라가라."**
+**"바다를 박차고, 섬을 디디며, 달에 닿아라."**
 
-대포에서 발사된 아르마딜로가 공중에 떠 있는 섬들을 타고 위로 올라간다.
+바다 절벽 위의 슬링에서 발사된 아르마딜로가 공중에 떠 있는 섬들을 타고 위로 올라가 달을 목표로 한다.
 섬에 착지하는 순간 타이밍에 맞게 가속하면 속도가 붙고,
 속도가 높으면 장애물과 지형을 파괴하며 돌파할 수 있다.
-속도가 부족하면 섬 사이 갭을 넘지 못하고 추락한다.
-얼마나 높이, 얼마나 멀리 올라가느냐가 목표다.
+속도가 부족하면 섬 사이 갭을 넘지 못하고 바다로 추락(SPLASH)한다.
+
+### 세계 구조
+
+```
+🌕 달          ← 최종 목표 — MOON REACHED! (클리어)
+   ↑ 달 궤도   (회청 글로우, 달 오브젝트 등장)
+우주            (검정 배경, 별 & 은하수 가득)
+성층권          (짙은 보라 → 검정 전환)
+밤하늘          (남색, 첫 별 등장)
+🌊 바다        ← 낙사 — SPLASH! (게임 오버)
+```
 
 ---
 
@@ -66,7 +76,7 @@
 ### 유저 친화성 설계 원칙
 
 ```
-1. 대포 드래그 발사 — 누구나 직관적으로 이해
+1. 슬링 드래그 발사 — 당기는 방향 반대로 발사, 누구나 직관적으로 이해
 2. 착지 타이밍 가속 — 클릭 하나로 완결
 3. 속도 상태를 색상으로 명확히 표시 (빨강=고속, 회색=저속)
 4. 첫 섬은 크고 갭이 좁음 — 자연스럽게 조작법 습득
@@ -213,19 +223,16 @@ speedRatio < 0.4
   - 베스트 기록 (최고 높이 + 최고 점수) 표시
   - 탭/클릭으로 즉시 시작
     ↓
-[대포 준비]
-  - 아르마딜로가 대포에 장전
-  - 드래그로 각도 + 발사력 설정
-  - 점선 궤적 미리보기
-  - 손/버튼 떼면 발사
+[슬링 준비 — SLINGING 상태]
+  - 아르마딜로가 슬링 포켓에 장전
+  - 드래그로 각도 + 발사력 동시 설정 (당긴 방향의 반대로 발사)
+  - Y자 슬링 + 고무줄 비주얼, 점선 궤적 미리보기
+  - 손/버튼 떼면 발사 (최소 당김 미달 시 취소)
     ↓
-[비행 단계]
-  - 포물선 궤도로 날아가 첫 섬에 착지
-  - 첫 착지는 타이밍 판정 면제 (콤보 시작 안 됨)
-    → 플레이어가 인디케이터를 볼 준비가 안 된 상태이므로
-  - 첫 착지부터 구름 시작, 이후 갭/착지마다 타이밍 판정 발생
-  - 첫 섬 도달 실패 시 (발사력 부족으로 섬 못 닿음):
-    → 게임 오버 아님. 대포로 자동 복귀하여 재발사
+[비행 단계 — FLYING 상태]
+  - Planck.js 물리: 중력·충돌·탄성 처리
+  - 고속으로 지형 하단을 위로 통과 시 지형 파괴
+  - 첫 섬 도달 실패 시 → 슬링으로 자동 복귀하여 재발사
     → 첫 섬은 항상 도달 가능 위치에 배치 (튜토리얼 성격)
     ↓
 [구름 단계 — 무한 반복]
@@ -275,7 +282,7 @@ speedRatio < 0.4
 ## 5. 조작 방법
 
 ### 설계 원칙
-- 발사: 드래그 1번
+- 발사: 슬링 드래그 1번 (당기는 방향 반대로 발사)
 - 구름 중: 클릭/탭 1번 (타이밍 가속)
 - 총 2가지 동작으로 완결
 - 모바일 한 손 플레이 가능
@@ -284,7 +291,7 @@ speedRatio < 0.4
 
 | 단계 | 입력 | 동작 |
 |------|------|------|
-| 발사 준비 | 대포 영역 드래그 | 각도 + 발사력 설정 |
+| 발사 준비 | 슬링 드래그 | 각도 + 발사력 동시 설정 |
 | 발사 | 손 떼기 | 아르마딜로 발사 |
 | 구름 중 | 화면 탭 | 착지 타이밍 가속 |
 
@@ -292,19 +299,21 @@ speedRatio < 0.4
 
 | 단계 | 입력 | 동작 |
 |------|------|------|
-| 발사 준비 | 마우스 드래그 | 각도 + 발사력 설정 |
+| 발사 준비 | 마우스 드래그 | 각도 + 발사력 동시 설정 |
 | 발사 | 마우스 버튼 놓기 | 아르마딜로 발사 |
 | 구름 중 | 클릭 or Space | 착지 타이밍 가속 |
+| Space (SLINGING) | Space | 45도 고정 풀파워 즉시 발사 |
 
 ### 유저 편의 세부 사항
 
+- **슬링 비주얼**: Y자 나무 슬링 + 고무줄이 당김 위치로 실시간 갱신
 - **궤적 점선 미리보기**: 드래그 중 포물선 궤도 점선 표시
-- **발사력 게이지**: 드래그 길이로 발사력 조절, 최대치 시각 표시
-- **타이밍 인디케이터**: 착지 예상 0.5초 전부터 아르마딜로 주변에 원형 게이지 표시 (게이지가 채워지며 착지 순간 만료 → 플레이어가 타이밍 예측 가능)
-- **속도계 UI**: 아르마딜로 색상 + 화면 한쪽 바로 현재 상태 즉시 확인
+- **발사력 게이지**: 드래그 길이로 발사력 조절, HUD에 % 표시
+- **타이밍 인디케이터**: 착지 이후 윈도우가 줄어드는 게이지 바로 표시
+- **속도계 UI**: 아르마딜로 색상 + HUD 즉시 확인
 - **높이/거리 카운터**: 상단 항상 표시
-- **재시도 버튼**: 항상 화면 상단 노출 — 즉시 재시작
-- **드래그 최소 거리**: 20px threshold — 오발사 방지
+- **재시도 버튼**: 항상 화면 하단 노출 — 즉시 재시작
+- **드래그 최소 거리**: 18px threshold — 오발사 방지
 - **콤보 표시**: 연속 PERFECT 횟수 화면에 표시 (PERFECT 외 판정 시 0으로 리셋)
 
 ---
@@ -330,8 +339,21 @@ speedRatio < 0.4
  /      \(갭)
 [섬 A] ← 첫 착지
   |
-[대포]
+[슬링]
 ```
+
+### 섬 형태 — 3종 (모두 매끄러운 CatmullRom 스플라인)
+
+모든 섬은 울퉁불퉁함 없이 매끄러운 곡선으로 생성된다.
+아르마딜로가 자연스럽게 가속/감속하며 구를 수 있는 형태만 허용.
+
+| 형태 | 모양 | 특징 | 전략 |
+|------|------|------|------|
+| **Bowl (그릇)** | U자 — 중심 낮고 양 끝 높음 | 중심으로 자연 가속 → 양쪽 경사면에서 감속 | 기본 섬, 타이밍 가속이 중요한 구간 |
+| **Ramp (경사)** | 왼쪽 낮고 오른쪽 높은 오르막 | 진입 시 자연 가속 구간 없음, 끝에서 높이 획득 | 도약 준비 구간 |
+| **Wave (파도)** | S커브 — 낮은 입구 → 중간 고원 → 높은 출구 | 중간 평탄 구간에서 타이밍 여유 | 콤보 쌓기 쉬운 구간 |
+
+절차적 생성 시 Bowl 위주로 배치하되 가끔 Ramp/Wave 삽입 (`bowl → bowl → ramp → bowl → wave → ...` 순환).
 
 ### 지형 곡선 종류 및 속도 효과
 
@@ -693,33 +715,41 @@ Three.js ShaderMaterial / RawShaderMaterial로 직접 GLSL 작성.
 ### 기술 스택
 
 ```
-렌더링: Three.js r165+ (WebGL 2.0 기반)
-셰이더: 커스텀 GLSL (ShaderMaterial / RawShaderMaterial 직접 작성)
-수학:   Three.js 내장 (Vector2/3, Matrix4) + 자체 포물선/곡선 계산
-물리:   자체 구현 (중력, 마찰, 충돌, 곡선 지형 이동)
-언어:   Vanilla JavaScript (ES6+)
-플랫폼: PC + 모바일 브라우저
-사운드: 최소 효과음만 (착지/파괴/타이밍) — WebAudio 간단 재생.
-        BGM·믹싱 등 본격 사운드 설계는 본 과제 범위 외 (WebGL 비주얼 어필이 우선).
-시간:   고정 deltaTime 적용. 모든 시간 기반 값은 /초 단위로 정의, 매 프레임 deltaTime 곱함.
-        (프레임레이트 무관 동작 보장 — 모바일 저사양 필수)
+렌더링:          Three.js r171 (WebGL 2.0 기반)
+포스트프로세싱:   postprocessing ^6 (EffectComposer — Bloom, ChromaticAberration, Vignette)
+물리 엔진:       Planck.js ^1 (Box2D 포트 — 비행·추락 구간 담당)
+셰이더:          커스텀 GLSL (ShaderMaterial — particle, crater, background)
+빌드:            Vite 6 (ESM, ?raw GLSL import)
+언어:            Vanilla JavaScript (ES Modules)
+플랫폼:          PC + 모바일 브라우저
+사운드:          Web Audio API (WebAudioContext oscillator, 최소 효과음)
+시간:            고정 deltaTime(1/60s) 누적 방식 물리 루프.
+                 프레임레이트 무관 동작 보장.
 ```
 
 ### 물리 시스템 설계
 
-#### 발사 물리
+#### 발사 물리 (슬링)
 
 ```javascript
-// 드래그 방향/길이 → 초기 속도
-const angle = Math.atan2(dragDY, dragDX)
-const power = Math.min(dragLength / maxDragLength, 1.0)  // 0.0~1.0
-speedRatio = power                                       // 발사력이 곧 초기 speedRatio
-const actualSpeed = speedRatio * MAX_SPEED
-velocity.x = Math.cos(angle) * actualSpeed
-velocity.y = Math.sin(angle) * actualSpeed
+// 슬링 드래그 → 발사 각도 + 파워 계산
+// 당긴 방향의 정반대가 발사 방향
+const raw = worldPos.sub(SLING_POS)           // 터치 - 슬링 중심
+const len = Math.min(raw.length(), SLING_MAX_PULL)
+const slingAngle = Math.atan2(-raw.y, -raw.x) // 반대 방향
 
-// 발사 각도에 따른 착지 속도 손실 (speedRatio 기준)
-if (landingAngle > 45) speedRatio -= 0.10  // 가파른 착지 -0.10
+// 당김 거리로 파워 선형 보간 (SLING_POWER_MIN=0.78 ~ SLING_POWER_MAX=1.0)
+const slingPower = lerp(SLING_POWER_MIN, SLING_POWER_MAX,
+  (len - SLING_MIN_PULL) / (SLING_MAX_PULL - SLING_MIN_PULL))
+
+// 발사
+const speed = slingPower * LAUNCH_SPEED       // LAUNCH_SPEED = 850 px/s
+velocity.x = Math.cos(slingAngle) * speed
+velocity.y = Math.sin(slingAngle) * speed
+
+// Planck body에 동일 속도 설정 (비행 물리는 Planck가 담당)
+physics.setArmadilloPos(armadillo.position)
+physics.setArmadilloVelocity(velocity.x, velocity.y)
 ```
 
 #### 구름 물리 (지형 위)
@@ -811,31 +841,36 @@ if (speedRatio >= obstacle.breakThreshold) {   // 재질 임계값(§7) 충족
 speedRatio = Math.max(0, speedRatio)
 ```
 
-### 파일 구조
+### 파일 구조 (현재 구현 기준)
 
 ```
 /armadillo-rush
 ├── index.html
-├── main.js                   # 게임 루프, 상태 관리, Three.js Scene 초기화
-├── renderer/
-│   ├── shaders.js            # 커스텀 GLSL 셰이더 소스 모음
-│   ├── particles.js          # 불꽃, 파편, 먼지 파티클 (Three.js Points)
-│   ├── camera.js             # 아르마딜로 추적 (lerp), 셰이크 (Perlin Noise)
-│   └── postprocess.js        # 글로우/블룸 (WebGLRenderTarget)
-├── game/
-│   ├── armadillo.js          # 아르마딜로 물리 + 속도 시스템
-│   ├── cannon.js             # 대포 발사 로직
-│   ├── terrain.js            # 섬 지형 생성 + 곡선 물리
-│   ├── obstacle.js           # 장애물 종류 + 파괴 판정
-│   ├── timing.js             # 착지 타이밍 판정 + 콤보
-│   ├── physics.js            # 중력, 마찰, 충돌 (AABB + 곡선)
-│   └── procedural.js         # 절차적 섬/장애물 생성 (높이+거리 기반)
-├── ui/
-│   ├── hud.js                # 속도계, 높이/거리 카운터, 콤보 (HTML overlay)
-│   ├── trajectory.js         # 궤적 점선 미리보기
-│   └── result.js             # 게임 오버 화면 + 베스트 기록
-└── assets/
-    └── textures/             # 텍스처 PNG 파일
+├── vite.config.js
+└── src/
+    ├── main.js               # 게임 루프(fixed-dt), 상태 머신, 슬링 시스템, HUD
+    ├── state.js              # StateMachine (TITLE→SLINGING→FLYING→ROLLING⇄FALLING→GAMEOVER)
+    ├── config.js             # 물리 상수, 점수 설정, 1m=10px 환산
+    ├── assets.js             # Kenney 스프라이트 로더
+    ├── ui.css                # HUD, 게이지, 결과 화면 스타일
+    ├── game/
+    │   ├── terrain.js        # Bowl/Ramp/Wave 지형 생성 (CatmullRom)
+    │   │                     #   + 절차적 섬 생성 (generateNextIslandSpec)
+    │   │                     #   + 지형 파괴 (damageTerrain, ShaderMaterial crater)
+    │   │                     #   + 파편 물리 애니메이션 (updateTerrainChunks)
+    │   ├── particles.js      # InstancedMesh 파티클 (512슬롯, GPU 인스턴싱)
+    │   └── physics.js        # Planck.js 래퍼 (비행·추락 — dynamic Circle + static Chain)
+    ├── renderer/
+    │   ├── scene.js          # Renderer + OrthographicCamera + resize 처리
+    │   ├── background.js     # 배경 그라데이션 셰이더 (높이 → 밤하늘/우주)
+    │   └── postfx.js         # EffectComposer: BackgroundPass→RenderPass→Bloom+CA+Vignette
+    └── shaders/
+        ├── particle.vert     # 인스턴스 파티클 (aLife, aColor 속성)
+        ├── particle.frag     # 이차 페이드 + AdditiveBlending
+        ├── crater.vert       # UV passthrough
+        ├── crater.frag       # FBM 노이즈 크레이터 엣지 + 생성 플래시
+        ├── background.vert
+        └── background.frag
 ```
 
 ### 성능 최적화
@@ -942,9 +977,40 @@ speedRatio = Math.max(0, speedRatio)
 |------|------|
 | **장르** | 2D 사이드뷰 무한 아케이드 |
 | **목표** | 최대한 높이 + 멀리 (높이 우선) |
-| **조작** | 드래그 발사 + 착지 타이밍 클릭 |
-| **핵심 루프** | 발사 → 착지 → 타이밍 가속 → 갭 도약 → 반복 |
+| **발사** | 슬링 드래그 — 당길수록 파워 증가, 놓으면 발사 |
+| **조작** | 드래그 발사 + 착지 타이밍 클릭/탭 |
+| **핵심 루프** | 슬링 발사 → 착지 → 타이밍 가속 → 갭 도약 → 반복 |
 | **속도 역할** | 파괴력 + 도약력 동시 담당 |
-| **탈락 조건** | 갭 추락 (아래 섬 없음) or 속도 5% 이하 2초 지속 |
-| **부활** | 추락 중 아래 섬 착지 시 가능 |
-| **WebGL 어필** | Phong, 파티클, 글로우, 텍스처, 배경 그라데이션 셰이더 |
+| **탈락 조건** | 바다로 추락(SPLASH) or 속도 5% 이하 2초 지속 |
+| **부활** | 추락 중 아래 섬 착지 시 가능 (바다 위이면 생존) |
+| **클리어** | 달 고도(18,000px) 도달 → MOON REACHED! |
+| **지형 형태** | Bowl(U자) / Ramp(경사) / Wave(S파도) — 모두 매끄러운 CatmullRom |
+| **절차적 생성** | 진행도 기반 무한 섬 생성 (폭·깊이·갭 난이도 증가) |
+| **물리** | ROLLING=자체 speedRatio 시스템, FLYING/FALLING=Planck.js |
+| **WebGL 어필** | InstancedMesh 파티클, FBM 크레이터, Bloom, ChromaticAberration, 5단계 배경 셰이더(바다→우주→달) |
+
+---
+
+## 구현 현황 (2026-06-07 기준)
+
+| 기능 | 상태 |
+|------|------|
+| 슬링 발사 시스템 (드래그, 고무줄 비주얼, 궤적 미리보기) | ✅ 완료 |
+| 상태 머신 (TITLE→SLINGING→FLYING→ROLLING⇄FALLING→GAMEOVER) | ✅ 완료 |
+| Bowl/Ramp/Wave 지형 + 절차적 무한 생성 | ✅ 완료 |
+| Planck.js 비행·추락 물리 (중력, 충돌, CCD) | ✅ 완료 |
+| speedRatio 기반 구름 물리 (마찰, 경사) | ✅ 완료 |
+| 타이밍 판정 (PERFECT/GOOD/OK/MISS) + 콤보 | ✅ 완료 |
+| 장애물 5종 + 파괴 판정 | ✅ 완료 |
+| 지형 파괴 (크레이터 셰이더 + 파편 물리) | ✅ 완료 |
+| InstancedMesh 파티클 시스템 (512슬롯) | ✅ 완료 |
+| PostFX (Bloom + ChromaticAberration + Vignette) | ✅ 완료 |
+| 배경 셰이더 (바다→밤하늘→우주→달 궤도 5단계, 별·은하수·바다 반짝임) | ✅ 완료 |
+| 달 오브젝트 (크레이터 데코, 높이별 등장·확대) | ✅ 완료 |
+| 바다 수면 레이어 (낮은 높이에서만 표시) | ✅ 완료 |
+| SPLASH 낙사 / MOON REACHED 클리어 연출 | ✅ 완료 |
+| HUD 달까지 거리 표시 (TO MOON) | ✅ 완료 |
+| 카메라 셰이크 + 슬로우모션 | ✅ 완료 |
+| 점수 시스템 + 베스트 기록 저장 (localStorage) | ✅ 완료 |
+| 비행 중 아르마딜로 velocity 방향 회전 | ✅ 완료 |
+| 모바일 터치 지원 | ✅ 완료 |
