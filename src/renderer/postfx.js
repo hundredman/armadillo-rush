@@ -38,9 +38,7 @@ class BackgroundPass extends Pass {
  */
 export class PostFX {
   constructor(threeRenderer, scene, camera, bgScene, bgCamera) {
-    this.composer = new EffectComposer(threeRenderer, {
-      frameBufferType: 0x8814, // HalfFloat
-    })
+    this.composer = new EffectComposer(threeRenderer)
 
     this.bgPass = new BackgroundPass(bgScene, bgCamera)
 
