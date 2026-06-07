@@ -1,11 +1,9 @@
 import * as THREE from 'three'
 import { SPRITES, createSprite } from '../assets.js'
-import { MATERIAL, OBSTACLE } from '../config.js'
 import craterVert from '../shaders/crater.vert?raw'
 import craterFrag from '../shaders/crater.frag?raw'
 
 export const TERRAIN_THICKNESS = 64
-export const OBSTACLE_SIZE = 34
 export const BASE_DAMAGE_RADIUS = 42
 
 // 그릇(bowl) 모양 섬 레이아웃: x=중심, y=그릇 바닥 높이, w=폭, depth=그릇 깊이, rimH=테두리 높이
@@ -20,24 +18,6 @@ export const DEFAULT_ISLAND_LAYOUT = [
   { x: 6120, y: 930,  w: 480,  depth: 110, rimH: 82 },
   { x: 6640, y: 1210, w: 420,  depth: 115, rimH: 85 },
   { x: 7120, y: 1520, w: 360,  depth: 120, rimH: 88 },
-]
-
-// t는 0~1 (0=왼쪽 끝, 0.5=바닥 중심, 1=오른쪽 끝)
-// 그릇 형태이므로 장애물은 경사면(0.15~0.4, 0.6~0.85)에 배치
-export const DEFAULT_OBSTACLE_PLACEMENTS = [
-  { island: 1, t: 0.30, type: 'wood' },
-  { island: 1, t: 0.68, type: 'spike' },
-  { island: 2, t: 0.25, type: 'stone' },
-  { island: 2, t: 0.72, type: 'wood' },
-  { island: 3, t: 0.35, type: 'moving' },
-  { island: 3, t: 0.70, type: 'spike' },
-  { island: 4, t: 0.28, type: 'stone' },
-  { island: 4, t: 0.65, type: 'spike' },
-  { island: 5, t: 0.32, type: 'iron' },
-  { island: 5, t: 0.68, type: 'moving' },
-  { island: 6, t: 0.30, type: 'stone' },
-  { island: 7, t: 0.35, type: 'wood' },
-  { island: 8, t: 0.65, type: 'iron' },
 ]
 
 /**
@@ -399,35 +379,3 @@ export function getTerrainSlopeAngle(terrain, x) {
   return Math.atan2(next.y - prev.y, next.x - prev.x)
 }
 
-export function createObstacle(terrain, type, x, groundY) {
-  const obstacleConfig = OBSTACLE[type]
-  const materialConfig = obstacleConfig.material ? MATERIAL[obstacleConfig.material] : null
-  const height = type === 'spike' ? 26 : OBSTACLE_SIZE
-  const width = type === 'spike' ? 38 : OBSTACLE_SIZE
-  const group = new THREE.Group()
-  if (type === 'spike') {
-    const sprite = createSprite(SPRITES.obstacle.spike, 46, 46)
-    sprite.position.z = 0.04
-    group.add(sprite)
-  } else {
-    const sprite = createSprite(SPRITES.obstacle[type] ?? SPRITES.obstacle.wood, 46, 46)
-    sprite.position.z = 0.04
-    group.add(sprite)
-  }
-  group.position.set(x, groundY + height / 2, 0)
-
-  return {
-    terrain,
-    type,
-    mesh: group,
-    width,
-    height,
-    hit: false,
-    destroyed: false,
-    config: obstacleConfig,
-    material: materialConfig,
-    baseX: x,
-    baseY: groundY,
-    phase: x * 0.01,
-  }
-}

@@ -9,9 +9,7 @@ import { StateMachine, State } from './state.js'
 import { PhysicsWorld } from './game/physics.js'
 import {
   DEFAULT_ISLAND_LAYOUT,
-  DEFAULT_OBSTACLE_PLACEMENTS,
   createCurvedTerrain,
-  createObstacle,
   damageTerrain,
   generateNextIslandSpec,
   updateTerrainChunks,
@@ -106,9 +104,8 @@ class Game {
     this.slingAngle = Math.PI / 4        // 발사 각도 (radian)
     this.currentIsland = null
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length  // 절차적 생성 인덱스
-    this.obstacles = []
+
     this.scenery = []
-    this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
     this.landingTime = 0
@@ -169,7 +166,6 @@ class Game {
       this.physics.addTerrain(island)
     }
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length
-    this._buildObstacles()
     this._buildSling()
 
     this.armadillo = this._createArmadillo()
@@ -189,19 +185,6 @@ class Game {
     this.islands.push(island)
     this.physics.addTerrain(island)
     this.maxHeightPx = Math.max(this.maxHeightPx, island.bounds.top + 240)
-
-    // 절차적 섬에 장애물 배치 (1/2 확률로 하나씩)
-    const obstacleTypes = ['wood', 'stone', 'spike', 'moving', 'iron']
-    const sideTs = [0.25, 0.30, 0.35, 0.65, 0.70, 0.75]
-    if (Math.random() > 0.5) {
-      const t = sideTs[Math.floor(Math.random() * sideTs.length)]
-      const ox = THREE.MathUtils.lerp(island.bounds.left, island.bounds.right, t)
-      const oy = getTerrainTopY(island, ox)
-      const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)]
-      const obstacle = createObstacle(island, type, ox, oy)
-      this.obstacles.push(obstacle)
-      this.renderer.add(obstacle.mesh)
-    }
   }
 
   _buildSling() {
@@ -676,18 +659,6 @@ class Game {
     }
   }
 
-  _buildObstacles() {
-    for (const placement of DEFAULT_OBSTACLE_PLACEMENTS) {
-      const terrain = this.islands[placement.island]
-      if (!terrain) continue
-      const x = THREE.MathUtils.lerp(terrain.bounds.left, terrain.bounds.right, placement.t)
-      const y = getTerrainTopY(terrain, x)
-      const obstacle = createObstacle(terrain, placement.type, x, y)
-      this.obstacles.push(obstacle)
-      this.renderer.add(obstacle.mesh)
-    }
-  }
-
 
   _resetRun() {
     this.velocity.set(0, 0)
@@ -697,16 +668,8 @@ class Game {
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
     this.currentIsland = null
-    this._restoreTerrain()  // 절차적 섬 + 장애물 정리 후 static만 남김
-    for (const obstacle of this.obstacles) {
-      obstacle.hit = false
-      obstacle.destroyed = false
-      obstacle.mesh.visible = true
-      obstacle.mesh.position.x = obstacle.baseX
-      obstacle.mesh.position.y = obstacle.baseY + obstacle.height / 2
-    }
+    this._restoreTerrain()
     this._clearParticles()
-    this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
     this.landingTime = 0
@@ -739,15 +702,7 @@ class Game {
     this.slingAngle = Math.PI / 4
     this.currentIsland = null
     this._restoreTerrain()
-    for (const obstacle of this.obstacles) {  // 절차적 장애물은 _restoreTerrain에서 이미 제거됨
-      obstacle.hit = false
-      obstacle.destroyed = false
-      obstacle.mesh.visible = true
-      obstacle.mesh.position.x = obstacle.baseX
-      obstacle.mesh.position.y = obstacle.baseY + obstacle.height / 2
-    }
     this._clearParticles()
-    this.breakCount = 0
     this.bestHeightPx = 0
     this.bestDistancePx = 0
     this.landingTime = 0
@@ -781,15 +736,6 @@ class Game {
       for (const island of this.islands) {
         if (!staticSet.has(island)) this.renderer.remove(island.mesh)
       }
-      // 절차적 섬에 속한 장애물 제거
-      const staticIslandSet = staticSet
-      this.obstacles = this.obstacles.filter((obs) => {
-        if (!staticIslandSet.has(obs.terrain)) {
-          this.renderer.remove(obs.mesh)
-          return false
-        }
-        return true
-      })
       this.islands = [...this.staticIslands]
     }
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length
@@ -1212,7 +1158,6 @@ class Game {
     if (!this.currentIsland) return
 
     const bounds = this.currentIsland.bounds
-    this._updateActiveObstacles(dt)
     const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
     const slope = Math.sin(slopeAngle)
     this.speedRatio = THREE.MathUtils.clamp(
@@ -1227,7 +1172,6 @@ class Game {
     }
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.armadillo.rotation.z = slopeAngle
-    this._checkObstacleCollisions()
 
     if (this.timingPending && this.time - this.landingTime > this.timingWindow) {
       this._applyTimingRating('MISS')
@@ -1241,64 +1185,6 @@ class Game {
     }
   }
 
-  _updateActiveObstacles(dt) {
-    for (const obstacle of this.obstacles) {
-      if (obstacle.destroyed || obstacle.terrain !== this.currentIsland) continue
-      if (obstacle.type !== 'moving') continue
-
-      const offset = Math.sin(this.time * 2.2 + obstacle.phase) * 28
-      obstacle.mesh.position.x = obstacle.baseX + offset
-      obstacle.mesh.position.y = getTerrainTopY(obstacle.terrain, obstacle.mesh.position.x) + obstacle.height / 2
-    }
-  }
-
-  _checkObstacleCollisions() {
-    for (const obstacle of this.obstacles) {
-      if (obstacle.destroyed || obstacle.hit || obstacle.terrain !== this.currentIsland) continue
-      if (!this._isObstacleColliding(obstacle)) continue
-
-      this._resolveObstacleHit(obstacle)
-    }
-  }
-
-  _isObstacleColliding(obstacle) {
-    const ax = this.armadillo.position.x
-    const ay = this.armadillo.position.y
-    const ox = obstacle.mesh.position.x
-    const oy = obstacle.mesh.position.y
-    return Math.abs(ax - ox) <= (ARMADILLO_SIZE + obstacle.width) / 2
-      && Math.abs(ay - oy) <= (ARMADILLO_SIZE + obstacle.height) / 2
-  }
-
-  _resolveObstacleHit(obstacle) {
-    obstacle.hit = true
-
-    if (obstacle.type === 'spike') {
-      this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
-      this.lastRating = 'SPIKE'
-      this._setArmadilloColor(0x9e9e9e)
-      this._triggerImpact(0.35, 0xe53935, obstacle.mesh.position.x, obstacle.mesh.position.y)
-      return
-    }
-
-    const threshold = obstacle.material?.threshold ?? Infinity
-    if (this.speedRatio >= threshold) {
-      obstacle.destroyed = true
-      obstacle.mesh.visible = false
-      this.breakCount += 1
-      this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.breakCost)
-      this.lastRating = `${obstacle.type.toUpperCase()} BREAK`
-      this._setArmadilloColor(0xffd54f)
-      this._triggerImpact(0.55, obstacle.material?.color ?? 0xffd54f, obstacle.mesh.position.x, obstacle.mesh.position.y)
-      return
-    }
-
-    this.speedRatio = Math.max(0, this.speedRatio - obstacle.config.blockCost)
-    this.lastRating = `${obstacle.type.toUpperCase()} BLOCK`
-    this.armadillo.position.x = obstacle.mesh.position.x - (ARMADILLO_SIZE + obstacle.width) / 2
-    this._setArmadilloColor(0x9e9e9e)
-    this._triggerImpact(0.45, 0xb0bec5, obstacle.mesh.position.x, obstacle.mesh.position.y)
-  }
 
   _updateStallState(dt) {
     if (this.speedRatio <= STALL_SPEED_RATIO) {
@@ -1513,7 +1399,6 @@ class Game {
       + distanceM * SCORE.perM_distance
       + this.timingScore
       + this.maxCombo * SCORE.comboPerLevel
-      + this.breakCount * SCORE.chainPerBreak
   }
 
   _loadBestRecord() {
@@ -1616,7 +1501,6 @@ class Game {
         <div><span>POWER</span><strong>${slingPowerPct}%</strong></div>
         <div><span>HIT</span><strong>${this.lastRating}</strong></div>
         <div><span>COMBO</span><strong>${this.combo}</strong></div>
-        <div><span>BREAK</span><strong>${this.breakCount}</strong></div>
         ${dangerText}
       </div>
 
@@ -1643,7 +1527,6 @@ class Game {
               <div><span>SCORE</span><strong>${score}</strong></div>
               <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
               <div><span>DIST</span><strong>${distanceM}m</strong></div>
-              <div><span>BREAK</span><strong>${this.breakCount}</strong></div>
               <div><span>MAX COMBO</span><strong>${this.maxCombo}</strong></div>
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
             </div>

@@ -45,22 +45,6 @@ export const MIN_LAUNCH_ANGLE = Math.PI / 12   // 15도 하한 (내리막 끝)
 export const JUMP_PAD_ANGLE = Math.PI / 3      // 점프대 60도
 export const GAP_SAFETY_MARGIN = 0.85          // isGapPlayable 마진
 
-// ── 장애물 / 재질 파괴 임계값 (§7, speedRatio) ───────
-export const MATERIAL = {
-  glass: { threshold: 0.10, score: 200, color: 0xB3E5FC },
-  wood:  { threshold: 0.30, score: 100, color: 0x8D6E63 },
-  stone: { threshold: 0.50, score: 300, color: 0x78909C },
-  brick: { threshold: 0.70, score: 500, color: 0xFF7043 },
-  metal: { threshold: 1.01, score: 0,   color: 0xB0BEC5 },  // 사실상 파괴 불가
-}
-export const OBSTACLE = {
-  wood:   { material: 'wood',  breakCost: 0.10, blockCost: 0.50 },
-  stone:  { material: 'stone', breakCost: 0.20, blockCost: 0.50 },
-  moving: { material: 'wood',  breakCost: 0.15, blockCost: 0.50 },
-  iron:   { material: 'metal', breakCost: 0.00, blockCost: 0.40 },  // 항상 막힘
-  spike:  { material: null,    breakCost: 0.00, blockCost: 0.15 },  // 통과, 파괴 대상 아님
-}
-
 // ── 난이도 곡선 (§8) ─────────────────────────────────
 // 이동 거리(m) 구간별 타이밍 윈도우(초) + 스프링 빈도(0~1)
 export const DISTANCE_TIERS = [
@@ -71,11 +55,11 @@ export const DISTANCE_TIERS = [
 ]
 // 높이(m) 구간별 섬 길이/갭 너비(px) 범위
 export const HEIGHT_TIERS = [
-  { maxM: 50,       island: [300, 500], gap: [80, 120],  obstacles: [] },
-  { maxM: 150,      island: [200, 350], gap: [120, 180], obstacles: ['wood', 'stone'] },
-  { maxM: 300,      island: [150, 280], gap: [150, 220], obstacles: ['wood', 'stone', 'moving'] },
-  { maxM: 500,      island: [100, 180], gap: [180, 300], obstacles: ['iron', 'spike', 'moving'] },
-  { maxM: Infinity, island: [80, 150],  gap: [200, 350], obstacles: ['iron', 'spike', 'stone', 'brick'] },
+  { maxM: 50,       island: [300, 500], gap: [80, 120]  },
+  { maxM: 150,      island: [200, 350], gap: [120, 180] },
+  { maxM: 300,      island: [150, 280], gap: [150, 220] },
+  { maxM: 500,      island: [100, 180], gap: [180, 300] },
+  { maxM: Infinity, island: [80, 150],  gap: [200, 350] },
 ]
 export const MILESTONES = [
   { m: 50, text: 'GOOD!' },
@@ -89,8 +73,7 @@ export const SCORE = {
   perM_height: 100,
   perM_distance: 10,
   timing: { PERFECT: 500, GOOD: 200, OK: 0, MISS: 0 },
-  comboPerLevel: 300,   // 연속 PERFECT 콤보 수 × 이 값
-  chainPerBreak: 500,   // 연쇄 파괴 수 × 이 값
+  comboPerLevel: 300,
 }
 
 // ── 카메라 (§11) ─────────────────────────────────────
