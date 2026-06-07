@@ -7,16 +7,16 @@ export const BASE_DAMAGE_RADIUS = 42
 
 // 그릇(bowl) 모양 섬 레이아웃: x=중심, y=그릇 바닥 높이, w=폭, depth=그릇 깊이, rimH=테두리 높이
 export const DEFAULT_ISLAND_LAYOUT = [
-  { x: 680,  y: -310, w: 800,  depth: 55,  rimH: 38 },   // left=280, 슬링(-280) 앞 충분한 공간
-  { x: 1640, y: -240, w: 1000, depth: 70,  rimH: 52 },
-  { x: 2700, y: -80,  w: 900,  depth: 80,  rimH: 60 },
-  { x: 3560, y: 80,   w: 780,  depth: 88,  rimH: 65 },
-  { x: 4300, y: 260,  w: 680,  depth: 95,  rimH: 70 },
-  { x: 4960, y: 460,  w: 600,  depth: 100, rimH: 74 },
-  { x: 5560, y: 680,  w: 540,  depth: 105, rimH: 78 },
-  { x: 6120, y: 930,  w: 480,  depth: 110, rimH: 82 },
-  { x: 6640, y: 1210, w: 420,  depth: 115, rimH: 85 },
-  { x: 7120, y: 1520, w: 360,  depth: 120, rimH: 88 },
+  { x: 580,  y: -340, w: 380,  depth: 28,  rimH: 20 },   // left=390, 슬링(-280) 앞 공간
+  { x: 1200, y: -280, w: 420,  depth: 32,  rimH: 22 },
+  { x: 1860, y: -160, w: 380,  depth: 36,  rimH: 24 },
+  { x: 2480, y: -20,  w: 340,  depth: 38,  rimH: 26 },
+  { x: 3060, y: 140,  w: 300,  depth: 40,  rimH: 28 },
+  { x: 3600, y: 320,  w: 280,  depth: 42,  rimH: 30 },
+  { x: 4100, y: 520,  w: 260,  depth: 44,  rimH: 32 },
+  { x: 4570, y: 740,  w: 240,  depth: 46,  rimH: 34 },
+  { x: 5010, y: 980,  w: 220,  depth: 48,  rimH: 36 },
+  { x: 5420, y: 1240, w: 200,  depth: 50,  rimH: 38 },
 ]
 
 /**
@@ -303,17 +303,17 @@ const SHAPE_SEQUENCE = ['bowl', 'bowl', 'ramp', 'bowl', 'wave', 'bowl', 'ramp', 
 export function generateNextIslandSpec(lastIsland, index) {
   const progress = Math.min(1, index / 28)  // 0→1로 서서히 어려워짐
 
-  // 폭: 시작 900 → 최저 240
-  const w = Math.round(THREE.MathUtils.lerp(900, 240, progress) + (Math.random() - 0.5) * 60)
+  // 폭: 시작 380 → 최저 140
+  const w = Math.round(THREE.MathUtils.lerp(380, 140, progress) + (Math.random() - 0.5) * 40)
 
-  // 높이 변화 폭: 점점 깊어짐 (55 → 150)
-  const depth = Math.round(THREE.MathUtils.lerp(55, 150, progress) + (Math.random() - 0.5) * 12)
+  // 높이 변화 폭: 얕게 유지 (28 → 55)
+  const depth = Math.round(THREE.MathUtils.lerp(28, 55, progress) + (Math.random() - 0.5) * 8)
 
   // 가장자리 높이
-  const rimH = Math.round(THREE.MathUtils.lerp(38, 95, progress) + (Math.random() - 0.5) * 10)
+  const rimH = Math.round(THREE.MathUtils.lerp(20, 38, progress) + (Math.random() - 0.5) * 6)
 
   // 섬 간격: 수평 갭
-  const gap = Math.round(THREE.MathUtils.lerp(160, 280, progress) + Math.random() * 80)
+  const gap = Math.round(THREE.MathUtils.lerp(120, 220, progress) + Math.random() * 60)
 
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2

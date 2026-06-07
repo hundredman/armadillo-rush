@@ -11,8 +11,8 @@ export const MAX_SPEED = 900          // px/s, speedRatio 1.0 일 때 실제 속
 export const HIGH_SPEED_THRESHOLD = 0.4  // 고속/저속 연출 분기
 
 // 시간 기반 (연속, /초 — deltaTime 곱함)
-export const FRICTION_PER_SEC = 0.08     // 구름 마찰 (낮을수록 속도감 살아남)
-export const SLOPE_RESIST_PER_SEC = 0.14 // 경사 저항 (낮을수록 올라가기 수월)
+export const FRICTION_PER_SEC = 0.04     // 구름 마찰 (낮을수록 속도감 살아남)
+export const SLOPE_RESIST_PER_SEC = 0.08 // 경사 저항 (낮을수록 올라가기 수월)
 
 // 이벤트 기반 (순간, 1회 가감)
 export const SPEED_BONUS = { PERFECT: 0.35, GOOD: 0.18, OK: 0.07, MISS: 0.0 }
@@ -48,10 +48,10 @@ export const GAP_SAFETY_MARGIN = 0.85          // isGapPlayable 마진
 // ── 난이도 곡선 (§8) ─────────────────────────────────
 // 이동 거리(m) 구간별 타이밍 윈도우(초) + 스프링 빈도(0~1)
 export const DISTANCE_TIERS = [
-  { maxM: 300,      window: 0.50, springFreq: 0.6 },
-  { maxM: 800,      window: 0.35, springFreq: 0.35 },
-  { maxM: 1500,     window: 0.25, springFreq: 0.15 },
-  { maxM: Infinity, window: 0.15, springFreq: 0.0 },
+  { maxM: 300,      window: 1.20, springFreq: 0.6 },
+  { maxM: 800,      window: 0.90, springFreq: 0.35 },
+  { maxM: 1500,     window: 0.70, springFreq: 0.15 },
+  { maxM: Infinity, window: 0.55, springFreq: 0.0 },
 ]
 // 높이(m) 구간별 섬 길이/갭 너비(px) 범위
 export const HEIGHT_TIERS = [

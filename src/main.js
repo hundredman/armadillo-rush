@@ -1121,7 +1121,6 @@ class Game {
 
   _landOnIsland(island) {
     this.currentIsland = island
-    // 착지 시 수평 운동량을 speedRatio에 반영, 수직은 소거
     const hSpeed = Math.abs(this.velocity.x)
     this.speedRatio = Math.max(
       ROLLING_MIN_SPEED_RATIO,
@@ -1135,8 +1134,12 @@ class Game {
     this.timingPending = true
     this.lastRating = 'LANDED'
 
-    // 착지 충격파 ripple — 착지 속도에 비례한 크기
-    const landSpeed = Math.abs(this.velocity.length?.() ?? hSpeed)
+    // 착지 즉시 지형 파괴 (속도 무관, 항상)
+    const damage = this._getTerrainDamageProfile(Math.max(UNDER_BREAK_SPEED + 1, hSpeed))
+    damageTerrain(island, this.armadillo.position.x, damage.radius, damage.depth)
+    this.particleSystem.spawnDirt(this.armadillo.position.x, this.armadillo.position.y, 18 + Math.floor(damage.force * 16))
+
+    // 착지 충격파 ripple
     const rippleRadius = 40 + this.speedRatio * 100
     this._spawnRipple(
       this.armadillo.position.x,
@@ -1145,6 +1148,7 @@ class Game {
       rippleRadius,
       0.38,
     )
+    this._triggerImpact(0.3 + this.speedRatio * 0.3, 0x6d4c41, this.armadillo.position.x, this.armadillo.position.y)
 
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
@@ -1175,8 +1179,9 @@ class Game {
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.armadillo.rotation.z = slopeAngle
 
+    // 타이밍 윈도우 종료 → 자동 GOOD (미스 없음)
     if (this.timingPending && this.time - this.landingTime > this.timingWindow) {
-      this._applyTimingRating('MISS')
+      this._applyTimingRating('GOOD')
     }
 
     this._updateStallState(dt)
