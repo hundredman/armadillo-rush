@@ -1663,4 +1663,6 @@ class Game {
 
 const game = new Game()
 game.start()
+console.log('Armadillo Rush booted.')
+game.start()
 console.log('Armadillo Rush — 2단계 기본 발사/비행/착지 루프 부팅 완료.')
