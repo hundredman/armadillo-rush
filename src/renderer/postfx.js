@@ -22,12 +22,12 @@ class BackgroundPass extends Pass {
     this.needsSwap = false
   }
 
-  render(renderer) {
-    const prevAutoClear = renderer.autoClear
+  render(renderer, inputBuffer, outputBuffer) {
+    renderer.setRenderTarget(outputBuffer)
     renderer.autoClear = false
-    renderer.clearColor()
+    renderer.clear()   // color + depth + stencil 전부 클리어
     renderer.render(this.bgScene, this.bgCamera)
-    renderer.autoClear = prevAutoClear
+    renderer.autoClear = true
   }
 }
 
@@ -43,7 +43,8 @@ export class PostFX {
     this.bgPass = new BackgroundPass(bgScene, bgCamera)
 
     this.renderPass = new RenderPass(scene, camera)
-    this.renderPass.clear = false  // BackgroundPass 결과 위에 덧그림
+    this.renderPass.clear = false
+    this.renderPass.clearDepth = true  // depth만 클리어해서 배경 위에 게임 오브젝트 정상 렌더
 
     this.bloom = new BloomEffect({
       intensity: 1.2,
