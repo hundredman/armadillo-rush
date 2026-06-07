@@ -52,7 +52,7 @@ import {
 const FIXED_DT = 1 / 60       // 물리 스텝 (초)
 const MAX_FRAME_DT = 0.25     // 탭 비활성 후 복귀 시 스파이럴 방지 상한
 const ARMADILLO_SIZE = 30
-const LAUNCH_SPEED = 850
+const LAUNCH_SPEED = 1400
 
 // 세계관 경계
 const SEA_LEVEL_Y  = -420   // 바다 수면 Y (월드 좌표) — 이 아래로 떨어지면 SPLASH
@@ -276,17 +276,19 @@ class Game {
     // 포켓
     this.slingPouch.position.set(px, py, 0.07)
 
-    // 가이드 점선 (발사 방향으로 포물선 예측)
+    // 가이드 점선 (발사 방향으로 포물선 예측) — 아르마딜로 현재 위치에서 출발
     if (this.slingDragging && this.slingPower > 0.05) {
       const speed = this.slingPower * LAUNCH_SPEED
       const vx = Math.cos(this.slingAngle) * speed
       const vy = Math.sin(this.slingAngle) * speed
+      const startX = px
+      const startY = py + ARMADILLO_SIZE / 2
       const pts = this.slingGuide.geometry.attributes.position
       for (let i = 0; i < 16; i++) {
-        const t = i * 0.06
+        const t = i * 0.055
         pts.setXYZ(i,
-          SLING_POS.x + vx * t,
-          SLING_POS.y + vy * t - 0.5 * GRAVITY * t * t,
+          startX + vx * t,
+          startY + vy * t - 0.5 * GRAVITY * t * t,
           0.05,
         )
       }

@@ -7,7 +7,7 @@
 export const PX_PER_METER = 10        // 1m = 10px
 
 // ── 속도 시스템 (§3) ─────────────────────────────────
-export const MAX_SPEED = 400          // px/s, speedRatio 1.0 일 때 실제 속도
+export const MAX_SPEED = 900          // px/s, speedRatio 1.0 일 때 실제 속도
 export const HIGH_SPEED_THRESHOLD = 0.4  // 고속/저속 연출 분기
 
 // 시간 기반 (연속, /초 — deltaTime 곱함)
