@@ -427,29 +427,61 @@ class Game {
 
   _createArmadillo() {
     const group = new THREE.Group()
+
+    // 그림자
     const shadow = new THREE.Mesh(
       new THREE.CircleGeometry(20, 24),
       new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }),
     )
     shadow.scale.set(1.2, 0.28, 1)
     shadow.position.set(0, -18, -0.04)
-    const sprite = createSprite(SPRITES.character.idle, 58, 58)
-    sprite.position.z = 0.08
-    group.add(shadow, sprite)
-    this.armadilloSprite = sprite
-    this.armadilloSpriteState = 'idle'
+
+    // 몸통 (원)
+    this.armadilloBody = new THREE.Mesh(
+      new THREE.CircleGeometry(15, 32),
+      new THREE.MeshBasicMaterial({ color: 0x8d6e63 }),
+    )
+    this.armadilloBody.position.z = 0.06
+
+    // 등껍질 (약간 납작한 반원 — 위쪽 호)
+    this.armadilloShell = new THREE.Mesh(
+      new THREE.CircleGeometry(14, 24, 0, Math.PI),
+      new THREE.MeshBasicMaterial({ color: 0x5d4037 }),
+    )
+    this.armadilloShell.position.set(0, 1, 0.07)
+
+    // 껍질 줄무늬 3개
+    this.armadilloStripes = []
+    for (let i = 0; i < 3; i++) {
+      const stripe = new THREE.Mesh(
+        new THREE.PlaneGeometry(22 - i * 5, 2.5),
+        new THREE.MeshBasicMaterial({ color: 0x4e342e }),
+      )
+      stripe.position.set(0, 5 - i * 5, 0.08)
+      this.armadilloStripes.push(stripe)
+      group.add(stripe)
+    }
+
+    // 눈 (작은 흰 점)
+    const eye = new THREE.Mesh(
+      new THREE.CircleGeometry(2.5, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    )
+    eye.position.set(10, 3, 0.09)
+
+    group.add(shadow, this.armadilloBody, this.armadilloShell, eye)
+    this.armadilloBodyMat = this.armadilloBody.material
+    this.armadilloShellMat = this.armadilloShell.material
     return group
   }
 
   _setArmadilloColor(color) {
-    this.armadilloSprite.material.color.set(color)
+    if (this.armadilloBodyMat) this.armadilloBodyMat.color.set(color)
   }
 
+  // 스프라이트 전환은 이제 껍질 색으로 대체 — 메서드는 호환성 유지
   _setArmadilloSprite(state) {
-    if (this.armadilloSpriteState === state) return
-    this.armadilloSpriteState = state
-    this.armadilloSprite.material.map = SPRITES.character[state]
-    this.armadilloSprite.material.needsUpdate = true
+    // rolling: 껍질 회전으로 표현 (rotation은 _updateRolling에서 처리)
   }
 
   _bindInput() {

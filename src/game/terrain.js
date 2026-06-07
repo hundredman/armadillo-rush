@@ -10,16 +10,16 @@ export const BASE_DAMAGE_RADIUS = 42
 
 // 그릇(bowl) 모양 섬 레이아웃: x=중심, y=그릇 바닥 높이, w=폭, depth=그릇 깊이, rimH=테두리 높이
 export const DEFAULT_ISLAND_LAYOUT = [
-  { x: 200,  y: -310, w: 920,  depth: 55,  rimH: 38 },
-  { x: 1140, y: -240, w: 1180, depth: 70,  rimH: 52 },
-  { x: 2100, y: -80,  w: 900,  depth: 80,  rimH: 60 },
-  { x: 2940, y: 80,   w: 780,  depth: 88,  rimH: 65 },
-  { x: 3680, y: 260,  w: 680,  depth: 95,  rimH: 70 },
-  { x: 4340, y: 460,  w: 600,  depth: 100, rimH: 74 },
-  { x: 4940, y: 680,  w: 540,  depth: 105, rimH: 78 },
-  { x: 5500, y: 930,  w: 480,  depth: 110, rimH: 82 },
-  { x: 6020, y: 1210, w: 420,  depth: 115, rimH: 85 },
-  { x: 6500, y: 1520, w: 360,  depth: 120, rimH: 88 },
+  { x: 680,  y: -310, w: 800,  depth: 55,  rimH: 38 },   // left=280, 슬링(-280) 앞 충분한 공간
+  { x: 1640, y: -240, w: 1000, depth: 70,  rimH: 52 },
+  { x: 2700, y: -80,  w: 900,  depth: 80,  rimH: 60 },
+  { x: 3560, y: 80,   w: 780,  depth: 88,  rimH: 65 },
+  { x: 4300, y: 260,  w: 680,  depth: 95,  rimH: 70 },
+  { x: 4960, y: 460,  w: 600,  depth: 100, rimH: 74 },
+  { x: 5560, y: 680,  w: 540,  depth: 105, rimH: 78 },
+  { x: 6120, y: 930,  w: 480,  depth: 110, rimH: 82 },
+  { x: 6640, y: 1210, w: 420,  depth: 115, rimH: 85 },
+  { x: 7120, y: 1520, w: 360,  depth: 120, rimH: 88 },
 ]
 
 // t는 0~1 (0=왼쪽 끝, 0.5=바닥 중심, 1=오른쪽 끝)
