@@ -46,6 +46,14 @@ export class Renderer {
     // devicePixelRatio 는 2 로 상한 (모바일 과부하 방지)
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setSize(w, h, false)
+
+    // PostFX composer도 리사이즈 (등록된 경우)
+    if (this._postfx) this._postfx.setSize(w, h)
+  }
+
+  /** PostFX 참조 등록 — 리사이즈 연동 */
+  registerPostFX(postfx) {
+    this._postfx = postfx
   }
 
   /** 카메라 셰이크 오프셋을 반영해 중심을 이동 (camera.js 가 호출) */

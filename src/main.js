@@ -3,14 +3,20 @@ import './ui.css'
 import { SPRITES, createSprite } from './assets.js'
 import { Renderer } from './renderer/scene.js'
 import { Background } from './renderer/background.js'
+import { PostFX } from './renderer/postfx.js'
+import { ParticleSystem } from './game/particles.js'
 import { StateMachine, State } from './state.js'
 import {
   DEFAULT_ISLAND_LAYOUT,
   DEFAULT_OBSTACLE_PLACEMENTS,
   createCurvedTerrain,
   createObstacle,
+  damageTerrain,
+  updateTerrainChunks,
+  updateTerrainCraters,
   getTerrainSlopeAngle,
   getTerrainTopY,
+  isTerrainDamagedAt,
 } from './game/terrain.js'
 import {
   CAMERA_LERP,
@@ -58,7 +64,8 @@ const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
 const ROLLING_MIN_SPEED_RATIO = 0.38
 const UNDER_BREAK_SPEED = 520
-const PARTICLE_COUNT = 18
+const DAMAGE_SPEED_FULL = 940
+const LAUNCH_BLAST_POWER = 0.96
 const UI_CANNON_X = 92
 const UI_CANNON_Y = 104
 const UI_AIM_RADIUS = 72
@@ -68,6 +75,16 @@ class Game {
     const canvas = document.getElementById('game-canvas')
     this.renderer = new Renderer(canvas)
     this.background = new Background(this.renderer)
+    this.postfx = new PostFX(
+      this.renderer.renderer,
+      this.renderer.scene,
+      this.renderer.camera,
+      this.background.scene,
+      this.background.camera,
+    )
+    this.renderer.registerPostFX(this.postfx)
+    this.particleSystem = new ParticleSystem()
+    this.renderer.add(this.particleSystem.mesh)
     this.sm = new StateMachine(State.TITLE)
 
     this.time = 0
@@ -81,7 +98,6 @@ class Game {
     this.powerCharging = false
     this.currentIsland = null
     this.obstacles = []
-    this.particles = []
     this.scenery = []
     this.breakCount = 0
     this.bestHeightPx = 0
@@ -124,7 +140,6 @@ class Game {
       this.islands.push(island)
     }
     this._buildObstacles()
-    this._buildParticlePool()
 
     const cannonBase = new THREE.Mesh(
       new THREE.BoxGeometry(80, 24, 1),
@@ -328,22 +343,6 @@ class Game {
     }
   }
 
-  _buildParticlePool() {
-    const geom = new THREE.BoxGeometry(8, 8, 1)
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const mesh = new THREE.Mesh(
-        geom,
-        new THREE.MeshBasicMaterial({ color: 0xffd54f }),
-      )
-      mesh.visible = false
-      this.renderer.add(mesh)
-      this.particles.push({
-        mesh,
-        velocity: new THREE.Vector2(),
-        life: 0,
-      })
-    }
-  }
 
   _resetRun() {
     this.velocity.set(0, 0)
@@ -431,6 +430,21 @@ class Game {
     for (const island of this.islands) {
       island.destroyed = false
       island.mesh.visible = true
+      island.damageZones = []
+      for (const mark of island.damageMarks) {
+        island.mesh.remove(mark)
+      }
+      island.damageMarks = []
+      // 비행 파편 메시 정리
+      if (island.animChunks) {
+        for (const chunk of island.animChunks) {
+          island.mesh.remove(chunk.mesh)
+        }
+        island.animChunks = []
+      }
+      for (const child of island.mesh.children) {
+        if (child.userData.damageable) child.visible = true
+      }
     }
   }
 
@@ -493,10 +507,12 @@ class Game {
     this.stallTime = 0
     this._setArmadilloColor(0xff1744)
     this.velocity.set(
-      Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
-      Math.sin(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio,
+      Math.cos(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio * (1 + this._getLaunchForce() * 0.12),
+      Math.sin(this.lockedAimAngle) * LAUNCH_SPEED * this.powerRatio * (1 + this._getLaunchForce() * 0.12),
     )
-    this._playTone(220 + this.powerRatio * 180, 0.09, 0.08, 'square')
+    this._carveLaunchPath()
+    this._triggerLaunchImpact()
+    this._playTone(220 + this.powerRatio * 260, 0.12, 0.08 + this.powerRatio * 0.06, 'square')
   }
 
   _launchFromIsland() {
@@ -607,6 +623,12 @@ class Game {
     this.armadillo.position.y += this.velocity.y * dt
 
     const nextBottom = this.armadillo.position.y - ARMADILLO_SIZE / 2
+    const piercedTerrain = this._findPiercedTerrain()
+    if (piercedTerrain) {
+      this._breakTerrain(piercedTerrain)
+      return
+    }
+
     const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
     if (landedIsland) {
       this._landOnIsland(landedIsland)
@@ -635,6 +657,7 @@ class Game {
       if (island.destroyed) continue
       const bounds = island.bounds
       const topY = getTerrainTopY(island, this.armadillo.position.x)
+      if (isTerrainDamagedAt(island, this.armadillo.position.x, ARMADILLO_SIZE / 2)) continue
       const withinX = this.armadillo.position.x >= bounds.left - ARMADILLO_SIZE / 2
         && this.armadillo.position.x <= bounds.right + ARMADILLO_SIZE / 2
       const crossedTop = prevBottom >= topY && nextBottom <= topY
@@ -655,7 +678,28 @@ class Game {
       const withinX = this.armadillo.position.x >= bounds.left - ARMADILLO_SIZE / 2
         && this.armadillo.position.x <= bounds.right + ARMADILLO_SIZE / 2
       const crossedBottom = prevTop <= bounds.bottom && nextTop >= bounds.bottom
+      if (isTerrainDamagedAt(island, this.armadillo.position.x, ARMADILLO_SIZE / 2)) continue
       if (withinX && crossedBottom) return island
+    }
+
+    return null
+  }
+
+  _findPiercedTerrain() {
+    if (this.velocity.length() < UNDER_BREAK_SPEED) return null
+    // 지형 파괴는 위로 통과할 때만 (아래서 위로 돌파)
+    if (this.velocity.y <= 0) return null
+
+    const x = this.armadillo.position.x
+    const centerY = this.armadillo.position.y
+    for (const island of this.islands) {
+      if (island.destroyed) continue
+      if (x < island.bounds.left - ARMADILLO_SIZE / 2 || x > island.bounds.right + ARMADILLO_SIZE / 2) continue
+      if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
+      const topY = getTerrainTopY(island, x)
+      const insideBody = centerY + ARMADILLO_SIZE / 2 >= island.bounds.bottom
+        && centerY - ARMADILLO_SIZE / 2 <= topY
+      if (insideBody) return island
     }
 
     return null
@@ -663,18 +707,68 @@ class Game {
 
   _breakTerrain(terrain) {
     const impactSpeed = this.velocity.length()
+    const movingUp = this.velocity.y > 0
+
     if (impactSpeed < UNDER_BREAK_SPEED) {
-      this.velocity.y = -Math.abs(this.velocity.y) * 0.45
+      if (!movingUp) this.velocity.y = -Math.abs(this.velocity.y) * 0.45
       this.speedRatio = Math.max(0.2, this.speedRatio - 0.12)
       this._triggerImpact(0.35, 0xff7043, this.armadillo.position.x, this.armadillo.position.y)
       return
     }
 
-    terrain.destroyed = true
-    terrain.mesh.visible = false
+    const damage = this._getTerrainDamageProfile(impactSpeed)
+    damageTerrain(terrain, this.armadillo.position.x, damage.radius, damage.depth)
+    this.particleSystem.spawnDirt(this.armadillo.position.x, this.armadillo.position.y, 24 + Math.floor(damage.force * 20))
     this.speedRatio = Math.max(0.2, this.speedRatio - 0.18)
     this._setArmadilloColor(0xffd54f)
-    this._triggerImpact(0.65, 0x4caf50, this.armadillo.position.x, this.armadillo.position.y)
+    this._triggerImpact(0.55 + damage.depth * 0.18, 0x6d4c41, this.armadillo.position.x, this.armadillo.position.y)
+  }
+
+  _getTerrainDamageProfile(speed) {
+    const force = THREE.MathUtils.clamp((speed - UNDER_BREAK_SPEED) / (DAMAGE_SPEED_FULL - UNDER_BREAK_SPEED), 0, 1)
+    return {
+      force,
+      depth: 0.65 + force * 1.35,
+      radius: 42 + force * 76,
+    }
+  }
+
+  _carveLaunchPath() {
+    const forward = new THREE.Vector2(Math.cos(this.lockedAimAngle), Math.sin(this.lockedAimAngle))
+    const samples = [0, 34, 68, 102]
+    for (const sample of samples) {
+      const x = CANNON_POS.x + forward.x * sample
+      const y = CANNON_POS.y + ARMADILLO_SIZE / 2 + forward.y * sample
+      for (const island of this.islands) {
+        if (island.destroyed) continue
+        if (x < island.bounds.left - ARMADILLO_SIZE || x > island.bounds.right + ARMADILLO_SIZE) continue
+        if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE)) continue
+        const topY = getTerrainTopY(island, x)
+        const overlaps = y + ARMADILLO_SIZE / 2 >= island.bounds.bottom
+          && y - ARMADILLO_SIZE / 2 <= topY
+        if (!overlaps) continue
+
+        const damage = this._getTerrainDamageProfile(this.velocity.length())
+        damageTerrain(island, x, damage.radius, damage.depth)
+        this._triggerImpact(0.45 + damage.force * 0.35, 0x6d4c41, x, y)
+      }
+    }
+  }
+
+  _triggerLaunchImpact() {
+    const force = this._getLaunchForce()
+    const strength = 0.35 + force * 0.65
+    const burstX = CANNON_POS.x + Math.cos(this.lockedAimAngle) * 68
+    const burstY = CANNON_POS.y + 10 + Math.sin(this.lockedAimAngle) * 68
+    this.trauma = Math.min(1, this.trauma + strength)
+    this.flashTime = Math.max(this.flashTime, force > 0.85 ? 0.18 : 0.09)
+    this.slowmoTime = Math.max(this.slowmoTime, force > 0.85 ? SLOWMO_SEC * 1.8 : SLOWMO_SEC)
+    this._spawnParticles(burstX, burstY, force > 0.85 ? 0xfff176 : 0xff7043, force > 0.85 ? 16 : 9, 220 + force * 260)
+    if (force > 0.85) this._setArmadilloColor(0xfff176)
+  }
+
+  _getLaunchForce() {
+    return THREE.MathUtils.clamp((this.powerRatio - POWER_MIN) / (POWER_MAX - POWER_MIN), 0, 1)
   }
 
   _landOnIsland(island) {
@@ -710,6 +804,10 @@ class Game {
       1,
     )
     this.armadillo.position.x += this.speedRatio * MAX_SPEED * dt
+    if (isTerrainDamagedAt(this.currentIsland, this.armadillo.position.x, ARMADILLO_SIZE / 2)) {
+      this._launchFromIsland()
+      return
+    }
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     this.armadillo.rotation.z = slopeAngle
     this._checkObstacleCollisions()
@@ -839,7 +937,13 @@ class Game {
       OK: 0xff1744,
       MISS: 0x9e9e9e,
     }
-    this._setArmadilloColor(colorByRating[rating] ?? 0xff1744)
+    const ratingColor = colorByRating[rating] ?? 0xff1744
+    this._setArmadilloColor(ratingColor)
+    if (rating === 'PERFECT') {
+      this.particleSystem.spawnRating(this.armadillo.position.x, this.armadillo.position.y, 0xffd54f, 22)
+    } else if (rating === 'GOOD') {
+      this.particleSystem.spawnRating(this.armadillo.position.x, this.armadillo.position.y, 0xff7043, 14)
+    }
     this._playRatingSound(rating)
   }
 
@@ -858,40 +962,21 @@ class Game {
     this._playTone(90 + strength * 90, 0.08, 0.06 + strength * 0.05, 'sawtooth')
   }
 
-  _spawnParticles(x, y, color) {
-    let spawned = 0
-    for (const particle of this.particles) {
-      if (particle.life > 0) continue
-      particle.life = 0.45 + Math.random() * 0.25
-      particle.mesh.visible = true
-      particle.mesh.material.color.set(color)
-      particle.mesh.position.set(x, y, 0)
-      const angle = Math.random() * Math.PI * 2
-      const speed = 80 + Math.random() * 170
-      particle.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed)
-      spawned += 1
-      if (spawned >= 8) break
-    }
+  _spawnParticles(x, y, color, maxCount = 12, baseSpeed = 120) {
+    this.particleSystem.spawnBurst(x, y, color, maxCount, baseSpeed)
   }
 
   _updateParticles(dt) {
-    for (const particle of this.particles) {
-      if (particle.life <= 0) continue
-      particle.life -= dt
-      particle.velocity.y -= GRAVITY * 0.35 * dt
-      particle.mesh.position.x += particle.velocity.x * dt
-      particle.mesh.position.y += particle.velocity.y * dt
-      particle.mesh.rotation.z += dt * 8
-      particle.mesh.visible = particle.life > 0
+    this.particleSystem.update(dt, GRAVITY)
+    // 지형 파편 + 크레이터 애니메이션
+    for (const island of this.islands) {
+      updateTerrainChunks(island, dt)
+      updateTerrainCraters(island, dt)
     }
   }
 
   _clearParticles() {
-    for (const particle of this.particles) {
-      particle.life = 0
-      particle.mesh.visible = false
-      particle.velocity.set(0, 0)
-    }
+    this.particleSystem.clear()
   }
 
   _updateEffects(dt) {
@@ -985,7 +1070,7 @@ class Game {
     }
   }
 
-  _render() {
+  _render(dt) {
     // 카메라 lerp 추적 (§11)
     this.camPos.lerp(this.camTarget, CAMERA_LERP)
     const shake = this.trauma * this.trauma * 16
@@ -998,8 +1083,9 @@ class Game {
       (this.armadillo.position.y + 300) / (this.maxHeightPx + 300), 0, 1)
     this.background.update(heightRatio, this.time)
 
-    this.background.render()
-    this.renderer.render()
+    // PostFX 파라미터 갱신 후 한 번에 렌더 (BackgroundPass → RenderPass → Effects)
+    this.postfx.update(this.trauma, heightRatio, dt ?? FIXED_DT)
+    this.postfx.render(dt ?? FIXED_DT)
     this._renderHud()
   }
 
@@ -1119,7 +1205,7 @@ class Game {
       this._update(FIXED_DT)
       this.accumulator -= FIXED_DT
     }
-    this._render()
+    this._render(frameDt)
     requestAnimationFrame(() => this.loop())
   }
 
