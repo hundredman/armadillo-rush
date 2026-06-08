@@ -16,7 +16,7 @@ export const State = Object.freeze({
 const TRANSITIONS = {
   [State.TITLE]:    [State.SLINGING],
   [State.SLINGING]: [State.FLYING, State.TITLE],
-  [State.FLYING]:   [State.ROLLING, State.SLINGING], // 첫 섬 도달 실패 시 재시도(§4)
+  [State.FLYING]:   [State.ROLLING, State.SLINGING, State.GAMEOVER], // 첫 섬 도달 실패/바다 추락
   [State.ROLLING]:  [State.FALLING, State.GAMEOVER],
   [State.FALLING]:  [State.ROLLING, State.GAMEOVER],
   [State.GAMEOVER]: [State.SLINGING, State.TITLE],

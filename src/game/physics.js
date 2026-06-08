@@ -59,18 +59,57 @@ export class PhysicsWorld {
     })
   }
 
+  setGravity(pxPerSec2) {
+    this.world.setGravity(Vec2(0, -pxToM(pxPerSec2)))
+  }
+
   /**
    * terrain 객체(createCurvedTerrain 반환값)를 지형 body로 등록.
    * 기존 동일 terrain이 있으면 먼저 제거한다.
    */
   addTerrain(terrain) {
     this.removeTerrain(terrain)
-    const pts = terrain.points.map(p => Vec2(pxToM(p.x), pxToM(p.y)))
     const body = this.world.createBody({ type: 'static' })
-    body.createFixture(Chain(pts, false), { friction: 0.55, restitution: 0.1 })
+    const segments = this._buildTerrainSegments(terrain)
+    const restitution = terrain.biome === 'cloud' ? 0.72 : terrain.biome === 'meteor' ? 0.04 : 0.1
+    const friction = terrain.biome === 'cloud' ? 0.38 : terrain.biome === 'meteor' ? 0.68 : 0.55
+    for (const segment of segments) {
+      body.createFixture(Chain(segment.map(p => Vec2(pxToM(p.x), pxToM(p.y))), false), {
+        friction,
+        restitution,
+      })
+    }
     body.setUserData(terrain)
     this._terrainBodies.push({ terrain, body })
     return body
+  }
+
+  _buildTerrainSegments(terrain) {
+    const segments = []
+    let current = []
+
+    const isDamagedEdge = (a, b) => {
+      if (!terrain.damageZones?.length) return false
+      const midX = (a.x + b.x) / 2
+      return terrain.damageZones.some((zone) => (
+        midX >= zone.left && midX <= zone.right
+      ))
+    }
+
+    for (let i = 0; i < terrain.points.length - 1; i++) {
+      const a = terrain.points[i]
+      const b = terrain.points[i + 1]
+      if (isDamagedEdge(a, b)) {
+        if (current.length >= 2) segments.push(current)
+        current = []
+        continue
+      }
+      if (current.length === 0) current.push(a)
+      current.push(b)
+    }
+
+    if (current.length >= 2) segments.push(current)
+    return segments
   }
 
   removeTerrain(terrain) {

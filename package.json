@@ -2,10 +2,12 @@
   "name": "armadillo-rush",
   "version": "0.1.0",
   "type": "module",
-  "description": "대포로 쏴라. 타이밍을 맞춰라. 최대한 높이 올라가라.",
+  "description": "Drag the slingshot, time uphill boosts, and rush from the sea to the moon.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "stress:terrain": "node scripts/terrain-stress.mjs",
+    "verify": "npm run stress:terrain && npm run build",
     "preview": "vite preview",
     "deploy": "npm run build && node scripts/deploy.mjs"
   },

@@ -1,43 +1,48 @@
 import { execSync } from 'child_process'
-import { cpSync, rmSync, existsSync } from 'fs'
-import { resolve, dirname } from 'path'
+import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' })
+const dist = resolve(root, 'dist')
+const tempRoot = mkdtempSync(join(tmpdir(), 'armadillo-rush-gh-pages-'))
+const deployRepo = resolve(tempRoot, 'repo')
 
-// 현재 브랜치 저장
-const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: root })
-  .toString().trim()
+const run = (cmd, cwd = root) => execSync(cmd, { cwd, stdio: 'inherit' })
+const output = (cmd, cwd = root) => execSync(cmd, { cwd }).toString().trim()
 
-// 혹시 uncommitted 변경이 있으면 stash
-const dirty = execSync('git status --porcelain', { cwd: root }).toString().trim()
-if (dirty) run('git stash')
+if (!existsSync(resolve(dist, 'index.html'))) {
+  throw new Error('dist/index.html is missing. Run npm run build before deploy.')
+}
 
 try {
-  // gh-pages 브랜치가 있으면 switch, 없으면 orphan 생성
-  const branches = execSync('git branch', { cwd: root }).toString()
-  if (branches.includes('gh-pages')) {
-    run('git checkout gh-pages')
-    // 기존 파일 정리 (assets 폴더 + index.html)
-    if (existsSync(resolve(root, 'assets'))) rmSync(resolve(root, 'assets'), { recursive: true })
-    if (existsSync(resolve(root, 'index.html'))) rmSync(resolve(root, 'index.html'))
-  } else {
-    run('git checkout --orphan gh-pages')
-    run('git reset --hard')
+  const remoteUrl = output('git config --get remote.origin.url')
+  if (!output('git branch --list gh-pages')) {
+    throw new Error('gh-pages branch is missing. Create it once before deploying.')
   }
 
-  // dist/* 복사
-  cpSync(resolve(root, 'dist'), root, { recursive: true })
+  run(`git clone --branch gh-pages --single-branch "${root}" "${deployRepo}"`)
+  run('git remote rename origin local', deployRepo)
+  run(`git remote add origin "${remoteUrl}"`, deployRepo)
 
-  // 커밋 & 푸시
-  run('git add index.html assets/')
-  run('git commit -m "deploy"')
-  run('git push origin gh-pages')
+  for (const entry of readdirSync(deployRepo)) {
+    if (entry === '.git') continue
+    rmSync(resolve(deployRepo, entry), { recursive: true, force: true })
+  }
 
-  console.log('\n✅  Deployed → https://hundredman.github.io/armadillo-rush/\n')
+  cpSync(dist, deployRepo, { recursive: true })
+
+  run('git add --all', deployRepo)
+
+  if (!output('git status --porcelain', deployRepo)) {
+    console.log('\nNo deploy changes to publish.\n')
+  } else {
+    run('git commit -m "deploy"', deployRepo)
+    run('git push local gh-pages', deployRepo)
+    run('git push origin gh-pages', deployRepo)
+    console.log('\nDeployed -> https://hundredman.github.io/armadillo-rush/\n')
+  }
 } finally {
-  // 원래 브랜치 복귀
-  run(`git checkout ${currentBranch}`)
-  if (dirty) run('git stash pop')
+  rmSync(tempRoot, { recursive: true, force: true })
 }

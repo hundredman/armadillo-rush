@@ -1,11 +1,11 @@
-// 세계관 배경 셰이더 — 5단계 높이 그라데이션
-// 0.0 = 바다 수면 근처  →  1.0 = 달 궤도
+// 세계관 배경 셰이더 — 고도에 따른 하늘/구름/우주 그라데이션
+// 0.0 = 밝은 낮 하늘  →  1.0 = 달 궤도
 //
 // 구간:
-//   0.00 ~ 0.12  바다 & 해안 (청록 → 어두운 파랑)
-//   0.12 ~ 0.35  낮은 하늘 (밤 → 짙은 남색)
-//   0.35 ~ 0.60  성층권 (남색 → 짙은 보라/검정)
-//   0.60 ~ 0.85  우주 (거의 검정, 별 가득)
+//   0.00 ~ 0.22  밝은 하늘색
+//   0.22 ~ 0.46  구름 많은 높은 하늘
+//   0.46 ~ 0.68  성층권
+//   0.68 ~ 0.85  우주
 //   0.85 ~ 1.00  달 궤도 (연한 회청 글로우)
 precision highp float;
 
@@ -14,12 +14,12 @@ uniform float uHeightRatio;   // 0~1
 uniform float uTime;
 
 // ── 구간별 색상 ──
-const vec3 C_SEA       = vec3(0.02,  0.18,  0.32);   // 바다 수면
-const vec3 C_COAST     = vec3(0.05,  0.10,  0.28);   // 해안 하늘
-const vec3 C_NIGHT     = vec3(0.06,  0.07,  0.22);   // 밤하늘
-const vec3 C_DEEP      = vec3(0.02,  0.02,  0.10);   // 깊은 성층권
-const vec3 C_SPACE     = vec3(0.0,   0.0,   0.02);   // 우주
-const vec3 C_MOON_GLOW = vec3(0.10,  0.13,  0.22);   // 달 궤도 배경 글로우
+const vec3 C_LOW_SKY   = vec3(0.55,  0.84,  0.98);   // 낮은 고도: 밝은 하늘색
+const vec3 C_HIGH_SKY  = vec3(0.30,  0.63,  0.92);   // 높은 하늘
+const vec3 C_CLOUD_TOP = vec3(0.42,  0.56,  0.82);   // 구름층 너머의 푸른 보라
+const vec3 C_STRATO    = vec3(0.08,  0.12,  0.32);   // 성층권
+const vec3 C_SPACE     = vec3(0.0,   0.0,   0.025);  // 우주
+const vec3 C_MOON_GLOW = vec3(0.09,  0.12,  0.22);   // 달 궤도 배경 글로우
 
 // ── 해시 기반 pseudo-random ──
 float hash(vec2 p) {
@@ -70,40 +70,44 @@ float seaSparkle(vec2 uv, float seaVis) {
 void main() {
   float h = clamp(uHeightRatio, 0.0, 1.0);
 
-  // 세로 방향도 살짝 섞어 화면 아래가 조금 더 어둡게
-  float hScreen = h + (1.0 - vUv.y) * 0.10;
+  // 화면 위쪽이 조금 더 높은 고도처럼 보이게 섞는다.
+  float hScreen = h + vUv.y * 0.10;
 
   // ── 배경 색상 5단계 보간 ──
   vec3 col;
-  if (hScreen < 0.12) {
-    col = mix(C_SEA,   C_COAST, hScreen / 0.12);
-  } else if (hScreen < 0.35) {
-    col = mix(C_COAST, C_NIGHT, (hScreen - 0.12) / 0.23);
-  } else if (hScreen < 0.60) {
-    col = mix(C_NIGHT, C_DEEP,  (hScreen - 0.35) / 0.25);
+  if (hScreen < 0.22) {
+    col = mix(C_LOW_SKY, C_HIGH_SKY, smoothstep(0.0, 0.22, hScreen));
+  } else if (hScreen < 0.46) {
+    col = mix(C_HIGH_SKY, C_CLOUD_TOP, smoothstep(0.22, 0.46, hScreen));
+  } else if (hScreen < 0.68) {
+    col = mix(C_CLOUD_TOP, C_STRATO, smoothstep(0.46, 0.68, hScreen));
   } else if (hScreen < 0.85) {
-    col = mix(C_DEEP,  C_SPACE, (hScreen - 0.60) / 0.25);
+    col = mix(C_STRATO, C_SPACE, smoothstep(0.68, 0.85, hScreen));
   } else {
-    col = mix(C_SPACE, C_MOON_GLOW, (hScreen - 0.85) / 0.15);
+    col = mix(C_SPACE, C_MOON_GLOW, smoothstep(0.85, 1.0, hScreen));
   }
 
   // ── 별 ──
-  float starVis = smoothstep(0.25, 0.55, h);
+  float starVis = smoothstep(0.58, 0.78, h);
   col += stars(vUv, starVis);
 
   // ── 은하수 (우주 구간) ──
-  float mwVis = smoothstep(0.55, 0.75, h);
+  float mwVis = smoothstep(0.66, 0.84, h);
   col += milkyWay(vUv) * mwVis;
 
   // ── 바다 반짝임 (바다/해안 구간) ──
-  float seaVis = smoothstep(0.15, 0.0, h);   // 낮을수록 강함
+  float seaVis = smoothstep(0.14, 0.0, h);   // 낮을수록 강함
   float sparkle = seaSparkle(vUv, seaVis);
-  col += vec3(0.4, 0.7, 1.0) * sparkle;
+  col += vec3(0.55, 0.85, 1.0) * sparkle;
+
+  // 낮은 하늘의 부드러운 햇빛감
+  float daylight = smoothstep(0.34, 0.0, h);
+  col += vec3(0.10, 0.12, 0.10) * daylight * (1.0 - vUv.y) * 0.22;
 
   // ── 달 궤도 글로우 (상단) ──
   float moonZoneVis = smoothstep(0.80, 1.0, h);
   // 화면 위쪽에 달빛 산란 효과
-  float moonGlow = (1.0 - vUv.y) * moonZoneVis * 0.12;
+  float moonGlow = vUv.y * moonZoneVis * 0.12;
   col += vec3(0.7, 0.8, 1.0) * moonGlow;
 
   gl_FragColor = vec4(col, 1.0);

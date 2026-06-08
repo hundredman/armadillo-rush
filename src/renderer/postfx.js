@@ -62,7 +62,7 @@ export class PostFX {
     this.vignette = new VignetteEffect({
       eskil: false,
       offset: 0.38,
-      darkness: 0.72,
+      darkness: 0.22,
     })
 
     this.effectPass = new EffectPass(camera, this.bloom, this.chromatic, this.vignette)
@@ -84,6 +84,7 @@ export class PostFX {
 
     const ca = t2 * 0.006
     this.chromatic.offset.set(ca, ca * 0.6)
+    this.vignette.darkness = 0.18 + heightRatio * 0.48
   }
 
   render(dt) {
