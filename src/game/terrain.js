@@ -10,6 +10,7 @@ const CLOUD_TERRAIN_Y = 2600
 const SPACE_TERRAIN_Y = 10500
 const BOOST_SLOPE_MIN = Math.tan(THREE.MathUtils.degToRad(4))
 const BOOST_TOP_RATIO = 0.64
+const BOOST_END_ZONE_PX = 72
 
 function getBiomeForY(y) {
   if (y >= SPACE_TERRAIN_Y) return 'meteor'
@@ -22,8 +23,8 @@ function getBiomeStyle(biome) {
     return {
       soil: 0xf7fbff,
       grass: 0xd8f4ff,
-      boost: 0xffef9c,
-      boostLine: 0xffffff,
+      boost: 0xfff3b0,
+      boostLine: 0xffd54f,
       ridge: 0xffffff,
       bottomScale: 0.72,
     }
@@ -32,8 +33,8 @@ function getBiomeStyle(biome) {
     return {
       soil: 0x4c4f5a,
       grass: 0x7c6f62,
-      boost: 0xd2b665,
-      boostLine: 0xffd58a,
+      boost: 0xc9a64a,
+      boostLine: 0xffd166,
       ridge: 0xcaa46a,
       bottomScale: 0.95,
     }
@@ -41,8 +42,8 @@ function getBiomeStyle(biome) {
   return {
     soil: 0x6d4c41,
     grass: 0x66bb6a,
-    boost: 0xd5ef73,
-    boostLine: 0xfff7a6,
+    boost: 0xd7e76a,
+    boostLine: 0xffe66d,
     ridge: 0xc5e1a5,
     bottomScale: 1,
   }
@@ -52,12 +53,17 @@ function getBiomeStyle(biome) {
 // 슬링 위치 y=0 기준. 초반부터 위아래 변화 크게, 충분한 간격으로.
 export const DEFAULT_ISLAND_LAYOUT = [
   // ── 초반: 여러 지형이 화면에 동시에 걸리도록 매우 촘촘하게 ──
+  { x:  220, y: -255, w: 420, depth: 22, rimH: 14, shapeType: 'plateau', softBreak: true },
   { x:  330, y:    0, w: 520, depth: 28, rimH: 18, shapeType: 'bowl', softBreak: true },
+  { x:  455, y: -210, w: 390, depth: 24, rimH: 15, shapeType: 'wave', softBreak: true },
   { x:  610, y:   70, w: 480, depth: 25, rimH: 16, shapeType: 'plateau', softBreak: true },
+  { x:  750, y: -275, w: 420, depth: 23, rimH: 15, shapeType: 'dip', softBreak: true },
   { x:  895, y:  -45, w: 500, depth: 32, rimH: 18, shapeType: 'wave', softBreak: true },
   { x: 1185, y:  130, w: 470, depth: 30, rimH: 20, shapeType: 'ramp', softBreak: true },
+  { x: 1305, y: -230, w: 405, depth: 26, rimH: 17, shapeType: 'bowl', softBreak: true },
   { x: 1475, y:   15, w: 490, depth: 34, rimH: 20, shapeType: 'dip', softBreak: true },
   { x: 1770, y:  225, w: 460, depth: 29, rimH: 18, shapeType: 'crest', softBreak: true },
+  { x: 1905, y: -205, w: 400, depth: 25, rimH: 16, shapeType: 'saddle', softBreak: true },
   { x: 2070, y:  -15, w: 475, depth: 36, rimH: 21, shapeType: 'double', softBreak: true },
   { x: 2370, y:  300, w: 450, depth: 31, rimH: 20, shapeType: 'saddle', softBreak: true },
   { x: 2670, y:  105, w: 480, depth: 35, rimH: 22, shapeType: 'bowl', softBreak: true },
@@ -251,7 +257,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     new THREE.MeshBasicMaterial({
       color: style.boost,
       transparent: true,
-      opacity: biome === 'meteor' ? 0.66 : 0.78,
+      opacity: biome === 'meteor' ? 0.56 : 0.62,
       depthTest: false,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -264,7 +270,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     new THREE.LineBasicMaterial({
       color: style.boostLine,
       transparent: true,
-      opacity: 0.92,
+      opacity: biome === 'cloud' ? 0.95 : 0.88,
       depthTest: false,
     }),
   )
@@ -275,7 +281,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     new THREE.MeshBasicMaterial({
       color: 0xfff176,
       transparent: true,
-      opacity: 0,
+      opacity: biome === 'meteor' ? 0.74 : 0.82,
       depthTest: false,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -445,6 +451,7 @@ function createRidgeGeometry(points, zones) {
 function createBoostLineGeometry(points, zones) {
   const merged = mergeDamageZones({ damageZones: zones, bounds: { left: -Infinity, right: Infinity } })
   const thresholdY = getBoostHeightThreshold(points)
+  const endStartX = points[points.length - 1].x - BOOST_END_ZONE_PX
   const vertices = []
   let dashCooldown = 0
 
@@ -460,13 +467,15 @@ function createBoostLineGeometry(points, zones) {
 
     const slope = (b.y - a.y) / dx
     const midY = (a.y + b.y) / 2
-    if (slope < BOOST_SLOPE_MIN || midY < thresholdY || dashCooldown > 0) continue
+    const isUphillBoost = slope >= BOOST_SLOPE_MIN && midY >= thresholdY
+    const isEndBoost = midX >= endStartX
+    if ((!isUphillBoost && !isEndBoost) || dashCooldown > 0) continue
 
     const angle = Math.atan2(b.y - a.y, dx)
     const along = new THREE.Vector2(Math.cos(angle), Math.sin(angle))
     const normal = new THREE.Vector2(-along.y, along.x)
-    const center = new THREE.Vector2(midX, midY).addScaledVector(normal, 7.5)
-    const half = Math.min(21, dx * 0.48)
+    const center = new THREE.Vector2(midX, midY).addScaledVector(normal, isEndBoost && !isUphillBoost ? 5.2 : 6.4)
+    const half = Math.min(isEndBoost && !isUphillBoost ? 13 : 17, dx * 0.42)
     const start = center.clone().addScaledVector(along, -half)
     const end = center.clone().addScaledVector(along, half)
     vertices.push(
@@ -482,6 +491,7 @@ function createBoostLineGeometry(points, zones) {
 function createBoostRibbonGeometry(points, zones) {
   const merged = mergeDamageZones({ damageZones: zones, bounds: { left: -Infinity, right: Infinity } })
   const thresholdY = getBoostHeightThreshold(points)
+  const endStartX = points[points.length - 1].x - BOOST_END_ZONE_PX
   const positions = []
   const indices = []
 
@@ -495,15 +505,17 @@ function createBoostRibbonGeometry(points, zones) {
     if (merged.some((zone) => midX >= zone.left && midX <= zone.right)) continue
 
     const slope = (b.y - a.y) / dx
-    if (slope < BOOST_SLOPE_MIN) continue
-    if ((a.y + b.y) / 2 < thresholdY) continue
+    const midY = (a.y + b.y) / 2
+    const isUphillBoost = slope >= BOOST_SLOPE_MIN && midY >= thresholdY
+    const isEndBoost = midX >= endStartX
+    if (!isUphillBoost && !isEndBoost) continue
 
     const base = positions.length / 3
     const insetA = getBoostBandInset(points, i)
     const insetB = getBoostBandInset(points, i + 1)
     positions.push(
-      a.x, a.y + 2.3, 0,
-      b.x, b.y + 2.3, 0,
+      a.x, a.y + 1.2, 0,
+      b.x, b.y + 1.2, 0,
       b.x, b.y - insetB, 0,
       a.x, a.y - insetA, 0,
     )
@@ -517,8 +529,54 @@ function createBoostRibbonGeometry(points, zones) {
 }
 
 function createBoostMarkerGeometry(points, zones) {
+  const merged = mergeDamageZones({ damageZones: zones, bounds: { left: -Infinity, right: Infinity } })
+  const thresholdY = getBoostHeightThreshold(points)
+  const endStartX = points[points.length - 1].x - BOOST_END_ZONE_PX
+  const positions = []
+  const indices = []
+  let markerCooldown = 0
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    const dx = b.x - a.x
+    if (dx <= 0) continue
+    markerCooldown -= dx
+
+    const midX = (a.x + b.x) / 2
+    if (merged.some((zone) => midX >= zone.left && midX <= zone.right)) continue
+
+    const slope = (b.y - a.y) / dx
+    const midY = (a.y + b.y) / 2
+    const isUphillBoost = slope >= BOOST_SLOPE_MIN && midY >= thresholdY
+    const isEndBoost = midX >= endStartX
+    if ((!isUphillBoost && !isEndBoost) || markerCooldown > 0) continue
+
+    const angle = Math.atan2(b.y - a.y, dx)
+    const along = new THREE.Vector2(Math.cos(angle), Math.sin(angle))
+    const normal = new THREE.Vector2(-along.y, along.x)
+    const center = new THREE.Vector2(midX, midY).addScaledVector(normal, 13)
+    const size = isEndBoost && !isUphillBoost ? 8 : 9.5
+    const tip = center.clone().addScaledVector(along, size * 0.95)
+    const back = center.clone().addScaledVector(along, -size * 0.65)
+    const wingA = back.clone().addScaledVector(normal, size * 0.45)
+    const wingB = back.clone().addScaledVector(normal, -size * 0.45)
+    const base = positions.length / 3
+    positions.push(
+      tip.x, tip.y, 0,
+      wingA.x, wingA.y, 0,
+      center.x, center.y, 0,
+      tip.x, tip.y, 0,
+      center.x, center.y, 0,
+      wingB.x, wingB.y, 0,
+    )
+    indices.push(base, base + 1, base + 2, base + 3, base + 4, base + 5)
+    markerCooldown = isEndBoost ? 32 : 42
+  }
+
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
   return geometry
 }
 
@@ -526,7 +584,7 @@ function getBoostBandInset(points, index) {
   const prev = points[Math.max(0, index - 1)]
   const next = points[Math.min(points.length - 1, index + 1)]
   const localSlope = Math.abs((next.y - prev.y) / Math.max(1, next.x - prev.x))
-  return THREE.MathUtils.clamp(13 + localSlope * 14, 13, 24)
+  return THREE.MathUtils.clamp(6 + localSlope * 7, 6, 12)
 }
 
 function getBoostHeightThreshold(points) {
@@ -785,7 +843,7 @@ export function generateNextIslandSpec(lastIsland, index) {
   const progress = Math.min(1, index / 70)
 
   // 폭 감소 효과는 없애되, 개수를 늘리기 위해 전체 폭은 더 작고 일정하게 유지한다.
-  const w = Math.round(THREE.MathUtils.lerp(300, 380, Math.random()) + Math.sin(index * 1.37) * 18)
+  const w = Math.round(THREE.MathUtils.lerp(230, 330, Math.random()) + Math.sin(index * 1.37) * 16)
 
   // 지형별 성격 차이는 유지하되 과도하게 가팔라지지 않게 제한한다.
   const depth = Math.round(THREE.MathUtils.lerp(24, 48, Math.random()) + progress * 8)
@@ -793,18 +851,26 @@ export function generateNextIslandSpec(lastIsland, index) {
   const rimH = Math.round(THREE.MathUtils.lerp(14, 30, Math.random()) + progress * 5)
 
   // 화면 좌우 방향 간격: 겹치지 않는 선에서 매우 촘촘하게.
-  const minGap = THREE.MathUtils.lerp(18, 24, progress)
-  const maxGap = THREE.MathUtils.lerp(36, 58, progress)
+  const minGap = THREE.MathUtils.lerp(10, 14, progress)
+  const maxGap = THREE.MathUtils.lerp(22, 38, progress)
   const gap = Math.round(THREE.MathUtils.lerp(minGap, maxGap, Math.random()))
 
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
   // 화면 상하 방향 간격: 다양성은 유지하되 한 화면 안에 더 많은 지형이 걸리게 낮춘다.
-  const verticalRange = THREE.MathUtils.lerp(VIEWPORT_SAFE_HEIGHT * 0.08, VIEWPORT_SAFE_HEIGHT * 0.17, progress)
-  const verticalJitter = THREE.MathUtils.lerp(-verticalRange, verticalRange, Math.random())
-  const climbBias = THREE.MathUtils.lerp(18, 44, progress)
-  const newY = Math.max(-360, lastIsland.bowlFloor + verticalJitter + climbBias)
+  const lowAltitude = lastIsland.bowlFloor < 1400
+  const verticalRange = THREE.MathUtils.lerp(
+    VIEWPORT_SAFE_HEIGHT * (lowAltitude ? 0.08 : 0.075),
+    VIEWPORT_SAFE_HEIGHT * 0.12,
+    progress,
+  )
+  const verticalJitter = THREE.MathUtils.lerp(-verticalRange * 0.42, verticalRange, Math.random())
+  const seaShelfDrop = lastIsland.bowlFloor < 700 && index % 7 === 0
+    ? THREE.MathUtils.lerp(70, 150, Math.random())
+    : 0
+  const climbBias = THREE.MathUtils.lerp(lowAltitude ? 30 : 44, 72, progress)
+  const newY = Math.max(-330, lastIsland.bowlFloor + verticalJitter + climbBias - seaShelfDrop)
   const biome = getBiomeForY(newY)
 
   let shapeType = SHAPE_SEQUENCE[(index + Math.floor(Math.random() * 3)) % SHAPE_SEQUENCE.length]

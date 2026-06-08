@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import './ui.css'
+import armadilloSheetUrl from './assets/elthen/armadillo-sprite-sheet.png'
+import slingshotIconUrl from './assets/game-icons/slingshot.svg'
 import { Renderer } from './renderer/scene.js'
 import { Background } from './renderer/background.js'
 import { PostFX } from './renderer/postfx.js'
@@ -54,14 +56,16 @@ const SPLASH_GAMEOVER_DELAY = 0.42
 
 // 슬링 상수
 const SLING_POS = new THREE.Vector2(-280, 0)  // 슬링 중심 — 화면 중간 높이에서 시작
+const SLING_ARMADILLO_REST_Y = 70
 const SLING_MAX_PULL = 120      // 최대 당김 거리 (월드 px)
 const SLING_MIN_PULL = 18       // 이 이하로 당기면 취소
 const SLING_POWER_MIN = 0.78    // 최소 당김 시 파워 비율
 const SLING_POWER_MAX = 1.0     // 최대 당김 시 파워 비율
-const SLING_DRAG_START_PX = 8   // TITLE에서 이 거리 이상 움직여야 슬링 조준 시작
 
 // 카메라 뷰포트보다 이 거리만큼 앞서 있으면 새 섬을 스폰
-const ISLAND_SPAWN_LOOKAHEAD = 5200
+const ISLAND_SPAWN_LOOKAHEAD = 22000
+const INITIAL_PROCEDURAL_ISLANDS = 120
+const ISLANDS_PER_SPAWN_TICK = 36
 
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
@@ -70,14 +74,19 @@ const UNDER_BREAK_SPEED = 520
 const DAMAGE_SPEED_FULL = 940
 const UPHILL_BOOST_MIN_ANGLE = THREE.MathUtils.degToRad(4)
 const UPHILL_BOOST_FULL_ANGLE = THREE.MathUtils.degToRad(22)
-const UPHILL_INPUT_BOOST = 0.42
+const BOOST_ACCEL_PER_SEC = 1.85
+const BOOST_WEAK_RATIO = 0.34
+const BOOST_SPEED_LIMIT = 1.18
+const BOOST_RELEASE_SPEED_KICK = 0.24
+const BOOST_RELEASE_VERTICAL_KICK = 320
 const UPHILL_BOOST_TOP_RATIO = 0.64
+const TERRAIN_END_BOOST_ZONE_PX = 72
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
 const SPACE_GRAVITY_FULL = 0.86
 const CLOUD_SPRING_VY = 760
 const CLOUD_SPRING_VX_KEEP = 0.94
-const TERRAIN_MIN_GAP = 26
+const TERRAIN_MIN_GAP = 12
 const SKY_CLEAR_LOW = new THREE.Color(0x8edcff)
 const SKY_CLEAR_MID = new THREE.Color(0x4f91dc)
 const SKY_CLEAR_HIGH = new THREE.Color(0x111a46)
@@ -116,10 +125,13 @@ class Game {
     }
     // 슬링 상태
     this.slingDragging = false          // 드래그 중 여부
-    this.pendingSlingStart = null       // TITLE에서 실제 드래그인지 판정하기 위한 시작점
     this.slingPull = new THREE.Vector2(0, 0)  // 당김 벡터 (월드 좌표 기준)
     this.slingPower = 0                  // 0~1 파워 비율
     this.slingAngle = Math.PI / 4        // 발사 각도 (radian)
+    this.boostHeld = false
+    this.boostHoldSource = null
+    this.boostCharge = 0
+    this.boostPeakRatio = 0
     this.currentIsland = null
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length  // 절차적 생성 인덱스
 
@@ -159,7 +171,9 @@ class Game {
     // 첫 프레임 전에 카메라를 슬링 위치로 즉시 배치
     this.renderer.setCenter(SLING_POS.x, SLING_POS.y)
 
-    this.sm.onChange((from, to) => console.log(`[state] ${from} → ${to}`))
+    if (import.meta.env.DEV) {
+      this.sm.onChange((from, to) => console.log(`[state] ${from} -> ${to}`))
+    }
   }
 
   // ── 월드 빌드: 슬링 + 섬 + 아르마딜로 ──
@@ -201,11 +215,13 @@ class Game {
 
   _randomizeInitialTerrainSpec(baseSpec, index) {
     const shapePool = ['bowl', 'plateau', 'wave', 'ramp', 'dip', 'crest', 'double', 'saddle']
-    const early = index < 4
+    const early = index < 8
+    const nearSea = baseSpec.y < -160
+    const yJitter = nearSea ? 44 : early ? 90 : 180
     return {
       ...baseSpec,
       x: baseSpec.x + (Math.random() - 0.5) * 90,
-      y: baseSpec.y + (Math.random() - 0.5) * (early ? 90 : 180),
+      y: baseSpec.y + (Math.random() - 0.5) * yJitter,
       w: Math.round(baseSpec.w * THREE.MathUtils.lerp(0.78, 0.96, Math.random())),
       depth: Math.max(20, Math.round(baseSpec.depth + (Math.random() - 0.5) * 18)),
       rimH: Math.max(12, Math.round(baseSpec.rimH + (Math.random() - 0.5) * 10)),
@@ -214,6 +230,208 @@ class Game {
   }
 
   _buildSling() {
+    {
+      const S = SLING_POS
+      const tipL = new THREE.Vector2(S.x - 68, S.y + 116)
+      const tipR = new THREE.Vector2(S.x + 68, S.y + 114)
+
+      const texture = new THREE.TextureLoader().load(slingshotIconUrl)
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.minFilter = THREE.LinearFilter
+      texture.magFilter = THREE.LinearFilter
+      const body = new THREE.Mesh(
+        new THREE.PlaneGeometry(154, 154),
+        new THREE.MeshBasicMaterial({
+          map: texture,
+          color: 0x7a513b,
+          transparent: true,
+          depthWrite: false,
+        }),
+      )
+      body.position.set(S.x, S.y + 4, -0.08)
+      body.rotation.z = 0.02
+
+      const bodyShadow = new THREE.Mesh(
+        new THREE.PlaneGeometry(154, 154),
+        new THREE.MeshBasicMaterial({
+          map: texture,
+          color: 0x26150f,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+        }),
+      )
+      bodyShadow.position.set(S.x + 3, S.y, -0.095)
+      bodyShadow.rotation.z = body.rotation.z
+
+      const woodMat = new THREE.MeshBasicMaterial({ color: 0x7b4f34 })
+      const woodDarkMat = new THREE.MeshBasicMaterial({ color: 0x2b1811 })
+      const woodHiMat = new THREE.MeshBasicMaterial({ color: 0xb77a52, transparent: true, opacity: 0.46 })
+      const makeWoodSegment = (a, b, width, z, showTopCap = true) => {
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const len = Math.hypot(dx, dy)
+        const group = new THREE.Group()
+        group.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, z)
+        group.rotation.z = Math.atan2(dy, dx) - Math.PI / 2
+
+        const shadow = new THREE.Mesh(new THREE.BoxGeometry(width + 5, len, 1), woodDarkMat)
+        shadow.position.set(2.5, -2.5, -0.006)
+        const core = new THREE.Mesh(new THREE.BoxGeometry(width, len, 1), woodMat)
+        const shine = new THREE.Mesh(new THREE.BoxGeometry(width * 0.22, len * 0.78, 1), woodHiMat)
+        shine.position.set(-width * 0.22, 0, 0.008)
+
+        group.add(shadow, core, shine)
+        if (showTopCap) {
+          const capTop = new THREE.Mesh(new THREE.CircleGeometry(width / 2, 24), woodMat)
+          capTop.position.y = len / 2
+          group.add(capTop)
+        }
+        return group
+      }
+      const stickTrunk = makeWoodSegment(
+        new THREE.Vector2(S.x, S.y - 118),
+        new THREE.Vector2(S.x, S.y + 14),
+        19,
+        -0.072,
+        false,
+      )
+      const stickLeft = makeWoodSegment(
+        new THREE.Vector2(S.x - 7, S.y + 4),
+        tipL,
+        16,
+        -0.068,
+      )
+      const stickRight = makeWoodSegment(
+        new THREE.Vector2(S.x + 7, S.y + 4),
+        tipR,
+        16,
+        -0.086,
+      )
+      stickRight.traverse((obj) => {
+        obj.renderOrder = 2
+      })
+      const forkJoint = new THREE.Mesh(new THREE.CircleGeometry(16, 32), woodMat)
+      forkJoint.scale.set(1.04, 0.86, 1)
+      forkJoint.position.set(S.x, S.y + 3, -0.058)
+
+      const mkBandGeom = () => {
+        const geometry = new THREE.BufferGeometry()
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Array(12).fill(0), 3))
+        geometry.setIndex([0, 1, 2, 0, 2, 3])
+        return geometry
+      }
+      const bandMat = new THREE.MeshBasicMaterial({
+        color: 0x20110d,
+        transparent: true,
+        opacity: 0.96,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+      this.slingBandL = new THREE.Mesh(mkBandGeom(), bandMat.clone())
+      this.slingBandR = new THREE.Mesh(mkBandGeom(), bandMat.clone())
+      this.slingBandL.renderOrder = 10
+      this.slingBandR.renderOrder = 10
+      const bandHiMat = new THREE.MeshBasicMaterial({
+        color: 0x6d4c41,
+        transparent: true,
+        opacity: 0.58,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+      this.slingBandHiL = new THREE.Mesh(mkBandGeom(), bandHiMat.clone())
+      this.slingBandHiR = new THREE.Mesh(mkBandGeom(), bandHiMat.clone())
+      this.slingBandHiL.renderOrder = 11
+      this.slingBandHiR.renderOrder = 11
+
+      const pouchShape = new THREE.Shape()
+      pouchShape.moveTo(-24, 0)
+      pouchShape.bezierCurveTo(-17, -17, 17, -17, 24, 0)
+      pouchShape.bezierCurveTo(18, 13, -18, 13, -24, 0)
+      pouchShape.closePath()
+      const pouchRim = new THREE.Mesh(
+        new THREE.ShapeGeometry(pouchShape, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0x1f110d,
+          transparent: true,
+          opacity: 0.54,
+          side: THREE.DoubleSide,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      )
+      pouchRim.scale.set(1.08, 1.16, 1)
+      pouchRim.position.z = -0.02
+      pouchRim.renderOrder = 6
+      this.slingPouch = new THREE.Mesh(
+        new THREE.ShapeGeometry(pouchShape, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0x6b3f2b,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      )
+      this.slingPouch.position.z = -0.016
+      this.slingPouch.renderOrder = 6
+      const frontLipShape = new THREE.Shape()
+      frontLipShape.moveTo(-22, -5)
+      frontLipShape.bezierCurveTo(-15, -15, 15, -15, 22, -5)
+      frontLipShape.bezierCurveTo(14, -1, -14, -1, -22, -5)
+      frontLipShape.closePath()
+      const pouchFront = new THREE.Mesh(
+        new THREE.ShapeGeometry(frontLipShape, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0x4b2a1e,
+          transparent: true,
+          opacity: 0.96,
+          side: THREE.DoubleSide,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      )
+      pouchFront.position.z = 0.09
+      pouchFront.renderOrder = 30
+      const pouchHi = new THREE.Mesh(
+        new THREE.CircleGeometry(3.8, 18),
+        new THREE.MeshBasicMaterial({
+          color: 0xc58a63,
+          transparent: true,
+          opacity: 0.34,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      )
+      pouchHi.scale.set(1.8, 0.58, 1)
+      pouchHi.position.set(-6, -5, 0.012)
+      pouchHi.renderOrder = 6
+      this.slingPouchGroup = new THREE.Group()
+      this.slingPouchGroup.add(pouchRim, this.slingPouch, pouchHi, pouchFront)
+
+      this.renderer.add(stickTrunk)
+      this.renderer.add(stickLeft)
+      this.renderer.add(stickRight)
+      this.renderer.add(bodyShadow)
+      this.renderer.add(body)
+      this.renderer.add(this.slingBandL)
+      this.renderer.add(this.slingBandR)
+      this.renderer.add(this.slingBandHiL)
+      this.renderer.add(this.slingBandHiR)
+      this.renderer.add(this.slingPouchGroup)
+
+      this._forkTipU = { x: tipL.x, y: tipL.y }
+      this._forkTipD = { x: tipR.x, y: tipR.y }
+
+      const dottedMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 8, gapSize: 6, opacity: 0.5, transparent: true })
+      const dottedGeom = new THREE.BufferGeometry().setFromPoints(
+        Array.from({ length: 16 }, () => new THREE.Vector3(0, 0, 0)),
+      )
+      this.slingGuide = new THREE.Line(dottedGeom, dottedMat)
+      this.slingGuide.visible = false
+      this.slingGuide.computeLineDistances()
+      this.renderer.add(this.slingGuide)
+      return
+    }
+
     // 앵그리버드식 나무 새총: 둥근 나무 갈래 + 어두운 고무줄 + 가죽 포켓.
     const S = SLING_POS
 
@@ -227,57 +445,99 @@ class Game {
     const tipL = new THREE.Vector2(S.x - 44, S.y + 73)
     const tipR = new THREE.Vector2(S.x + 44, S.y + 72)
 
-    const makeWoodSegment = (a, b, width, z = -0.06) => {
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const len = Math.hypot(dx, dy)
-      const group = new THREE.Group()
-      group.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, z)
-      group.rotation.z = Math.atan2(dy, dx) - Math.PI / 2
+    const makeCurvedBranch = (points, widths, z = -0.06) => {
+      const left = []
+      const right = []
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i]
+        const prev = points[Math.max(0, i - 1)]
+        const next = points[Math.min(points.length - 1, i + 1)]
+        const dx = next.x - prev.x
+        const dy = next.y - prev.y
+        const len = Math.max(1, Math.hypot(dx, dy))
+        const nx = -dy / len
+        const ny = dx / len
+        const w = widths[i]
+        left.push(new THREE.Vector2(p.x + nx * w, p.y + ny * w))
+        right.push(new THREE.Vector2(p.x - nx * w, p.y - ny * w))
+      }
 
-      const shadow = new THREE.Mesh(
-        new THREE.BoxGeometry(width * 1.08, len, 1),
-        new THREE.MeshBasicMaterial({ color: woodDk }),
-      )
-      shadow.position.set(width * 0.1, -1.5, -0.012)
+      const shape = new THREE.Shape()
+      shape.moveTo(left[0].x, left[0].y)
+      for (let i = 1; i < left.length; i++) {
+        const prev = left[i - 1]
+        const cur = left[i]
+        shape.quadraticCurveTo(prev.x, prev.y, cur.x, cur.y)
+      }
+      for (let i = right.length - 1; i >= 0; i--) {
+        const cur = right[i]
+        const prev = right[Math.min(right.length - 1, i + 1)]
+        shape.quadraticCurveTo(prev.x, prev.y, cur.x, cur.y)
+      }
+      shape.closePath()
 
       const core = new THREE.Mesh(
-        new THREE.BoxGeometry(width, len, 1),
-        new THREE.MeshBasicMaterial({ color: wood }),
+        new THREE.ShapeGeometry(shape, 18),
+        new THREE.MeshBasicMaterial({ color: wood, side: THREE.DoubleSide }),
+      )
+      core.position.z = z
+
+      const shadow = new THREE.Mesh(
+        new THREE.ShapeGeometry(shape, 18),
+        new THREE.MeshBasicMaterial({ color: woodDk, transparent: true, opacity: 0.88, side: THREE.DoubleSide }),
+      )
+      shadow.position.set(3, -3, z - 0.014)
+
+      const highlightPts = points.map((p, i) => {
+        const prev = points[Math.max(0, i - 1)]
+        const next = points[Math.min(points.length - 1, i + 1)]
+        const dx = next.x - prev.x
+        const dy = next.y - prev.y
+        const len = Math.max(1, Math.hypot(dx, dy))
+        return new THREE.Vector3(p.x - dy / len * widths[i] * 0.36, p.y + dx / len * widths[i] * 0.36, z + 0.018)
+      })
+      const highlight = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(highlightPts),
+        new THREE.LineBasicMaterial({ color: woodHi, transparent: true, opacity: 0.48 }),
       )
 
-      const capA = new THREE.Mesh(
-        new THREE.CircleGeometry(width / 2, 22),
-        new THREE.MeshBasicMaterial({ color: wood }),
-      )
-      capA.position.y = len / 2
-      const capB = capA.clone()
-      capB.position.y = -len / 2
-
-      const highlight = new THREE.Mesh(
-        new THREE.BoxGeometry(width * 0.2, len * 0.76, 1),
-        new THREE.MeshBasicMaterial({ color: woodHi, transparent: true, opacity: 0.5 }),
-      )
-      highlight.position.set(-width * 0.22, 0, 0.012)
-
-      group.add(shadow, core, capA, capB, highlight)
+      const group = new THREE.Group()
+      group.add(shadow, core, highlight)
       return group
     }
 
-    const trunk = makeWoodSegment(trunkBase, forkBase, 17, -0.07)
-    const armL = makeWoodSegment(forkBase, tipL, 15, -0.055)
-    const armR = makeWoodSegment(forkBase, tipR, 15, -0.05)
+    const trunk = makeCurvedBranch([
+      trunkBase,
+      new THREE.Vector2(S.x - 2, S.y - 42),
+      forkBase,
+    ], [13, 12, 15], -0.075)
+    const armL = makeCurvedBranch([
+      forkBase,
+      new THREE.Vector2(S.x - 24, S.y + 28),
+      tipL,
+    ], [13, 12, 9], -0.06)
+    const armR = makeCurvedBranch([
+      forkBase,
+      new THREE.Vector2(S.x + 24, S.y + 27),
+      tipR,
+    ], [13, 12, 9], -0.055)
+    const footShape = new THREE.Shape()
+    footShape.moveTo(S.x - 28, S.y - 84)
+    footShape.quadraticCurveTo(S.x, S.y - 94, S.x + 31, S.y - 84)
+    footShape.quadraticCurveTo(S.x + 20, S.y - 73, S.x - 22, S.y - 75)
+    footShape.quadraticCurveTo(S.x - 31, S.y - 78, S.x - 28, S.y - 84)
     const foot = new THREE.Mesh(
-      new THREE.BoxGeometry(42, 9, 1),
-      new THREE.MeshBasicMaterial({ color: woodDk }),
+      new THREE.ShapeGeometry(footShape, 12),
+      new THREE.MeshBasicMaterial({ color: woodDk, side: THREE.DoubleSide }),
     )
-    foot.position.set(S.x, S.y - 79, -0.075)
+    foot.position.z = -0.095
 
     const crotch = new THREE.Mesh(
-      new THREE.CircleGeometry(12, 28),
+      new THREE.CircleGeometry(15, 32),
       new THREE.MeshBasicMaterial({ color: woodMid }),
     )
-    crotch.position.set(S.x, S.y + 5, -0.035)
+    crotch.scale.set(1.0, 0.86, 1)
+    crotch.position.set(S.x, S.y + 4, -0.034)
 
     for (const knot of [
       { x: S.x - 6, y: S.y - 36, s: 4.2 },
@@ -324,39 +584,116 @@ class Game {
     })
     this.slingBandL = new THREE.Mesh(mkBandGeom(), bandMat.clone())
     this.slingBandR = new THREE.Mesh(mkBandGeom(), bandMat.clone())
+    const bandHiMat = new THREE.MeshBasicMaterial({
+      color: 0x5d4037,
+      transparent: true,
+      opacity: 0.82,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+    this.slingBandHiL = new THREE.Mesh(mkBandGeom(), bandHiMat.clone())
+    this.slingBandHiR = new THREE.Mesh(mkBandGeom(), bandHiMat.clone())
 
     // 포켓
+    const pouchShape = new THREE.Shape()
+    pouchShape.moveTo(-20, 2)
+    pouchShape.bezierCurveTo(-14, 13, 14, 13, 20, 2)
+    pouchShape.bezierCurveTo(16, -12, -15, -12, -20, 2)
+    pouchShape.closePath()
     this.slingPouch = new THREE.Mesh(
-      new THREE.CircleGeometry(13, 28),
+      new THREE.ShapeGeometry(pouchShape, 18),
       new THREE.MeshBasicMaterial({ color: 0x5a3525 }),
     )
-    this.slingPouch.scale.set(1.42, 0.76, 1)
     const pouchRim = new THREE.Mesh(
-      new THREE.RingGeometry(11, 13, 28),
+      new THREE.ShapeGeometry(pouchShape, 18),
       new THREE.MeshBasicMaterial({
         color: 0x2a1712,
         transparent: true,
-        opacity: 0.75,
+        opacity: 0.32,
         side: THREE.DoubleSide,
       }),
     )
-    pouchRim.scale.copy(this.slingPouch.scale)
+    pouchRim.scale.set(1.08, 1.12, 1)
+    pouchRim.position.z = -0.006
     const pouchHi = new THREE.Mesh(
-      new THREE.CircleGeometry(4.2, 18),
+      new THREE.CircleGeometry(3.8, 18),
       new THREE.MeshBasicMaterial({ color: 0xb9825f, transparent: true, opacity: 0.5 }),
     )
-    pouchHi.scale.set(1.6, 0.56, 1)
-    pouchHi.position.set(-4, 3.2, 0.012)
+    pouchHi.scale.set(1.8, 0.52, 1)
+    pouchHi.position.set(-5, 4, 0.012)
+    const pouchShade = new THREE.Mesh(
+      new THREE.CircleGeometry(7.4, 22),
+      new THREE.MeshBasicMaterial({ color: 0x2a1712, transparent: true, opacity: 0.26 }),
+    )
+    pouchShade.scale.set(2.3, 0.48, 1)
+    pouchShade.position.set(3, -5, 0.014)
+    const pouchGripL = new THREE.Mesh(
+      new THREE.RingGeometry(3.4, 5.1, 18),
+      new THREE.MeshBasicMaterial({ color: 0x2a1712, transparent: true, opacity: 0.72, side: THREE.DoubleSide }),
+    )
+    pouchGripL.scale.set(1.1, 0.62, 1)
+    pouchGripL.position.set(-19.2, 2.2, 0.02)
+    const pouchGripR = pouchGripL.clone()
+    pouchGripR.position.set(19.2, 2.2, 0.02)
+    const pouchStitch = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-13, 1.5, 0.018),
+        new THREE.Vector3(-5, -1.5, 0.018),
+        new THREE.Vector3(5, -1.5, 0.018),
+        new THREE.Vector3(13, 1.5, 0.018),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0xd1a06e, transparent: true, opacity: 0.55 }),
+    )
     this.slingPouchGroup = new THREE.Group()
-    this.slingPouchGroup.add(this.slingPouch, pouchRim, pouchHi)
+    this.slingPouchGroup.add(pouchRim, this.slingPouch, pouchShade, pouchHi, pouchGripL, pouchGripR, pouchStitch)
+
+    const wrapMat = new THREE.MeshBasicMaterial({ color: 0x2a1712, transparent: true, opacity: 0.86, side: THREE.DoubleSide })
+    const wrapHiMat = new THREE.MeshBasicMaterial({ color: 0xd1a06e, transparent: true, opacity: 0.34, side: THREE.DoubleSide })
+    const makeWrap = (x, y, rot, scaleX = 1) => {
+      const wrap = new THREE.Group()
+      for (let i = 0; i < 3; i++) {
+        const strap = new THREE.Mesh(new THREE.BoxGeometry(33, 4.4, 1), wrapMat)
+        strap.position.set(x, y + (i - 1) * 5.3, -0.002 + i * 0.002)
+        strap.rotation.z = rot
+        strap.scale.x = scaleX
+        wrap.add(strap)
+        const hi = new THREE.Mesh(new THREE.BoxGeometry(20, 1.1, 1), wrapHiMat)
+        hi.position.set(x - 2, y + (i - 1) * 5.3 + 1.2, 0.004 + i * 0.002)
+        hi.rotation.z = rot
+        hi.scale.x = scaleX
+        wrap.add(hi)
+      }
+      return wrap
+    }
+    const forkWrap = makeWrap(S.x, S.y + 11, -0.08, 1.08)
+    const leftWrap = makeWrap(S.x - 37, S.y + 62, 0.78, 0.72)
+    const rightWrap = makeWrap(S.x + 37, S.y + 61, -0.76, 0.72)
+
+    const grainMat = new THREE.LineBasicMaterial({ color: 0x2f1d17, transparent: true, opacity: 0.26 })
+    const makeGrain = (points, z = -0.01) => new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(points.map(([x, y]) => new THREE.Vector3(x, y, z))),
+      grainMat,
+    )
+    const grains = [
+      makeGrain([[S.x - 5, S.y - 70], [S.x - 7, S.y - 38], [S.x - 3, S.y - 7], [S.x - 9, S.y + 12]]),
+      makeGrain([[S.x + 6, S.y - 64], [S.x + 4, S.y - 30], [S.x + 8, S.y - 2], [S.x + 5, S.y + 18]]),
+      makeGrain([[S.x - 13, S.y + 12], [S.x - 25, S.y + 32], [S.x - 36, S.y + 61]]),
+      makeGrain([[S.x + 13, S.y + 12], [S.x + 25, S.y + 31], [S.x + 38, S.y + 60]]),
+    ]
 
     this.renderer.add(foot)
     this.renderer.add(trunk)
     this.renderer.add(armL)
     this.renderer.add(armR)
     this.renderer.add(crotch)
+    this.renderer.add(forkWrap)
+    this.renderer.add(leftWrap)
+    this.renderer.add(rightWrap)
+    for (const grain of grains) this.renderer.add(grain)
     this.renderer.add(this.slingBandL)
     this.renderer.add(this.slingBandR)
+    this.renderer.add(this.slingBandHiL)
+    this.renderer.add(this.slingBandHiR)
     this.renderer.add(this.slingPouchGroup)
 
     this._forkTipU = { x: tipL.x, y: tipL.y }
@@ -373,10 +710,36 @@ class Game {
     this.renderer.add(this.slingGuide)
   }
 
+  _getSlingPocketPosition() {
+    return new THREE.Vector2(
+      SLING_POS.x + this.slingPull.x,
+      SLING_POS.y + SLING_ARMADILLO_REST_Y + this.slingPull.y,
+    )
+  }
+
+  _getSlingPouchRotation() {
+    const pullRatio = THREE.MathUtils.clamp(this.slingPull.length() / SLING_MAX_PULL, 0, 1)
+    const targetPocketRot = (this.slingDragging || this.slingSnapTime > 0)
+      ? THREE.MathUtils.clamp((this.slingAngle - Math.PI / 2) * 0.38, -0.34, 0.34)
+      : 0
+    return targetPocketRot * THREE.MathUtils.smoothstep(pullRatio, 0.04, 0.26)
+  }
+
+  _getSlingArmadilloPosition() {
+    const pocket = this._getSlingPocketPosition()
+    const rot = this._getSlingPouchRotation()
+    const pouchY = pocket.y - 12
+    return new THREE.Vector2(
+      pocket.x - Math.sin(rot) * 12,
+      pouchY + Math.cos(rot) * 12,
+    )
+  }
+
   /** 고무줄 + 포켓 + 가이드 업데이트 — _update() 에서 매 프레임 호출 */
   _updateSlingVisuals() {
-    let px = SLING_POS.x + this.slingPull.x
-    let py = SLING_POS.y + this.slingPull.y
+    const pocket = this._getSlingPocketPosition()
+    let px = pocket.x
+    let py = pocket.y
 
     // 발사 후 고무줄 튕김 감쇠 진동 — slingSnapTime이 남아 있으면 적용
     if (this.slingSnapTime > 0) {
@@ -389,26 +752,40 @@ class Game {
     }
 
     // 고무줄: 두꺼운 사각 밴드로 업데이트해서 브라우저별 lineWidth 제한을 피한다.
-    const updateBand = (mesh, tipX, tipY, pouX, pouY) => {
+    const updateBand = (mesh, tipX, tipY, pouX, pouY, widthScale = 1, z = 0.06, sideOffset = 0) => {
       const dx = pouX - tipX
       const dy = pouY - tipY
       const len = Math.max(1, Math.hypot(dx, dy))
       const nx = -dy / len
       const ny = dx / len
-      const width = 5.5 + THREE.MathUtils.clamp(this.slingPull.length() / SLING_MAX_PULL, 0, 1) * 2.5
+      const width = (5.5 + THREE.MathUtils.clamp(this.slingPull.length() / SLING_MAX_PULL, 0, 1) * 2.5) * widthScale
+      const ox = nx * sideOffset
+      const oy = ny * sideOffset
       const pos = mesh.geometry.attributes.position
-      pos.setXYZ(0, tipX + nx * width, tipY + ny * width, 0.06)
-      pos.setXYZ(1, tipX - nx * width, tipY - ny * width, 0.06)
-      pos.setXYZ(2, pouX - nx * width, pouY - ny * width, 0.06)
-      pos.setXYZ(3, pouX + nx * width, pouY + ny * width, 0.06)
+      pos.setXYZ(0, tipX + ox + nx * width, tipY + oy + ny * width, z)
+      pos.setXYZ(1, tipX + ox - nx * width, tipY + oy - ny * width, z)
+      pos.setXYZ(2, pouX + ox - nx * width, pouY + oy - ny * width, z)
+      pos.setXYZ(3, pouX + ox + nx * width, pouY + oy + ny * width, z)
       pos.needsUpdate = true
       mesh.geometry.computeBoundingSphere()
     }
-    updateBand(this.slingBandL, this._forkTipU.x, this._forkTipU.y, px, py)
-    updateBand(this.slingBandR, this._forkTipD.x, this._forkTipD.y, px, py)
+    const pouchY = py - 12
+    this.slingPouchGroup.rotation.z = this._getSlingPouchRotation()
+
+    const cos = Math.cos(this.slingPouchGroup.rotation.z)
+    const sin = Math.sin(this.slingPouchGroup.rotation.z)
+    const pouchHalfWidth = 24
+    const pouchLeftX = px - cos * pouchHalfWidth
+    const pouchLeftY = pouchY - sin * pouchHalfWidth
+    const pouchRightX = px + cos * pouchHalfWidth
+    const pouchRightY = pouchY + sin * pouchHalfWidth
+    updateBand(this.slingBandL, this._forkTipU.x, this._forkTipU.y, pouchLeftX, pouchLeftY)
+    updateBand(this.slingBandR, this._forkTipD.x, this._forkTipD.y, pouchRightX, pouchRightY)
+    updateBand(this.slingBandHiL, this._forkTipU.x, this._forkTipU.y, pouchLeftX, pouchLeftY, 0.34, 0.068, 2.6)
+    updateBand(this.slingBandHiR, this._forkTipD.x, this._forkTipD.y, pouchRightX, pouchRightY, 0.34, 0.068, 2.6)
 
     // 포켓 그룹 위치
-    this.slingPouchGroup.position.set(px, py, 0.07)
+    this.slingPouchGroup.position.set(px, pouchY, 0.07)
 
     // 가이드 점선 (발사 방향으로 포물선 예측) — 아르마딜로 현재 위치에서 출발
     if (this.slingDragging && this.slingPower > 0.05) {
@@ -416,7 +793,7 @@ class Game {
       const vx = Math.cos(this.slingAngle) * speed
       const vy = Math.sin(this.slingAngle) * speed
       const startX = px
-      const startY = py + ARMADILLO_SIZE / 2
+      const startY = py
       const pts = this.slingGuide.geometry.attributes.position
       for (let i = 0; i < 16; i++) {
         const t = i * 0.055
@@ -657,18 +1034,113 @@ class Game {
   }
 
   _createArmadillo() {
+    {
+      const group = new THREE.Group()
+      const makeSpriteTexture = (frame, placement) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 256
+        canvas.height = 256
+        const ctx = canvas.getContext('2d')
+        ctx.imageSmoothingEnabled = false
+
+        const drawFallback = () => {
+          ctx.clearRect(0, 0, 256, 256)
+          ctx.fillStyle = 'rgba(50, 34, 28, 0.32)'
+          ctx.beginPath()
+          ctx.ellipse(128, 144, placement.dw / 2, placement.dh / 3, 0, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        drawFallback()
+
+        const texture = new THREE.CanvasTexture(canvas)
+        texture.colorSpace = THREE.SRGBColorSpace
+        texture.minFilter = THREE.NearestFilter
+        texture.magFilter = THREE.NearestFilter
+
+        const img = new Image()
+        img.onload = () => {
+          const source = document.createElement('canvas')
+          source.width = frame.w
+          source.height = frame.h
+          const sourceCtx = source.getContext('2d')
+          sourceCtx.imageSmoothingEnabled = false
+          sourceCtx.drawImage(img, frame.x, frame.y, frame.w, frame.h, 0, 0, frame.w, frame.h)
+
+          const imageData = sourceCtx.getImageData(0, 0, frame.w, frame.h)
+          const { data } = imageData
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 242 && data[i + 1] > 242 && data[i + 2] > 242) data[i + 3] = 0
+          }
+          sourceCtx.putImageData(imageData, 0, 0)
+
+          ctx.clearRect(0, 0, 256, 256)
+          ctx.drawImage(source, placement.dx, placement.dy, placement.dw, placement.dh)
+          texture.needsUpdate = true
+        }
+        img.src = armadilloSheetUrl
+        return texture
+      }
+
+      const idleTexture = makeSpriteTexture(
+        { x: 4, y: 21, w: 24, h: 11 },
+        { dx: 10, dy: 42, dw: 236, dh: 150 },
+      )
+      const texture = makeSpriteTexture(
+        { x: 169, y: 84, w: 11, h: 11 },
+        { dx: 50, dy: 50, dw: 156, dh: 156 },
+      )
+
+      const shadow = new THREE.Mesh(
+        new THREE.CircleGeometry(18, 40),
+        new THREE.MeshBasicMaterial({ color: 0x120b08, transparent: true, opacity: 0.24 }),
+      )
+      shadow.scale.set(1.18, 0.82, 1)
+      shadow.position.set(1, -1, 0.04)
+
+	      const sprite = new THREE.Mesh(
+	        new THREE.PlaneGeometry(54, 54),
+	        new THREE.MeshBasicMaterial({
+	          map: idleTexture,
+	          transparent: true,
+	          depthWrite: false,
+	        }),
+      )
+      sprite.position.z = 0.12
+      sprite.renderOrder = 20
+
+      group.add(shadow, sprite)
+	      this.armadilloBody = sprite
+	      this.armadilloShell = sprite
+      this.armadilloSprite = sprite
+      this.armadilloIdleTexture = idleTexture
+      this.armadilloCurledTexture = texture
+	      this.armadilloBodyMat = null
+      this.armadilloShellMat = null
+      this.armadilloShellBaseMat = sprite.material
+      return group
+    }
+
     const group = new THREE.Group()
 
-    const shellMat = new THREE.MeshBasicMaterial({ color: 0x8d6e63 })
-    const shellDarkMat = new THREE.MeshBasicMaterial({ color: 0x4e342e })
-    const bellyMat = new THREE.MeshBasicMaterial({ color: 0xc9a27f })
-    const faceMat = new THREE.MeshBasicMaterial({ color: 0xb08368 })
+    const shellMat = new THREE.MeshBasicMaterial({ color: 0x9b745d })
+    const shellDarkMat = new THREE.MeshBasicMaterial({ color: 0x3a241d })
+    const shellPlateMat = new THREE.MeshBasicMaterial({ color: 0x6f4d3d })
+    const bellyMat = new THREE.MeshBasicMaterial({ color: 0xd6b28f })
+    const faceMat = new THREE.MeshBasicMaterial({ color: 0xb98a6d })
+    const faceLightMat = new THREE.MeshBasicMaterial({ color: 0xd0a184 })
     const tintMat = new THREE.MeshBasicMaterial({
-      color: 0xff7043,
+      color: 0xff8a50,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.24,
       side: THREE.DoubleSide,
     })
+
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(18.6, 64),
+      new THREE.MeshBasicMaterial({ color: 0x21140f, transparent: true, opacity: 0.28 }),
+    )
+    shadow.scale.set(1.04, 0.92, 1)
+    shadow.position.set(0.8, -1.2, 0.045)
 
     const shell = new THREE.Mesh(new THREE.CircleGeometry(17, 64), shellMat)
     shell.scale.set(1, 1, 1)
@@ -696,15 +1168,24 @@ class Game {
     tint.position.z = 0.1
 
     const bands = new THREE.Group()
-    for (let i = -2; i <= 3; i++) {
-      const band = new THREE.Mesh(
-        new THREE.BoxGeometry(2.2, 28 - Math.abs(i - 0.4) * 2.3, 1),
-        shellDarkMat,
+    for (let i = 0; i < 5; i++) {
+      const plate = new THREE.Mesh(
+        new THREE.RingGeometry(7.8 + i * 1.65, 8.8 + i * 1.65, 38, 1, 2.46, 1.58),
+        i % 2 === 0 ? shellDarkMat : shellPlateMat,
       )
-      band.position.set(i * 4.3 - 1, 0, 0.11)
-      band.rotation.z = i * 0.24
-      band.scale.x = i === 0 ? 1.15 : 1
-      bands.add(band)
+      plate.position.set(-2.5 + i * 0.18, -0.4, 0.112 + i * 0.002)
+      plate.rotation.z = -0.66 + i * 0.12
+      plate.scale.set(1.02, 0.93, 1)
+      bands.add(plate)
+    }
+
+    for (const [x, y, s] of [[-6.5, 7.5, 2.2], [-1.0, 9.2, 1.8], [4.6, 6.6, 2.0], [-8.4, -3.8, 1.7]]) {
+      const scute = new THREE.Mesh(
+        new THREE.CircleGeometry(s, 14),
+        new THREE.MeshBasicMaterial({ color: 0xc29a7d, transparent: true, opacity: 0.72 }),
+      )
+      scute.position.set(x, y, 0.118)
+      bands.add(scute)
     }
 
     const head = new THREE.Mesh(new THREE.CircleGeometry(6.6, 32), faceMat)
@@ -717,6 +1198,11 @@ class Game {
     snout.position.set(15.2, -5.1, 0.13)
     snout.rotation.z = -0.28
 
+    const cheek = new THREE.Mesh(new THREE.CircleGeometry(3.1, 18), faceLightMat)
+    cheek.scale.set(1.18, 0.62, 1)
+    cheek.position.set(12.2, -5.2, 0.145)
+    cheek.rotation.z = -0.32
+
     const nose = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), shellDarkMat)
     nose.position.set(18.8, -6.3, 0.15)
 
@@ -727,6 +1213,8 @@ class Game {
 
     const eye = new THREE.Mesh(new THREE.CircleGeometry(1.15, 12), new THREE.MeshBasicMaterial({ color: 0x111111 }))
     eye.position.set(13.4, -1.4, 0.16)
+    const eyeSpark = new THREE.Mesh(new THREE.CircleGeometry(0.35, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }))
+    eyeSpark.position.set(13.75, -1.05, 0.17)
 
     const tail = new THREE.Mesh(new THREE.BoxGeometry(10, 2.2, 1), shellDarkMat)
     tail.position.set(-13.5, 8.8, 0.08)
@@ -741,6 +1229,12 @@ class Game {
     footA.position.set(-3.8, -14.1, 0.1)
     const footB = footA.clone()
     footB.position.set(7.2, -12.8, 0.1)
+    const clawMat = new THREE.MeshBasicMaterial({ color: 0xf5e1c4 })
+    const clawA = new THREE.Mesh(new THREE.CircleGeometry(0.9, 8), clawMat)
+    clawA.scale.set(1.0, 0.48, 1)
+    clawA.position.set(-0.5, -14.5, 0.13)
+    const clawB = clawA.clone()
+    clawB.position.set(10.2, -13.2, 0.13)
 
     const shine = new THREE.Mesh(
       new THREE.CircleGeometry(3.8, 24),
@@ -749,7 +1243,28 @@ class Game {
     shine.scale.set(1.35, 0.72, 1)
     shine.position.set(-6.6, 6.6, 0.13)
 
-    group.add(tail, tailTip, shell, belly, bands, rim, tint, head, snout, ear, eye, nose, footA, footB, shine)
+    group.add(
+      shadow,
+      tail,
+      tailTip,
+      shell,
+      belly,
+      bands,
+      rim,
+      tint,
+      head,
+      snout,
+      cheek,
+      ear,
+      eye,
+      eyeSpark,
+      nose,
+      footA,
+      footB,
+      clawA,
+      clawB,
+      shine,
+    )
     this.armadilloBody = shell
     this.armadilloShell = shell
     this.armadilloBodyMat = tint.material
@@ -763,9 +1278,18 @@ class Game {
     if (this.armadilloBodyMat) this.armadilloBodyMat.opacity = color === 0xff1744 ? 0.28 : 0.5
   }
 
-  // 스프라이트 전환은 이제 껍질 색으로 대체 — 메서드는 호환성 유지
+  _setArmadilloCurled(isCurled) {
+    if (!this.armadilloSprite || !this.armadilloIdleTexture || !this.armadilloCurledTexture) return
+    const nextMap = isCurled ? this.armadilloCurledTexture : this.armadilloIdleTexture
+    if (this.armadilloSprite.material.map !== nextMap) {
+      this.armadilloSprite.material.map = nextMap
+      this.armadilloSprite.material.needsUpdate = true
+    }
+    this.armadilloSprite.scale.set(isCurled ? 1 : 1.12, isCurled ? 1 : 1.01, 1)
+  }
+
   _setArmadilloSprite(state) {
-    // rolling: 껍질 회전으로 표현 (rotation은 _updateRolling에서 처리)
+    this._setArmadilloCurled(state !== 'idle' || this.slingDragging)
   }
 
   _bindInput() {
@@ -780,8 +1304,7 @@ class Game {
       if (button.dataset.action === 'pause') this._togglePause()
       if (button.dataset.action === 'restart') this._restartToTitle()
       if (button.dataset.action === 'boost') {
-        this._pulseBoostButton()
-        this._handleTap('pointer')
+        this._startBoostHold('pointer')
       }
       return true
     }
@@ -795,17 +1318,12 @@ class Game {
     }, { passive: false })
 
     window.addEventListener('pointermove', (event) => {
-      if (!this.slingDragging && !this.pendingSlingStart) return
+      if (!this.slingDragging) return
       event.preventDefault()
       this._handlePointerMove(event.clientX, event.clientY)
     }, { passive: false })
 
     window.addEventListener('pointerup', (event) => {
-      if (this.pendingSlingStart) {
-        event.preventDefault()
-        this.pendingSlingStart = null
-        return
-      }
       if (this.slingDragging) {
         event.preventDefault()
         this._handlePointerRelease()
@@ -817,8 +1335,17 @@ class Game {
 
     window.addEventListener('pointercancel', () => {
       this.slingDragging = false
-      this.pendingSlingStart = null
       this.slingPull.set(0, 0)
+      this._setArmadilloCurled(false)
+      this._cancelBoostHold()
+    })
+
+    window.addEventListener('blur', () => {
+      this._cancelBoostHold()
+    })
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this._cancelBoostHold()
     })
 
     // 키보드
@@ -831,7 +1358,6 @@ class Game {
           return
         }
         this._ensureAudio()
-        this._pulseBoostButton()
         this._handleKeyboardPress()
         return
       }
@@ -875,7 +1401,8 @@ class Game {
     if (this.isPaused) return
 
     if (this.sm.is(State.TITLE)) {
-      this.pendingSlingStart = { x: clientX, y: clientY }
+      this._resetRun()
+      this.sm.transition(State.SLINGING)
       return
     }
 
@@ -891,9 +1418,9 @@ class Game {
       return
     }
 
-    // ROLLING 중 클릭 = 즉시 점프
+    // ROLLING 중 누름 = 가속 시작, 놓을 때 점프
     if (this.sm.is(State.ROLLING)) {
-      this._launchFromIsland('pointer')
+      this._startBoostHold('pointer')
       return
     }
 
@@ -901,25 +1428,19 @@ class Game {
   }
 
   _handlePointerMove(clientX, clientY) {
-    if (this.pendingSlingStart && this.sm.is(State.TITLE)) {
-      const dx = clientX - this.pendingSlingStart.x
-      const dy = clientY - this.pendingSlingStart.y
-      if (Math.hypot(dx, dy) < SLING_DRAG_START_PX) return
-      this.pendingSlingStart = null
-      this._resetRun()
-      this.sm.transition(State.SLINGING)
-      this.slingDragging = true
-    }
-
     if (!this.slingDragging || !this.sm.is(State.SLINGING)) return
 
     const world = this._screenToWorld(clientX, clientY)
-    // 당김 벡터 = 터치 위치 - 슬링 중심 (클램프)
-    const raw = new THREE.Vector2(world.x - SLING_POS.x, world.y - SLING_POS.y)
+    // 당김 벡터 = 터치 위치 - 포켓 기본 위치 (클램프)
+    const raw = new THREE.Vector2(
+      world.x - SLING_POS.x,
+      world.y - (SLING_POS.y + SLING_ARMADILLO_REST_Y),
+    )
     const len = Math.min(raw.length(), SLING_MAX_PULL)
     if (raw.length() > 0.001) raw.normalize().multiplyScalar(len)
 
     this.slingPull.copy(raw)
+    this._setArmadilloCurled(true)
 
     // 당김 반대 방향 = 발사 방향
     if (len > SLING_MIN_PULL) {
@@ -932,11 +1453,8 @@ class Game {
       this.slingPower = 0
     }
 
-    this.armadillo.position.set(
-      SLING_POS.x + this.slingPull.x,
-      SLING_POS.y + this.slingPull.y + ARMADILLO_SIZE / 2,
-      0,
-    )
+    const pocket = this._getSlingArmadilloPosition()
+    this.armadillo.position.set(pocket.x, pocket.y, 0)
     this._syncMotionToArmadillo()
     this._updateSlingVisuals()
   }
@@ -949,6 +1467,7 @@ class Game {
     if (this.slingPower < 0.05) {
       // 너무 약하게 당기면 취소, 리셋
       this.slingPull.set(0, 0)
+      this._setArmadilloCurled(false)
       return
     }
     this._launchFromSling()
@@ -956,11 +1475,49 @@ class Game {
 
   // pointerup / keyup(Space) 공통
   _handleBoostRelease(source = 'pointer') {
-    this._handleTap(source)
+    if (this.boostHeld && this.boostHoldSource === source) {
+      this._releaseBoostHold(source)
+      return
+    }
+    if (this.sm.is(State.GAMEOVER)) {
+      this._handleTap(source)
+    }
   }
 
   _pulseBoostButton() {
     this.boostButtonPulse = 0.16
+  }
+
+  _startBoostHold(source = 'pointer') {
+    if (this.isPaused) return
+    this._ensureAudio()
+    if (!this.sm.is(State.ROLLING)) {
+      this._handleTap(source)
+      return
+    }
+    this.boostHeld = true
+    this.boostHoldSource = source
+    this.boostCharge = 0
+    this.boostPeakRatio = 0
+    this._pulseBoostButton()
+  }
+
+  _releaseBoostHold(source = 'pointer') {
+    if (this.isPaused) return
+    this.boostHeld = false
+    this.boostHoldSource = null
+    if (this.sm.is(State.ROLLING)) {
+      this._launchFromIsland(source)
+    }
+    this.boostCharge = 0
+    this.boostPeakRatio = 0
+  }
+
+  _cancelBoostHold() {
+    this.boostHeld = false
+    this.boostHoldSource = null
+    this.boostCharge = 0
+    this.boostPeakRatio = 0
   }
 
   _handleTap(source = 'pointer') {
@@ -969,9 +1526,9 @@ class Game {
     if (this.sm.is(State.TITLE)) {
       return
     }
-    // ROLLING 중 클릭/스페이스 = 즉시 점프
+    // ROLLING 중 클릭/스페이스 = press 시작. release에서 점프한다.
     if (this.sm.is(State.ROLLING)) {
-      this._launchFromIsland(source)
+      this._startBoostHold(source)
       return
     }
     if (this.sm.is(State.GAMEOVER)) {
@@ -1001,9 +1558,9 @@ class Game {
       return
     }
 
-    // ROLLING: 즉시 점프
+    // ROLLING: 누르는 동안 가속, 뗄 때 점프
     if (this.sm.is(State.ROLLING)) {
-      this._launchFromIsland('keyboard')
+      this._startBoostHold('keyboard')
     }
   }
 
@@ -1050,10 +1607,13 @@ class Game {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
     this.slingDragging = false
-    this.pendingSlingStart = null
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
+    this.boostHeld = false
+    this.boostHoldSource = null
+    this.boostCharge = 0
+    this.boostPeakRatio = 0
     this.currentIsland = null
     this.physics.setGravity(GRAVITY)
     this._restoreTerrain()
@@ -1070,9 +1630,11 @@ class Game {
     this.splashStarted = false
     this.isPaused = false
     this.armadillo.visible = true
-    this.armadillo.position.set(SLING_POS.x, SLING_POS.y + ARMADILLO_SIZE / 2, 0)
+    const pocket = this._getSlingArmadilloPosition()
+    this.armadillo.position.set(pocket.x, pocket.y, 0)
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
+    this._setArmadilloCurled(false)
     this._updateSlingVisuals()
     this._syncMotionToArmadillo()
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.TITLE)
@@ -1082,10 +1644,13 @@ class Game {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
     this.slingDragging = false
-    this.pendingSlingStart = null
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
+    this.boostHeld = false
+    this.boostHoldSource = null
+    this.boostCharge = 0
+    this.boostPeakRatio = 0
     this.currentIsland = null
     this.physics.setGravity(GRAVITY)
     this._restoreTerrain()
@@ -1102,9 +1667,11 @@ class Game {
     this.splashStarted = false
     this.isPaused = false
     this.armadillo.visible = true
-    this.armadillo.position.set(SLING_POS.x, SLING_POS.y + ARMADILLO_SIZE / 2, 0)
+    const pocket = this._getSlingArmadilloPosition()
+    this.armadillo.position.set(pocket.x, pocket.y, 0)
     this.armadillo.rotation.z = 0
     this._setArmadilloColor(0xff1744)
+    this._setArmadilloCurled(false)
     this._updateSlingVisuals()
     this._syncMotionToArmadillo()
     this.sm.current = State.TITLE
@@ -1133,6 +1700,10 @@ class Game {
       previousIsland = island
     }
 
+    for (let i = 0; i < INITIAL_PROCEDURAL_ISLANDS; i++) {
+      this._spawnNextIsland()
+    }
+
     this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
   }
 
@@ -1151,6 +1722,7 @@ class Game {
     this.stallTime = 0
     this.slingSnapTime = 0.22              // 고무줄 튕김 애니메이션 시작
     this._setArmadilloColor(0xff1744)
+    this._setArmadilloCurled(true)
 
     const vx = Math.cos(this.slingAngle) * speed
     const vy = Math.sin(this.slingAngle) * speed
@@ -1174,9 +1746,13 @@ class Game {
     if (!this.currentIsland) return
     if (!this.sm.transition(State.FALLING)) return
     const launchAngle = this._getExitLaunchAngle(this.currentIsland)
-    const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
-    const uphillBoost = this._getUphillInputBoost(source, this.currentIsland, slopeAngle)
-    if (uphillBoost > 0) this.speedRatio = Math.min(1, this.speedRatio + uphillBoost)
+    const hadBoostInput = source === 'keyboard' || source === 'pointer'
+    const inputStrength = hadBoostInput
+      ? Math.max(BOOST_WEAK_RATIO, this.boostPeakRatio, this.boostCharge * 0.55)
+      : 0
+    if (hadBoostInput) {
+      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + BOOST_RELEASE_SPEED_KICK * inputStrength)
+    }
 
     const horizontalSpeed = this.speedRatio * MAX_SPEED
     const launchSpeed = Math.min(
@@ -1184,7 +1760,7 @@ class Game {
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed
+    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK * inputStrength
     this.velocity.set(vx, vy)
 
     // Planck body에도 속도 동기화 (누락 시 이전 착지 속도로 비행)
@@ -1193,27 +1769,35 @@ class Game {
     this._syncMotionToArmadillo()
 
     this.currentIsland = null
-    this.lastRating = uphillBoost > 0 ? 'BOOST' : 'JUMP'
-    this._setArmadilloColor(uphillBoost > 0 ? 0xfff176 : 0xff7043)
+    const strongBoost = inputStrength >= 0.45
+    this.lastRating = strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
+    this._setArmadilloColor(strongBoost ? 0xfff176 : hadBoostInput ? 0xffb74d : 0xff7043)
     this._spawnParticles(
       this.armadillo.position.x,
       this.armadillo.position.y,
-      uphillBoost > 0 ? 0xffd54f : 0xff7043,
-      uphillBoost > 0 ? 12 : 6,
-      uphillBoost > 0 ? 220 : 120,
+      strongBoost ? 0xffd54f : hadBoostInput ? 0xffb74d : 0xff7043,
+      strongBoost ? 14 : hadBoostInput ? 8 : 6,
+      strongBoost ? 260 : hadBoostInput ? 150 : 120,
     )
-    this._playTone(uphillBoost > 0 ? 520 + uphillBoost * 720 : 360, 0.08, 0.05, 'triangle')
+    this._playTone(strongBoost ? 680 : hadBoostInput ? 430 : 360, 0.08, 0.05, 'triangle')
   }
 
-  _getUphillInputBoost(source, island, slopeAngle) {
-    if (source !== 'keyboard' && source !== 'pointer') return 0
-    if (!this._isUpperUphillBoostZone(island, this.armadillo.position.x)) return 0
+  _getBoostAccelerationRatio(island, x, slopeAngle) {
+    const isUphillZone = this._isUpperUphillBoostZone(island, x)
+    const isEndZone = this._isTerrainEndBoostZone(island, x)
+    if (!isUphillZone && !isEndZone) return 0
+
+    if (isEndZone) {
+      const uphill = Math.max(0, Math.sin(slopeAngle))
+      return 1.0 + Math.min(0.25, uphill * 0.8)
+    }
+
     const uphill = Math.sin(slopeAngle)
     const min = Math.sin(UPHILL_BOOST_MIN_ANGLE)
     const max = Math.sin(UPHILL_BOOST_FULL_ANGLE)
     if (uphill <= min) return 0
     const t = THREE.MathUtils.clamp((uphill - min) / (max - min), 0, 1)
-    return UPHILL_INPUT_BOOST * (0.45 + 0.55 * t)
+    return 0.68 + 0.52 * t
   }
 
   _isUpperUphillBoostZone(island, x) {
@@ -1227,6 +1811,12 @@ class Game {
     }
     const thresholdY = THREE.MathUtils.lerp(minY, maxY, UPHILL_BOOST_TOP_RATIO)
     return topY >= thresholdY
+  }
+
+  _isTerrainEndBoostZone(island, x) {
+    if (!island?.bounds) return false
+    const start = island.bounds.right - TERRAIN_END_BOOST_ZONE_PX
+    return x >= start && x <= island.bounds.right + ARMADILLO_SIZE / 2
   }
 
   _getExitLaunchAngle(island) {
@@ -1287,7 +1877,7 @@ class Game {
       let spawnCount = 0
       while (
         this.islands[this.islands.length - 1].bounds.left - this.armadillo.position.x < ISLAND_SPAWN_LOOKAHEAD
-        && spawnCount < 6
+        && spawnCount < ISLANDS_PER_SPAWN_TICK
       ) {
         this._spawnNextIsland()
         spawnCount++
@@ -1314,9 +1904,9 @@ class Game {
   _updateSlinging() {
     // 아르마딜로를 포켓 위치에 고정 (드래그 중)
     if (this.sm.is(State.SLINGING)) {
-      const px = SLING_POS.x + this.slingPull.x
-      const py = SLING_POS.y + this.slingPull.y
-      this.armadillo.position.set(px, py + ARMADILLO_SIZE / 2, 0)
+      const pocket = this._getSlingArmadilloPosition()
+      this.armadillo.position.set(pocket.x, pocket.y, 0)
+      this._setArmadilloCurled(this.slingDragging)
     }
     this._updateSlingVisuals()
   }
@@ -1337,8 +1927,9 @@ class Game {
   }
 
   _updateFlight(dt) {
+    const prevX    = this.armadillo.position.x
     const prevY    = this.armadillo.position.y
-    const prevVelY = this.velocity.y
+    const incomingVelocity = this.velocity.clone()
 
     // Planck 스텝 — 중력·충돌·탄성 처리
     this.physics.setGravity(this._getGravityPx())
@@ -1352,20 +1943,20 @@ class Game {
     const prevBottom = prevY - ARMADILLO_SIZE / 2
     const nextBottom = state.y - ARMADILLO_SIZE / 2
 
+    // ① 위쪽으로 빠르게 통과 → 지형 파괴.
+    // 착지 판정보다 먼저 처리해야 충돌 반사로 튕겨나간 프레임도 계속 파고든다.
+    const piercedHits = this._findPiercedTerrainHits(prevX, prevY, state.x, state.y, incomingVelocity)
+    if (piercedHits.length > 0) {
+      this._breakTerrainHits(piercedHits, incomingVelocity)
+      return
+    }
+
     if (this.physics.isGrounded() && this.velocity.y <= 180) {
       const groundedIsland = this._findGroundedIsland()
       if (groundedIsland) {
         this._landOnIsland(groundedIsland)
         return
       }
-    }
-
-    // ① 위쪽으로 빠르게 통과 → 지형 파괴
-    const piercedTerrain = this._findPiercedTerrain()
-    if (piercedTerrain) {
-      this._breakTerrain(piercedTerrain)
-      // 파괴 후 Planck 지형 갱신 (이미 damaged zone이 처리)
-      return
     }
 
     // ② 아래로 착지 — 근접 감지 (속도가 낮거나 하강 중)
@@ -1457,45 +2048,79 @@ class Game {
     return best
   }
 
-  _findPiercedTerrain() {
-    // 지형 파괴는 위로 통과할 때만 (아래서 위로 돌파)
-    if (this.velocity.y <= 0) return null
+  _findPiercedTerrainHits(prevX, prevY, nextX, nextY, incomingVelocity) {
+    // 지형 파괴는 아래에서 위로 밀고 들어갈 때만. 충돌 반사 후 속도 대신 진입 속도를 본다.
+    if (incomingVelocity.y <= 0) return []
 
-    const x = this.armadillo.position.x
-    const centerY = this.armadillo.position.y
-    for (const island of this.islands) {
-      if (island.destroyed) continue
-      if (x < island.bounds.left - ARMADILLO_SIZE / 2 || x > island.bounds.right + ARMADILLO_SIZE / 2) continue
-      if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
-      const topY = getTerrainTopY(island, x)
-      const insideBody = centerY + ARMADILLO_SIZE / 2 >= island.bounds.bottom
-        && centerY - ARMADILLO_SIZE / 2 <= topY
-      if (insideBody) return island
+    const dx = nextX - prevX
+    const dy = nextY - prevY
+    const steps = Math.max(2, Math.ceil(Math.hypot(dx, dy) / 22))
+    const hits = []
+    const hitKeys = new Set()
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps
+      const x = THREE.MathUtils.lerp(prevX, nextX, t)
+      const y = THREE.MathUtils.lerp(prevY, nextY, t)
+      const lower = y - ARMADILLO_SIZE / 2
+      const upper = y + ARMADILLO_SIZE / 2
+
+      for (const island of this.islands) {
+        if (island.destroyed) continue
+        if (x < island.bounds.left - ARMADILLO_SIZE / 2 || x > island.bounds.right + ARMADILLO_SIZE / 2) continue
+        if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE * 0.18)) continue
+
+        const topY = getTerrainTopY(island, x)
+        const overlapsBody = upper >= island.bounds.bottom && lower <= topY
+        if (!overlapsBody) continue
+
+        const key = `${this.islands.indexOf(island)}:${Math.round(x / 18)}`
+        if (hitKeys.has(key)) continue
+        hitKeys.add(key)
+        hits.push({ terrain: island, x, y })
+      }
     }
 
-    return null
+    return hits
   }
 
-  _breakTerrain(terrain) {
-    const impactSpeed = this.velocity.length()
+  _breakTerrainHits(hits, incomingVelocity) {
+    const touched = new Set()
+    for (const hit of hits) {
+      this._breakTerrainAt(hit.terrain, hit.x, hit.y, incomingVelocity, false)
+      touched.add(hit.terrain)
+    }
+
+    for (const terrain of touched) this.physics.addTerrain(terrain)
+
+    const exitX = this.armadillo.position.x + Math.cos(Math.atan2(incomingVelocity.y, incomingVelocity.x)) * 18
+    const exitY = this.armadillo.position.y + Math.sin(Math.atan2(incomingVelocity.y, incomingVelocity.x)) * 18
+    this.armadillo.position.set(exitX, exitY, 0)
+    this.physics.setArmadilloPos(exitX, exitY)
+    this.physics.setArmadilloVelocity(incomingVelocity.x, incomingVelocity.y)
+    this.velocity.copy(incomingVelocity)
+  }
+
+  _breakTerrainAt(terrain, x = this.armadillo.position.x, y = this.armadillo.position.y, impactVelocity = this.velocity, refreshPhysics = true) {
+    const impactSpeed = impactVelocity.length()
     const damage = terrain.softBreak || impactSpeed < UNDER_BREAK_SPEED
       ? this._getSoftTerrainDamageProfile(impactSpeed)
       : this._getTerrainDamageProfile(impactSpeed)
-    damageTerrain(terrain, this.armadillo.position.x, damage.radius, damage.depth)
-    this.physics.addTerrain(terrain)
-    this.particleSystem.spawnDirt(this.armadillo.position.x, this.armadillo.position.y, 32 + Math.floor(damage.force * 24))
-    this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
-    this.speedRatio = Math.max(0.24, this.speedRatio - (terrain.softBreak ? 0.06 : 0.18))
+    damageTerrain(terrain, x, damage.radius, damage.depth)
+    if (refreshPhysics) this.physics.addTerrain(terrain)
+    this.particleSystem.spawnDirt(x, y, 32 + Math.floor(damage.force * 24))
+    this.physics.setArmadilloVelocity(impactVelocity.x, impactVelocity.y)
+    this.speedRatio = Math.max(0.34, this.speedRatio - (terrain.softBreak ? 0.015 : 0.06))
     this._setArmadilloColor(0xffd54f)
-    this._triggerImpact(0.52 + damage.depth * 0.2, 0x6d4c41, this.armadillo.position.x, this.armadillo.position.y)
+    this._triggerImpact(0.52 + damage.depth * 0.2, 0x6d4c41, x, y)
   }
 
   _getTerrainDamageProfile(speed) {
     const force = THREE.MathUtils.clamp((speed - UNDER_BREAK_SPEED) / (DAMAGE_SPEED_FULL - UNDER_BREAK_SPEED), 0, 1)
     return {
       force,
-      depth: 0.65 + force * 1.35,
-      radius: 42 + force * 76,
+      depth: 0.56 + force * 1.0,
+      radius: 36 + force * 58,
     }
   }
 
@@ -1503,17 +2128,18 @@ class Game {
     const force = THREE.MathUtils.clamp(speed / UNDER_BREAK_SPEED, 0.35, 1)
     return {
       force,
-      depth: 1.35 + force * 0.8,
-      radius: 58 + force * 54,
+      depth: 1.0 + force * 0.55,
+      radius: 48 + force * 42,
     }
   }
 
   _carveLaunchPath() {
     const forward = new THREE.Vector2(Math.cos(this.slingAngle), Math.sin(this.slingAngle))
+    const start = this.armadillo.position
     const samples = [0, 34, 68, 102]
     for (const sample of samples) {
-      const x = SLING_POS.x + forward.x * sample
-      const y = SLING_POS.y + ARMADILLO_SIZE / 2 + forward.y * sample
+      const x = start.x + forward.x * sample
+      const y = start.y + forward.y * sample
       for (const island of this.islands) {
         if (island.destroyed) continue
         if (x < island.bounds.left - ARMADILLO_SIZE || x > island.bounds.right + ARMADILLO_SIZE) continue
@@ -1525,6 +2151,7 @@ class Game {
 
         const damage = this._getTerrainDamageProfile(this.velocity.length())
         damageTerrain(island, x, damage.radius, damage.depth)
+        this.physics.addTerrain(island)
         this._triggerImpact(0.45 + damage.force * 0.35, 0x6d4c41, x, y)
       }
     }
@@ -1554,7 +2181,7 @@ class Game {
     const landedSpeedRatio = Math.min(1, hSpeed / MAX_SPEED)
     this.speedRatio = Math.max(
       ROLLING_MIN_SPEED_RATIO,
-      Math.min(this.speedRatio, landedSpeedRatio),
+      Math.max(this.speedRatio * 0.92, Math.min(this.speedRatio, landedSpeedRatio)),
     )
     this.velocity.set(0, 0)
     this.physics.setArmadilloVelocity(0, 0)
@@ -1609,12 +2236,26 @@ class Game {
     // sin(angle) > 0 = 오르막. 자동 가속은 주지 않고, 오르막 저항만 반영한다.
     const slopeFactor = Math.sin(slopeAngle)
     const slopeEffect = slopeFactor > 0 ? -slopeFactor * SLOPE_RESIST_PER_SEC : 0
+    const zoneBoostRatio = this.boostHeld
+      ? this._getBoostAccelerationRatio(this.currentIsland, this.armadillo.position.x, slopeAngle)
+      : 0
+    const boostAccelRatio = this.boostHeld
+      ? Math.max(BOOST_WEAK_RATIO, zoneBoostRatio)
+      : 0
+    const inputBoost = boostAccelRatio * BOOST_ACCEL_PER_SEC
 
     this.speedRatio = THREE.MathUtils.clamp(
-      this.speedRatio + (slopeEffect - FRICTION_PER_SEC) * dt,
+      this.speedRatio + (inputBoost + slopeEffect - FRICTION_PER_SEC) * dt,
       0,
-      1,
+      BOOST_SPEED_LIMIT,
     )
+    if (this.boostHeld) {
+      this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
+      this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
+      this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
+      this._setArmadilloColor(zoneBoostRatio > 0 ? 0xfff176 : 0xffb74d)
+    }
+
     const moveX = this.speedRatio * MAX_SPEED * dt
     this.armadillo.position.x += moveX
     if (isTerrainDamagedAt(this.currentIsland, this.armadillo.position.x, ARMADILLO_SIZE / 2)) {
@@ -1701,10 +2342,10 @@ class Game {
     }
   }
 
-  // speedRatio ≥ 0.55 이상이면 불꽃 트레일 방출
+  // speedRatio ≥ 0.42 이상이면 불꽃 트레일 방출
   // ROLLING 중 지형 파괴 가능성을 직관적으로 표시
   _updateFlameTrail(dt) {
-    const FLAME_THRESHOLD = 0.55
+    const FLAME_THRESHOLD = 0.42
     const isActive = (this.sm.is(State.ROLLING) || this.sm.is(State.FLYING) || this.sm.is(State.FALLING))
       && this.speedRatio >= FLAME_THRESHOLD
 
@@ -1864,17 +2505,17 @@ class Game {
     const showControlRow = !this.isPaused
       && !this.sm.is(State.TITLE)
       && !this.sm.is(State.GAMEOVER)
-    const boostButtonActive = this.boostButtonPulse > 0
+    const boostButtonActive = this.boostHeld || this.boostButtonPulse > 0
     const boostButtonReady = this.sm.is(State.ROLLING)
 
     const action = this.splashGameOverTimer > 0
       ? '물속으로 빠지는 중...'
       : this.sm.is(State.TITLE)
-      ? '슬링을 드래그해서 발사!'
+      ? '클릭해서 슬링 준비'
       : this.sm.is(State.SLINGING)
         ? this.slingDragging ? '놓으면 발사!' : '드래그로 조준'
       : this.sm.is(State.ROLLING)
-        ? '하단 버튼 / 스페이스: 노란 오르막에서 부스트 점프'
+        ? '하단 버튼 / 스페이스: 노란 오르막 또는 끝부분 부스트'
       : this.sm.is(State.GAMEOVER)
         ? '클릭 / 스페이스 → 재시작'
         : '비행 중...'
@@ -1916,20 +2557,9 @@ class Game {
 
       ${this.sm.is(State.TITLE) ? `
         <div class="start-layer">
-          <div class="armadillo-portrait" aria-hidden="true">
-            <div class="portrait-tail"></div>
-            <div class="portrait-shell">
-              <span></span><span></span><span></span><span></span>
-            </div>
-            <div class="portrait-head">
-              <i></i>
-            </div>
-            <div class="portrait-nose"></div>
-            <div class="portrait-feet"></div>
-          </div>
           <div class="start-title">ARMADILLO RUSH</div>
           <div class="start-subtitle">🌊 바다 → 하늘 → 🌕 달</div>
-          <div class="start-subtitle">슬링을 드래그해서 발사!</div>
+          <div class="start-subtitle">클릭해서 슬링 준비</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
         </div>
       ` : ''}

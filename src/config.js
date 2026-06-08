@@ -7,11 +7,11 @@
 export const PX_PER_METER = 10        // 1m = 10px
 
 // ── 속도 시스템 ──────────────────────────────────────
-export const MAX_SPEED = 1040         // px/s, speedRatio 1.0 일 때 실제 속도
+export const MAX_SPEED = 1160         // px/s, speedRatio 1.0 일 때 실제 속도
 
 // 시간 기반 (연속, /초 — deltaTime 곱함)
-export const FRICTION_PER_SEC = 0.025    // 구름 마찰 (낮을수록 속도감 살아남)
-export const SLOPE_RESIST_PER_SEC = 0.06 // 경사 저항 (낮을수록 올라가기 수월)
+export const FRICTION_PER_SEC = 0.012    // 구름 마찰 (낮을수록 속도감 살아남)
+export const SLOPE_RESIST_PER_SEC = 0.026 // 경사 저항 (낮을수록 올라가기 수월)
 
 // ── 게임 오버 ────────────────────────────────────────
 export const STALL_SPEED_RATIO = 0.05    // 이 이하면 정지 위험

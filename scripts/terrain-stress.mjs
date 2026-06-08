@@ -4,9 +4,9 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const RUNS = Number.parseInt(process.env.TERRAIN_STRESS_RUNS ?? '50', 10)
-const ISLANDS_PER_RUN = Number.parseInt(process.env.TERRAIN_STRESS_ISLANDS ?? '260', 10)
-const TERRAIN_MIN_GAP = 26
-const MAX_HORIZONTAL_GAP = 90
+const ISLANDS_PER_RUN = Number.parseInt(process.env.TERRAIN_STRESS_ISLANDS ?? '420', 10)
+const TERRAIN_MIN_GAP = 12
+const MAX_HORIZONTAL_GAP = 58
 const MAX_PROCEDURAL_VERTICAL_STEP = 260
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
