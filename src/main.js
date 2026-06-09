@@ -98,6 +98,14 @@ const ROLLING_FRICTION_PER_SEC = 0.28 // speedRatio/s lost to friction when no i
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
 const SPACE_GRAVITY_FULL = 0.86
+// Open-air fall acceleration (cloud + space layers only)
+// Activates when falling downward with no terrain detected below within
+// FALL_ACCEL_PROBE_PX.  Ramps up linearly with fall distance up to the
+// FALL_ACCEL_MAX multiplier applied on top of current gravity.
+const FALL_ACCEL_CLOUD_START  = 0.30   // heightRatio where effect begins (top of cloud layer)
+const FALL_ACCEL_MAX_MULT     = 1.8    // peak extra-gravity multiplier (fraction of current gravity)
+const FALL_ACCEL_PROBE_PX     = 320    // downward scan distance: if terrain found within this, skip
+const FALL_ACCEL_RAMP_PX      = 400    // fall distance (from peak) over which mult ramps 0→max
 const CLOUD_SPRING_VY = 760
 const CLOUD_SPRING_VX_KEEP = 0.94
 const TERRAIN_MIN_GAP = 12
@@ -224,6 +232,17 @@ class Game {
 
     if (import.meta.env.DEV) {
       this.sm.onChange((from, to) => console.log(`[state] ${from} -> ${to}`))
+    }
+
+    // Render the HUD once immediately so the name-prompt overlay is visible on
+    // first launch even before the first rAF fires (and before the loop guard
+    // would otherwise skip it while showingNamePrompt is true).
+    this._renderHud()
+    if (this.showingNamePrompt) {
+      Promise.resolve().then(() => {
+        const input = this.ui?.querySelector('.name-input')
+        if (input) { input.focus(); input.select() }
+      })
     }
   }
 
@@ -1370,6 +1389,8 @@ class Game {
     window.addEventListener('pointerdown', (event) => {
       if (handleControlButton(event)) return
       if (this.showingNamePrompt || this.showingLeaderboard) return
+      // Any click inside the UI overlay (but not the canvas) stays in UI land.
+      if (event.target instanceof Element && event.target.closest('#ui-overlay')) return
       event.preventDefault()
       this._ensureAudio()
       this.pointerIsDown = true
@@ -1446,7 +1467,7 @@ class Game {
         return
       }
       if (event.code === 'Escape') {
-        if (this.showingNamePrompt) { this.showingNamePrompt = false; return }
+        if (this.showingNamePrompt) { this._closeNamePrompt(); this._renderHud(); return }
         if (this.showingLeaderboard) { this._closeLeaderboard(); return }
         event.preventDefault()
         this._togglePause()
@@ -1680,6 +1701,8 @@ class Game {
     this.speedRatio = 0.75
     this.spinAngleVel = 0
     this._edgeFallGraceTimer = 0
+    this.pointerIsDown = false
+    this.spaceIsDown = false
     this.slingDragging = false
     this._pendingPointerClear = false
     this._namePromptJustClosed = false
@@ -2137,8 +2160,28 @@ class Game {
     // it can never apply restitution against freshly-rebuilt fixtures.
     if (this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
 
-    // Normal flight — let Planck handle gravity + terrain collision.
-    this.physics.setGravity(this._getGravityPx())
+    const baseGravity = this._getGravityPx()
+
+    // Grace frames: Planck step is skipped entirely so it cannot issue any
+    // push-out or bounce impulse against freshly-rebuilt or overlapping fixtures.
+    // We manually integrate position under gravity instead.
+    if (this._spawnGraceTimer > 0) {
+      this._spawnGraceTimer--
+      this.velocity.y -= baseGravity * dt
+      this.armadillo.position.x += this.velocity.x * dt
+      this.armadillo.position.y += this.velocity.y * dt
+      // Keep Planck body in sync so it is at the right place when grace ends.
+      this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+      this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
+      // Still check for moon/sea boundary
+      if (this.armadillo.position.y >= MOON_TARGET_Y) { this._reachMoon(); return }
+      if (this.armadillo.position.y < SEA_LEVEL_Y)    { this._beginSplashGameOver(this.armadillo.position.x); return }
+      return
+    }
+
+    // Open-air fall acceleration — cloud and space layers only.
+    this.physics.setGravity(baseGravity)
+    this._applyOpenAirFallAccel(dt, baseGravity)
     this.physics.step(dt)
     const state = this.physics.getArmadilloState()
 
@@ -2149,13 +2192,7 @@ class Game {
     const prevBottom = prevY - ARMADILLO_SIZE / 2
     const nextBottom = state.y - ARMADILLO_SIZE / 2
 
-    // Consume one grace frame — skip landing detection right after a teleport
-    // so Planck cannot immediately bounce the ball off the spawn terrain.
-    if (this._spawnGraceTimer > 0) {
-      this._spawnGraceTimer--
-      // Re-apply our desired velocity each grace frame in case Planck altered it
-      this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
-    } else {
+    {
       // ① Planck grounding check
       if (this.physics.isGrounded() && this.velocity.y <= 180) {
         const groundedIsland = this._findGroundedIsland()
@@ -2258,6 +2295,54 @@ class Game {
     return best
   }
 
+  // Applies an extra downward velocity impulse during open-air drops in the cloud
+  // and space layers.  Guards:
+  //   1. heightRatio must be above FALL_ACCEL_CLOUD_START (cloud layer entry)
+  //   2. armadillo must be moving downward (vy < 0)
+  //   3. no undamaged terrain within FALL_ACCEL_PROBE_PX directly below
+  // The impulse magnitude ramps from 0 to FALL_ACCEL_MAX_MULT × baseGravity over
+  // FALL_ACCEL_RAMP_PX of fall distance (measured from the flight peak).
+  _applyOpenAirFallAccel(dt, baseGravity) {
+    const hr = this._getHeightRatio()
+    // Only active in cloud/space altitude band
+    if (hr < FALL_ACCEL_CLOUD_START) return
+    // Only while falling
+    if (this.velocity.y >= 0) return
+    // Suppress when terrain is nearby below — normal jump / landing approach
+    if (this._terrainBelowWithin(FALL_ACCEL_PROBE_PX)) return
+
+    // Ramp based on how far we have fallen from the peak of this flight arc
+    const fallDist = Math.max(0, this.flightPeakY - this.armadillo.position.y)
+    const ramp = Math.min(1, fallDist / FALL_ACCEL_RAMP_PX)
+    // Also blend with altitude so the effect starts gently at cloud entry
+    const altBlend = Math.min(1, (hr - FALL_ACCEL_CLOUD_START) / 0.15)
+    const extraAccel = baseGravity * FALL_ACCEL_MAX_MULT * ramp * altBlend
+
+    // Apply as a velocity impulse (same sign convention: downward = negative vy)
+    const newVy = this.velocity.y - extraAccel * dt
+    this.velocity.y = newVy
+    this.physics.setArmadilloVelocity(this.velocity.x, newVy)
+  }
+
+  // Returns true if there is undamaged terrain surface within probeDepth px below
+  // the armadillo's current position.  Used to suppress open-air fall acceleration
+  // when the armadillo is approaching or sitting above an island.
+  _terrainBelowWithin(probeDepth) {
+    const x      = this.armadillo.position.x
+    const bottom = this.armadillo.position.y - ARMADILLO_SIZE / 2
+    for (const island of this.islands) {
+      if (island.destroyed) continue
+      const b = island.bounds
+      // Horizontal bounds check (generous — include the armadillo radius)
+      if (x < b.left - ARMADILLO_SIZE || x > b.right + ARMADILLO_SIZE) continue
+      if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
+      const topY = getTerrainTopY(island, x)
+      // terrain surface is below the armadillo and within probe window
+      if (topY < bottom && bottom - topY <= probeDepth) return true
+    }
+    return false
+  }
+
   // Returns true if destruction happened this frame (caller must skip Planck step).
   // Scans the full predicted path, damages every terrain segment the ball crosses,
   // then manually places the ball just past the last crater so Planck never sees
@@ -2346,23 +2431,30 @@ class Game {
       }
     }
 
-    // Preserve velocity direction, apply a modest speed-through bonus
-    const exitSpeed = Math.max(speed, speed * 1.05 + 60)
-    const exitVx = Math.cos(angle) * exitSpeed
-    const exitVy = Math.sin(angle) * exitSpeed
-    this.speedRatio = Math.min(this.speedRatio + 0.25, BOOST_SPEED_LIMIT)
+    // Preserve full incoming speed plus a small bonus.  Clamp exit vy to >= 0
+    // so the ball never exits pointing back into the terrain surface — it
+    // continues forward (and slightly upward if it was going up, or flat if it
+    // was going downward).
+    const exitSpeed = speed * 1.05 + 40
+    const exitVx = incomingVelocity.x >= 0
+      ? Math.max(incomingVelocity.x, exitSpeed * 0.7)
+      : incomingVelocity.x
+    const exitVy = Math.max(incomingVelocity.y, 0)
+    this.speedRatio = Math.min(this.speedRatio + 0.15, BOOST_SPEED_LIMIT)
 
     this.armadillo.position.set(exitX, exitY, 0)
     this.velocity.set(exitVx, exitVy)
 
-    // Push Planck body to exit position and zero contact state —
-    // setArmadilloPos also zeroes velocity and angular velocity, so call
-    // setArmadilloVelocity immediately after to restore exit velocity.
+    // Push Planck body to exit position, then flush all contact pairs so the
+    // solver cannot issue a bounce impulse from stale or newly-built fixtures.
+    // A one-frame grace timer keeps landing detection off while Planck settles.
     this.physics.setArmadilloPos(exitX, exitY)
     this.physics.setArmadilloVelocity(exitVx, exitVy)
+    this.physics.flushContacts()
+    this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 2)
 
     this._setArmadilloColor(0xffd54f)
-    this._triggerImpact(0.45, 0x6d4c41, exitX, exitY)
+    this._triggerDestructionImpact(0.35, 0x6d4c41, exitX, exitY)
     return true
   }
 
@@ -2374,14 +2466,15 @@ class Game {
     damageTerrain(terrain, x, damage.radius, damage.depth)
     if (refreshPhysics) {
       this.physics.addTerrain(terrain)
-      // only sync velocity when we're the sole owner of the physics state
       this.physics.setArmadilloVelocity(impactVelocity.x, impactVelocity.y)
+      this.physics.flushContacts()
+      this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 2)
     }
     // when called from _breakTerrainHits (refreshPhysics=false), velocity is set
     // there after all hits are processed — do not touch it here
     this.particleSystem.spawnDirt(x, y, 32 + Math.floor(damage.force * 24))
     this._setArmadilloColor(0xffd54f)
-    this._triggerImpact(0.52 + damage.depth * 0.2, 0x6d4c41, x, y)
+    this._triggerDestructionImpact(0.35 + damage.depth * 0.1, 0x6d4c41, x, y)
   }
 
   _getTerrainDamageProfile(speed) {
@@ -2421,7 +2514,7 @@ class Game {
         const damage = this._getTerrainDamageProfile(this.velocity.length())
         damageTerrain(island, x, damage.radius, damage.depth)
         this.physics.addTerrain(island)
-        this._triggerImpact(0.45 + damage.force * 0.35, 0x6d4c41, x, y)
+        this._triggerDestructionImpact(0.30 + damage.force * 0.20, 0x6d4c41, x, y)
       }
     }
   }
@@ -2639,6 +2732,14 @@ class Game {
     this.trauma = Math.min(1, this.trauma + strength)
     this.flashTime = Math.max(this.flashTime, 0.12)
     this.slowmoTime = Math.max(this.slowmoTime, SLOWMO_SEC)
+    this._spawnParticles(x, y, color)
+    this._playTone(90 + strength * 90, 0.08, 0.06 + strength * 0.05, 'sawtooth')
+  }
+
+  // Like _triggerImpact but without slowmo — used for terrain destruction so the
+  // ball never feels like it hit a wall.  Camera shake and particles still fire.
+  _triggerDestructionImpact(strength, color, x, y) {
+    this.trauma = Math.min(1, this.trauma + strength)
     this._spawnParticles(x, y, color)
     this._playTone(90 + strength * 90, 0.08, 0.06 + strength * 0.05, 'sawtooth')
   }
@@ -3029,7 +3130,9 @@ class Game {
     // update PostFX then render (BackgroundPass → RenderPass → Effects)
     this.postfx.update(this.trauma, heightRatio, dt ?? FIXED_DT)
     this.postfx.render(dt ?? FIXED_DT)
-    this._renderHud()
+    // Do not re-render the HUD while the name prompt is open — destroying and
+    // recreating the <input> element every frame loses focus and kills typing.
+    if (!this.showingNamePrompt) this._renderHud()
   }
 
   _updateRendererClearSky(heightRatio) {
@@ -3088,8 +3191,8 @@ class Game {
 
     // sling power meter (shown while dragging)
     const slingMeter = this.sm.is(State.SLINGING) ? `
-      <div class="meter meter-power">
-        <div class="meter-fill power-fill" style="width:${pullPct}%"></div>
+      <div class="meter-power">
+        <div class="power-fill" style="height:${pullPct}%"></div>
       </div>` : ''
 
     const isMoonClear = this.lastRating === 'MOON'
@@ -3153,7 +3256,6 @@ class Game {
 
     this.ui.innerHTML = `
       ${isGameActive ? `<div class="lives-hud">${heartsHTML}</div>` : ''}
-      ${itemEffectsHTML}
       <div class="hud-panel hud-stats">
         <div><span>STATE</span><strong>${phaseText}</strong></div>
         <div><span>SCORE</span><strong>${score}</strong></div>
@@ -3164,6 +3266,7 @@ class Game {
         <div><span>ANGLE</span><strong>${slingDeg}°</strong></div>
         <div><span>POWER</span><strong>${slingPowerPct}%</strong></div>
         ${dangerText}
+        ${itemEffectsHTML}
       </div>
 
       ${slingMeter}
@@ -3173,9 +3276,9 @@ class Game {
           <div class="start-title">ARMADILLO RUSH</div>
           <div class="start-subtitle">🌊 Sea → ☁️ Sky → 🌕 Moon</div>
           <div class="start-subtitle">Click to start slinging</div>
-          <div class="start-best">BEST ${this.bestRecord.score}</div>
+          <div class="start-best"><span class="start-best-label">BEST</span> ${this.bestRecord.score.toLocaleString()}</div>
           <div class="start-tip">💡 ${TIPS[this._tipIndex]}</div>
-          <button type="button" class="clickable name-edit-btn" data-action="name-edit">👤 ${this.playerName || 'No nickname set'}</button>
+          <button type="button" class="clickable name-edit-btn" data-action="name-edit">Nickname: ${this.playerName || 'Anonymous'}</button>
         </div>
       ` : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}

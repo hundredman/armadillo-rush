@@ -4,49 +4,55 @@
 
 **Play online:** https://hundredman.github.io/armadillo-rush/
 
+Scan to play on mobile:
+
+![QR code — scan to play](qr.png)
+
+---
+
 ## Overview
 
 Armadillo Rush is a 2D arcade physics game built with Three.js and Planck.js.
 
-The player launches a curled armadillo from a wooden slingshot, lands on floating terrain islands, and uses hold-and-release timing to build speed and jump between islands. The lower world is bright sea and sky; mid altitude transitions to cloud terrain; the highest region is low-gravity space with meteor terrain.
+The player launches a curled armadillo from a wooden slingshot, lands on floating terrain islands, and uses hold-and-release timing to build speed and jump between islands. The world climbs from bright sea and sky through cloud terrain into low-gravity space toward the moon.
 
 ## Gameplay
 
-1. Enter your nickname (shown on the leaderboard).
-2. Drag the slingshot pouch and release to launch.
-3. Land on terrain — the armadillo rolls freely.
+1. **Set a nickname** — shown on the leaderboard. Tap "Nickname: Anonymous" on the title screen to edit.
+2. **Drag the slingshot pouch** and release to launch. A vertical power bar on the left shows pull strength.
+3. **Land on terrain** — the armadillo rolls freely.
 4. **Hold** Space / tap → accelerate while rolling.
 5. **Release** → jump off the terrain with accumulated spin force.
 6. **Hold** while airborne → continuous clockwise spin.
 7. Release in the air → spin slows; no air-jump fires.
-8. **Edge bonus**: releasing near the right edge of a terrain island gives an extra upward kick.
+8. **Edge bonus**: releasing near the right edge of an island gives an extra upward kick.
 9. **Hill crest bonus**: crossing the peak of a hill at speed fires a bonus launch upward.
-10. **Collect items** floating above terrain to gain power-ups (see Items below).
+10. **Collect items** floating above terrain to gain power-ups.
 11. Fall into the sea → lose one life (3 total). Each sea hit respawns you on the nearest island ahead.
 12. Reach moon altitude to clear the run.
 
 ## Items
 
-Three collectible pickups float above terrain islands:
+Three collectible pickups float above terrain islands on a gentle bob animation:
 
-| Item | Icon | Effect |
+| Item | Visual | Effect |
 | --- | --- | --- |
-| **Rocket** | 🚀 Orange rocket (45° tilt) | Immediately launches the armadillo upward-forward at 45° (~940 px/s) for 2.2 seconds; gravity is ignored during thrust |
-| **Spring** | ↑ Cyan arrow with coil | Instant +speed bonus; next jump gets a large extra upward kick (+420 px/s); consumed on jump |
-| **Heart** | ♥ Red heart | Restore one life (max 3) |
+| **Rocket** | Orange rocket tilted 45° | Immediately launches armadillo upward-forward at 45° (~940 px/s) for 2.2 s; gravity ignored during thrust |
+| **Spring** | Cyan arrow with coil | Instant +speed bonus; next jump gets +420 px/s vertical kick; consumed on that jump |
+| **Heart** | Red heart | Restore one life (max 3) |
 
-Items are placed near risky sections and recovery paths. Active Rocket and Spring effects are shown as colored bars in the HUD top-left.
+Active Rocket and Spring effects show as color-coded bars inside the stats panel (bottom of the panel, below stats).
 
-## Input Rules
+## Input
 
-Input has two states: **held** and **released**. Effect depends on game state.
+Input has two states: **held** and **released**. Effect depends on game state:
 
 | State | Hold begins | Hold ends (release) |
 | --- | --- | --- |
 | ROLLING | Accelerate | Jump |
 | FLYING / FALLING | Continuous spin | Spin decays — no air jump |
-| SLINGING | Sling drag | Launch (if pull sufficient) |
-| TITLE / GAMEOVER | Start new run | — |
+| SLINGING | Sling drag | Launch (if pull ≥ minimum) |
+| TITLE / GAMEOVER | Enter SLINGING | — |
 
 Key rules:
 - The armadillo never accelerates without held input — no passive slope effects.
@@ -58,49 +64,42 @@ Key rules:
 
 | Device | Action |
 | --- | --- |
-| Mouse / Touch | Click / drag for all actions |
+| Mouse / Touch | Click and drag for all actions |
 | Keyboard | Space to hold/release; Escape to pause |
-| On-screen BOOST | Equivalent to pointer hold |
+| On-screen BOOST button | Equivalent to pointer hold (works on mobile) |
 
 ## Terrain Destruction
 
-The armadillo can punch through soft terrain above a minimum speed threshold. When destruction triggers:
+The armadillo punches through soft terrain above a minimum speed threshold:
 
-- The game manually advances the armadillo's position through the terrain for that frame — Planck physics is bypassed entirely so no bounce-back occurs.
+- Planck physics is bypassed entirely for the impact frame — no bounce-back.
+- After destruction the armadillo coasts through a 2-frame grace window (pure JS integration, Planck fully off) so no push-out impulse is possible.
 - Dirt particles burst from the impact point.
-- Speed and `speedRatio` increase slightly from the impact energy.
-- The damage zone is recorded and excluded from future collision checks.
-- Destruction is continuous: successive frames keep breaking until the ball exits or loses speed.
+- Speed is preserved and receives a small forward bonus.
+- Destruction is continuous: successive frames keep breaking until the ball exits.
 
-Destruction thresholds (approximate):
+Thresholds:
 - Soft-break entry: ~176 px/s
 - Standard break: ~320 px/s
 - Full-force break: ~700 px/s
 
+## Respawn
+
+On sea contact:
+1. Splash particles and ripples trigger.
+2. One life is lost.
+3. If lives remain → respawn at the nearest undamaged island ahead, with a forward speed bonus and a spawn-grace window to prevent instant re-contact.
+4. All lives gone → result modal appears.
+
 ## Scoreboard
 
-Armadillo Rush has a local-first leaderboard with a backend-ready API.
+**Score formula:** accumulated from height, distance, and event bonuses.
 
-**Score formula:** `floor(score)` — accumulated from height, distance, and event bonuses.
+**Saving:** After each run the score is saved to `localStorage` automatically.
 
-**Saving scores:** After each run the score is saved to `localStorage` automatically. The leaderboard button on the game-over card shows ranked scores.
+**Nicknames:** Enter a name before your first run (max 16 characters). Stored under `armadillo-rush-player-name`. Empty or skipped → displays as "Anonymous". Click "Nickname: …" on the title screen to change it.
 
-**Player names:** Enter a nickname before your first run. It is persisted across sessions. You can change it by clearing the stored name (`armadillo-rush-player-name` in localStorage).
-
-**Backend extension:** `src/game/scoreboard.js` exports async `submitScore` and `fetchLeaderboard`. Replace the `_syncRemote` stub with a `fetch('/api/scores', ...)` call to add online sync — no caller changes needed.
-
-Score entry shape:
-```json
-{
-  "id": "unique-run-id",
-  "name": "Player",
-  "score": 12345,
-  "heightM": 430,
-  "distanceM": 2200,
-  "moonClear": false,
-  "date": "2026-06-09T..."
-}
-```
+**Backend extension:** `src/game/scoreboard.js` exports async `submitScore` and `fetchLeaderboard`. Replace the `_syncRemote` stub with a real `fetch('/api/scores', …)` call — no callers need changing.
 
 ## Tech Stack
 
@@ -108,9 +107,10 @@ Score entry shape:
 | --- | --- |
 | Rendering | Three.js |
 | Physics | Planck.js (CCD bullet mode) |
-| Post effects | postprocessing |
+| Post effects | postprocessing (bloom, aberration, vignette) |
 | Build | Vite |
 | Language | Vanilla JavaScript ES modules |
+| Hosting | GitHub Pages |
 
 ## Local Development
 
@@ -125,10 +125,10 @@ Build:
 npm run build
 ```
 
-Full verification:
+Deploy to GitHub Pages:
 
 ```bash
-npm run verify
+npm run deploy
 ```
 
 ## Project Structure
@@ -136,31 +136,37 @@ npm run verify
 ```text
 src/
 ├── main.js               # Game loop, input, slingshot, rolling, flight,
-│                         #   terrain destruction, sea bounce, camera, UI, scoreboard HUD,
-│                         #   item collection + effects (_updateItems, _applyItemEffect)
-├── state.js              # TITLE → SLINGING → FLYING → ROLLING/FALLING → GAMEOVER
-├── config.js             # Shared tuning constants
-├── ui.css                # HUD, title, modal, boost button, hearts, leaderboard,
-│                         #   name prompt, item effect bars
+│                         #   terrain destruction, sea bounce, camera, HUD,
+│                         #   scoreboard, item collection + effects
+├── state.js              # State machine: TITLE → SLINGING → FLYING → ROLLING/FALLING → GAMEOVER
+├── config.js             # Shared tuning constants (gravity, speed, camera)
+├── ui.css                # All UI: HUD panel, title screen, modal, boost button,
+│                         #   pixel hearts, leaderboard, name prompt, item bars,
+│                         #   vertical power gauge
 ├── game/
 │   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
-│   │                     #   105-island static layout, procedural continuation,
-│   │                     #   destruction (damageTerrain, isTerrainDamagedAt, getTerrainTopY)
-│   ├── items.js          # Item types (Rocket/Spring/Heart), spawn table, mesh builders,
-│   │                     #   collection check, animation, effect constants
+│   │                     #   105-island static layout + procedural continuation,
+│   │                     #   damage system (damageTerrain, getTerrainTopY)
+│   ├── items.js          # Rocket / Spring / Heart: spawn table, meshes,
+│   │                     #   collection, animation, effect constants
 │   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
-│   ├── physics.js        # Planck.js world wrapper — terrain fixtures, gravity
+│   ├── physics.js        # Planck.js world: terrain fixtures, gravity, flushContacts
 │   └── scoreboard.js     # Local-first leaderboard, player name storage, backend stub
 ├── renderer/
-│   ├── scene.js          # WebGL renderer and orthographic camera
+│   ├── scene.js          # WebGL renderer, orthographic camera
 │   ├── background.js     # Background layers, sea, clouds, moon
 │   └── postfx.js         # Bloom, chromatic aberration, vignette
 └── shaders/
-    ├── crater.vert/frag
-    ├── particle.vert/frag
-    └── sky.vert/frag
+    ├── sky.vert / sky.frag
+    ├── particle.vert / particle.frag
+    └── crater.vert / crater.frag
+scripts/
+├── deploy.mjs            # GitHub Pages deploy (gh-pages branch)
+└── terrain-stress.mjs    # Offline terrain generation smoke test
 ```
 
-## Assets And License
+## Assets and License
 
-Kenney assets in `src/assets/kenney/` are CC0. See [ATTRIBUTION.md](ATTRIBUTION.md).
+- Kenney assets in `src/assets/kenney/` are CC0. See [ATTRIBUTION.md](ATTRIBUTION.md).
+- Game-icons assets in `src/assets/game-icons/` are CC BY 3.0.
+- Elthen sprite sheet in `src/assets/elthen/` is used with permission per itch.io listing terms.

@@ -94,29 +94,27 @@ button {
   height: 130px;
 }
 
-.meter {
+.meter-power {
   position: fixed;
   left: 18px;
-  width: 190px;
+  bottom: 120px;
+  width: 12px;
+  height: 130px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   overflow: hidden;
   border: 2px solid rgba(255, 255, 255, 0.72);
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.26);
+  background: rgba(0, 0, 0, 0.30);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
-.meter-power {
-  top: 302px;
-  height: 14px;
-}
-
-.meter-fill {
-  height: 100%;
-  transition: width 80ms linear;
-}
-
 .power-fill {
-  background: linear-gradient(90deg, #ff7043, #ffd54f);
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffd54f, #ff7043);
+  transition: height 80ms linear;
 }
 
 .control-row {
@@ -314,9 +312,23 @@ button {
 }
 
 .start-best {
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 13px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 7px 15px;
+  border: 1px solid rgba(255, 213, 79, 0.30);
+  border-radius: 8px;
+  background: rgba(5, 7, 19, 0.50);
+  color: #fff;
+  font-size: 15px;
   font-weight: 900;
+}
+
+.start-best-label {
+  color: rgba(255, 213, 79, 0.80);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 .lives-hud {
@@ -359,23 +371,24 @@ button {
 }
 
 .name-edit-btn {
-  margin-top: 8px;
-  padding: 7px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  margin-top: 12px;
+  padding: 10px 22px;
+  border: 1.5px solid rgba(255, 213, 79, 0.55);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 213, 79, 0.10);
+  color: #ffd54f;
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   cursor: pointer;
   transition: background 120ms, border-color 120ms, color 120ms;
 }
 
 .name-edit-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 213, 79, 0.5);
-  color: #ffd54f;
+  background: rgba(255, 213, 79, 0.22);
+  border-color: #ffd54f;
+  color: #fff;
 }
 
 
@@ -460,13 +473,10 @@ button {
     transform-origin: left top;
   }
 
-  .meter {
-    left: 16px;
-    width: 148px;
-  }
-
   .meter-power {
-    top: 246px;
+    left: 14px;
+    height: 100px;
+    bottom: 100px;
   }
 
   .control-row {
@@ -684,35 +694,29 @@ button {
 
 /* ── Item effect HUD ──────────────────────────────────────────────────────── */
 .item-effects-hud {
-  position: fixed;
-  top: 56px;
-  left: 12px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  z-index: 30;
-  pointer-events: none;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .item-effect {
   display: flex;
   align-items: center;
-  gap: 5px;
-  background: rgba(0, 0, 0, 0.45);
-  border-radius: 6px;
-  padding: 3px 7px 3px 5px;
-  backdrop-filter: blur(3px);
+  gap: 6px;
 }
 
 .item-effect-icon {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
   width: 16px;
   text-align: center;
 }
 
 .item-effect-bar {
-  width: 54px;
+  flex: 1;
   height: 5px;
   background: rgba(255, 255, 255, 0.15);
   border-radius: 3px;

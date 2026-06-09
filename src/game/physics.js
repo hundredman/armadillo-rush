@@ -141,6 +141,23 @@ export class PhysicsWorld {
     this._contactEvents = []
   }
 
+  /**
+   * Drop all active Planck contact pairs for the ball body and clear the event
+   * queue.  Call this after rebuilding terrain fixtures or teleporting the ball
+   * to prevent the solver from issuing a bounce impulse on the next step against
+   * stale (now-removed) or newly-created fixtures that overlap the ball's
+   * repositioned location.
+   *
+   * Planck does not expose a per-body contact-invalidation API, so we use the
+   * documented trick: put the body to sleep (which forcibly ends all contacts)
+   * then immediately wake it again.
+   */
+  flushContacts() {
+    this._contactEvents = []
+    this.ballBody.setAwake(false)
+    this.ballBody.setAwake(true)
+  }
+
   /** dt: seconds */
   step(dt) {
     this._contactEvents = []
