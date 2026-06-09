@@ -1786,7 +1786,9 @@ class Game {
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK * inputStrength
+    // auto-launch from terrain end always gets a minimum vertical kick to clear the gap
+    const autoVerticalMin = source === 'auto' ? 480 : 0
+    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK * inputStrength + autoVerticalMin
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -2319,27 +2321,37 @@ class Game {
       : 0
     const inputBoost = boostAccelRatio * BOOST_ACCEL_PER_SEC
 
+    // without input: only friction/slope drag, no movement
+    if (!this.boostHeld) {
+      this.speedRatio = THREE.MathUtils.clamp(
+        this.speedRatio + (slopeEffect - FRICTION_PER_SEC) * dt,
+        0,
+        BOOST_SPEED_LIMIT,
+      )
+      this._updateStallState(dt)
+      return
+    }
+
     this.speedRatio = THREE.MathUtils.clamp(
       this.speedRatio + (inputBoost + slopeEffect - FRICTION_PER_SEC) * dt,
       0,
       BOOST_SPEED_LIMIT,
     )
-    if (this.boostHeld) {
-      this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
-      this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
-      this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
-      this._setArmadilloColor(zoneBoostRatio > 0 ? 0xfff176 : 0xffb74d)
 
-      // boost zone crest crossed into downhill: launch immediately
-      // (in boost zone last frame, not now = crest passed)
-      const wasInBoostZone = this._lastBoostZoneRatio > 0
-      const leftBoostZone = wasInBoostZone && zoneBoostRatio === 0
-      const isDownhill = slopeFactor < -0.05
-      if (leftBoostZone && isDownhill) {
-        this._releaseBoostHold(this.boostHoldSource ?? 'keyboard')
-        return
-      }
+    this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
+    this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
+    this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
+    this._setArmadilloColor(zoneBoostRatio > 0 ? 0xfff176 : 0xffb74d)
+
+    // boost zone crest crossed into downhill: launch immediately
+    const wasInBoostZone = this._lastBoostZoneRatio > 0
+    const leftBoostZone = wasInBoostZone && zoneBoostRatio === 0
+    const isDownhill = slopeFactor < -0.05
+    if (leftBoostZone && isDownhill) {
+      this._releaseBoostHold(this.boostHoldSource ?? 'keyboard')
+      return
     }
+
     this._lastBoostZoneRatio = zoneBoostRatio
 
     const moveX = this.speedRatio * MAX_SPEED * dt
@@ -2450,9 +2462,9 @@ class Game {
       }
     }
 
-    // teleport onto terrain surface + a small pop-up so landing feels natural
+    // teleport onto left quarter of island so ball can roll forward naturally
     const landX = targetIsland
-      ? THREE.MathUtils.clamp(x, targetIsland.bounds.left + 20, targetIsland.bounds.right - 20)
+      ? targetIsland.bounds.left + (targetIsland.bounds.right - targetIsland.bounds.left) * 0.25
       : x
     const landY = targetIsland
       ? getTerrainTopY(targetIsland, landX) + ARMADILLO_SIZE / 2 + 4
