@@ -136,6 +136,11 @@ export class PhysicsWorld {
     this.ballBody.setAwake(true)
   }
 
+  /** Discard any contact events accumulated before this call. */
+  clearContacts() {
+    this._contactEvents = []
+  }
+
   /** dt: seconds */
   step(dt) {
     this._contactEvents = []

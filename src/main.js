@@ -146,6 +146,7 @@ class Game {
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
     this._edgeFallGraceTimer = 0 // seconds remaining to still jump after falling off edge
+    this._spawnGraceTimer = 0    // seconds to skip Planck contact resolution after teleport
     this.currentIsland = null
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length  // procedural generation index
 
@@ -1648,6 +1649,7 @@ class Game {
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
     this._pendingPointerClear = false
+    this._spawnGraceTimer = 0
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
@@ -2035,20 +2037,29 @@ class Game {
     const prevBottom = prevY - ARMADILLO_SIZE / 2
     const nextBottom = state.y - ARMADILLO_SIZE / 2
 
-    if (this.physics.isGrounded() && this.velocity.y <= 180) {
-      const groundedIsland = this._findGroundedIsland()
-      if (groundedIsland) {
-        this._landOnIsland(groundedIsland)
-        return
+    // Consume one grace frame — skip landing detection right after a teleport
+    // so Planck cannot immediately bounce the ball off the spawn terrain.
+    if (this._spawnGraceTimer > 0) {
+      this._spawnGraceTimer--
+      // Re-apply our desired velocity each grace frame in case Planck altered it
+      this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
+    } else {
+      // ① Planck grounding check
+      if (this.physics.isGrounded() && this.velocity.y <= 180) {
+        const groundedIsland = this._findGroundedIsland()
+        if (groundedIsland) {
+          this._landOnIsland(groundedIsland)
+          return
+        }
       }
-    }
 
-    // ② downward landing — proximity check
-    if (this.velocity.y <= 30) {
-      const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
-      if (landedIsland) {
-        this._landOnIsland(landedIsland)
-        return
+      // ② downward landing — proximity check
+      if (this.velocity.y <= 30) {
+        const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
+        if (landedIsland) {
+          this._landOnIsland(landedIsland)
+          return
+        }
       }
     }
 
@@ -2573,14 +2584,13 @@ class Game {
   }
 
   _doSeaBounce(x = this.armadillo.position.x) {
-    // find nearest landable island ahead (prefer forward, accept slightly behind)
+    // ── 1. Find nearest landable island ──────────────────────────────────────
     let targetIsland = null
     let bestScore = Infinity
     for (const island of this.islands) {
       if (island.destroyed) continue
       if (island.bowlCenter < x - 400) continue   // too far behind
       if (island.bowlCenter > x + 4000) continue  // too far ahead
-      // score: prefer closer, prefer lower (easier to land)
       const dist = Math.abs(island.bowlCenter - x)
       const score = dist + Math.max(0, island.bounds.top - x) * 0.1
       if (score < bestScore) {
@@ -2589,28 +2599,67 @@ class Game {
       }
     }
 
-    // teleport onto left portion of island — 15% from left edge gives more room to recover
-    const landX = targetIsland
-      ? targetIsland.bounds.left + (targetIsland.bounds.right - targetIsland.bounds.left) * 0.15
-      : x
-    const landY = targetIsland
-      ? getTerrainTopY(targetIsland, landX) + ARMADILLO_SIZE / 2 + 4
-      : SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 4
+    // ── 2. Find a safe spawn x — skip damage zones and island edges ──────────
+    // Start at 15% from left and scan right until we find an undamaged spot
+    // that is at least ARMADILLO_SIZE away from either edge.
+    let landX = x  // fallback: stay near sea splash position
+    if (targetIsland) {
+      const iw    = targetIsland.bounds.right - targetIsland.bounds.left
+      const edgePad = ARMADILLO_SIZE * 1.5
+      let candidate = targetIsland.bounds.left + iw * 0.15
+      // Clamp candidate inside safe edge margins
+      candidate = THREE.MathUtils.clamp(
+        candidate,
+        targetIsland.bounds.left  + edgePad,
+        targetIsland.bounds.right - edgePad,
+      )
+      // Walk right until we're clear of any damage zone
+      const step = ARMADILLO_SIZE
+      const maxX = targetIsland.bounds.right - edgePad
+      while (candidate <= maxX && isTerrainDamagedAt(targetIsland, candidate, ARMADILLO_SIZE / 2)) {
+        candidate += step
+      }
+      // If we walked off the safe zone, fall back to island center
+      if (candidate > maxX) candidate = targetIsland.bowlCenter
+      landX = candidate
+    }
 
-    // keep horizontal momentum, add upward pop so it doesn't immediately re-land hard
-    const bounceVx = this.velocity.x * 0.80
-    const bounceVy = 380
+    // ── 3. Spawn clearly above terrain — extra clearance prevents Planck ─────
+    //      from resolving penetration as a bounce impulse on the first step.
+    const terrainTop = targetIsland
+      ? getTerrainTopY(targetIsland, landX)
+      : SEA_LEVEL_Y
+    const landY = terrainTop + ARMADILLO_SIZE / 2 + 40   // 40 px gap — no touching
 
-    // speed bonus on rescue — feel rewarded, not punished
+    // ── 4. Use a clean, moderate forward velocity — do NOT inherit the ────────
+    //      post-destruction exit speed which can be several times normal.
+    //      Give a gentle forward nudge so the armadillo flies toward the
+    //      island rather than dropping straight down.
+    const safeVx = Math.min(this.speedRatio * MAX_SPEED * 0.5, 400)
+    const bounceVy = 420
+
+    // Modest speed bonus on rescue
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
+
+    // ── 5. Reset all physics state before teleporting ─────────────────────────
+    this._cancelBoostHold()
+    this.spinAngleVel = Math.min(this.spinAngleVel, 12)  // bleed extreme spin
 
     this.armadillo.visible = true
     this.armadillo.position.set(landX, landY, 0)
-    this.velocity.set(bounceVx, bounceVy)
+    this.velocity.set(safeVx, bounceVy)
+
+    // setArmadilloPos zeroes Planck vel/angVel; setArmadilloVelocity restores desired vel
     this.physics.setArmadilloPos(landX, landY)
-    this.physics.setArmadilloVelocity(bounceVx, bounceVy)
+    this.physics.setArmadilloVelocity(safeVx, bounceVy)
+    // Discard any contact events that accumulated before this teleport so the
+    // first flight frame cannot immediately trigger a spurious landing.
+    this.physics.clearContacts()
+    // Give 3 frames of grace so Planck cannot apply a contact impulse from
+    // the newly-placed ball touching the terrain it just spawned above.
+    this._spawnGraceTimer = 3
+
     this.flightPeakY = landY
-    this._cancelBoostHold()
     this._syncMotionToArmadillo()
     this._playTone(320, 0.22, 0.12, 'sine')
     this._spawnParticles(landX, landY, 0x64b5f6, 16, 200)
