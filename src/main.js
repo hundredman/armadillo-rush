@@ -174,7 +174,8 @@ class Game {
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
     this._edgeFallGraceTimer = 0 // seconds remaining to still jump after falling off edge
-    this._spawnGraceTimer = 0    // seconds to skip Planck contact resolution after teleport
+    this._spawnGraceTimer = 0    // frames to skip Planck contact resolution after teleport
+    this._pendingTerrainRebuild = new Set()  // islands to re-add fixtures when grace ends
     this.currentIsland = null
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length  // procedural generation index
 
@@ -1709,6 +1710,7 @@ class Game {
     this._pendingPointerClear = false
     this._namePromptJustClosed = false
     this._spawnGraceTimer = 0
+    this._pendingTerrainRebuild.clear()
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
@@ -2251,12 +2253,20 @@ class Game {
       this.velocity.y -= baseGravity * dt
       this.armadillo.position.x += this.velocity.x * dt
       this.armadillo.position.y += this.velocity.y * dt
-      // Keep Planck body in sync so it is at the right place when grace ends.
-      this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+      // Keep Planck body in sync (moveArmadilloPos preserves velocity, unlike setArmadilloPos).
+      this.physics.moveArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
       this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
       // Still check for moon/sea boundary
       if (this.armadillo.position.y >= MOON_TARGET_Y) { this._reachMoon(); return }
       if (this.armadillo.position.y < SEA_LEVEL_Y)    { this._beginSplashGameOver(this.armadillo.position.x); return }
+
+      // When the last grace frame expires, restore terrain fixtures and flush contacts
+      // so Planck has correct geometry but no stale impulses from the removal gap.
+      if (this._spawnGraceTimer === 0 && this._pendingTerrainRebuild.size > 0) {
+        for (const island of this._pendingTerrainRebuild) this.physics.addTerrain(island)
+        this._pendingTerrainRebuild.clear()
+        this.physics.flushContacts()
+      }
       return
     }
 
@@ -2482,7 +2492,10 @@ class Game {
 
     if (hits.length === 0) return false
 
-    // Damage every hit zone
+    // Damage every hit zone and immediately remove the terrain's Planck body so
+    // there is no fixture at all for Planck to push against during or after this
+    // destruction frame.  The body is queued for deferred rebuild — it will be
+    // re-added after the grace window ends (see _updateFlight grace block).
     const touched = new Set()
     for (const hit of hits) {
       const impactSpeed = speed
@@ -2494,12 +2507,15 @@ class Game {
       this.particleSystem.spawnDirt(hit.x, hit.y, 28 + Math.floor(damage.force * 20))
     }
 
-    // Rebuild physics fixtures for all touched terrain
-    for (const island of touched) this.physics.addTerrain(island)
+    // Remove physics bodies immediately — no fixture = no push-out possible.
+    // Queue them for rebuild once the grace window expires.
+    for (const island of touched) {
+      this.physics.removeTerrain(island)
+      this._pendingTerrainRebuild.add(island)
+    }
 
     // Advance ball manually along the incoming direction by one full dt,
     // then lift above any terrain it still overlaps.
-    const angle = Math.atan2(incomingVelocity.y, incomingVelocity.x)
     let exitX = prevX + incomingVelocity.x * dt
     let exitY = prevY + (incomingVelocity.y - gravity * dt * 0.5) * dt
 
@@ -2512,10 +2528,7 @@ class Game {
       }
     }
 
-    // Preserve full incoming speed plus a small bonus.  Clamp exit vy to >= 0
-    // so the ball never exits pointing back into the terrain surface — it
-    // continues forward (and slightly upward if it was going up, or flat if it
-    // was going downward).
+    // Preserve full incoming speed plus a small bonus.  Clamp exit vy to >= 0.
     const exitSpeed = speed * 1.05 + 40
     const exitVx = incomingVelocity.x >= 0
       ? Math.max(incomingVelocity.x, exitSpeed * 0.7)
@@ -2526,13 +2539,13 @@ class Game {
     this.armadillo.position.set(exitX, exitY, 0)
     this.velocity.set(exitVx, exitVy)
 
-    // Push Planck body to exit position, then flush all contact pairs so the
-    // solver cannot issue a bounce impulse from stale or newly-built fixtures.
-    // A one-frame grace timer keeps landing detection off while Planck settles.
-    this.physics.setArmadilloPos(exitX, exitY)
+    // Move Planck body to exit position (no fixture to collide against now).
+    // Extend grace window — consecutive destruction frames keep resetting it,
+    // so grace only starts counting down after the last destruction frame.
+    this.physics.moveArmadilloPos(exitX, exitY)
     this.physics.setArmadilloVelocity(exitVx, exitVy)
     this.physics.flushContacts()
-    this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 2)
+    this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 3)
 
     this._setArmadilloColor(0xffd54f)
     this._triggerDestructionImpact(0.35, 0x6d4c41, exitX, exitY)

@@ -131,6 +131,13 @@ export class PhysicsWorld {
     this.ballBody.setAwake(true)
   }
 
+  // Move the ball body without zeroing velocity — used during grace frames
+  // where we own the velocity and don't want Planck to reset it.
+  moveArmadilloPos(px, py) {
+    this.ballBody.setPosition(Vec2(pxToM(px), pxToM(py)))
+    this.ballBody.setAwake(true)
+  }
+
   setArmadilloVelocity(pvx, pvy) {
     this.ballBody.setLinearVelocity(Vec2(pxToM(pvx), pxToM(pvy)))
     this.ballBody.setAwake(true)
