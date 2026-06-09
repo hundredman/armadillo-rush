@@ -1,40 +1,53 @@
 /**
- * Scoreboard — local-first leaderboard with a backend-ready interface.
+ * Scoreboard — shared online leaderboard backed by Supabase.
  *
- * Storage:
- *   All scores are saved to localStorage under the key 'armadillo-rush-scores'.
- *   The shape is an array of ScoreEntry objects sorted descending by score.
+ * Setup (one-time):
+ *   1. Create a free Supabase project at https://supabase.com
+ *   2. Run the SQL in scripts/supabase-setup.sql in the Supabase SQL editor
+ *   3. Copy your project URL and anon key into .env.local:
+ *        VITE_SUPABASE_URL=https://xxxx.supabase.co
+ *        VITE_SUPABASE_ANON_KEY=eyJ...
+ *   4. For the deployed build set the same variables in your hosting
+ *      environment (GitHub Actions secrets → Vite env → bundled at build time)
  *
- * Backend extension point:
- *   Replace or augment the _syncRemote() stub with a real fetch() call.
- *   The public API (submitScore / fetchLeaderboard) is already async so callers
- *   need no changes when a backend is added.
+ * Dev fallback:
+ *   If the env vars are absent the module falls back to localStorage so
+ *   development works without a Supabase project.
  *
- * ScoreEntry shape:
+ * ScoreEntry shape (matches the `scores` table):
  *   {
- *     id:         string   — nanoid-style unique run id
- *     name:       string   — player-chosen nickname (max 16 chars)
+ *     id:         string   — run id (client-generated)
+ *     name:       string   — player nickname (max 16 chars)
  *     score:      number
- *     heightM:    number   — peak altitude in metres
- *     distanceM:  number   — horizontal distance in metres
- *     moonClear:  boolean  — true if the run reached the moon
- *     date:       string   — ISO date string
+ *     height_m:   number   — peak altitude in metres
+ *     distance_m: number   — horizontal distance in metres
+ *     moon_clear: boolean  — true if run reached the moon
+ *     created_at: string   — ISO timestamp (set by Supabase)
  *   }
  */
 
-const STORAGE_KEY = 'armadillo-rush-scores'
+import { createClient } from '@supabase/supabase-js'
+
+// ── Supabase client (null when env vars are not set) ─────────────────────────
+
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL  ?? ''
+const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY ?? ''
+const supabase = SUPABASE_URL && SUPABASE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null
+
+// ── Local storage fallback ────────────────────────────────────────────────────
+
+const STORAGE_KEY       = 'armadillo-rush-scores'
 const MAX_LOCAL_ENTRIES = 100
-const MAX_NAME_LEN = 16
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeId() {
-  // Simple collision-resistant id without a dependency
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-}
+const MAX_NAME_LEN      = 16
 
 function clampName(name) {
   return String(name ?? 'Anonymous').trim().slice(0, MAX_NAME_LEN) || 'Anonymous'
+}
+
+function makeId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
 function loadLocal() {
@@ -50,7 +63,6 @@ function loadLocal() {
 
 function saveLocal(entries) {
   try {
-    // keep only the top MAX_LOCAL_ENTRIES by score
     const trimmed = [...entries]
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_LOCAL_ENTRIES)
@@ -61,74 +73,99 @@ function saveLocal(entries) {
   }
 }
 
-// ── Backend stub ─────────────────────────────────────────────────────────────
-// Replace this with a real API call when a backend exists.
-// It receives the new ScoreEntry and should return the server-side leaderboard
-// (array of ScoreEntry) or null on failure.
-
-async function _syncRemote(_entry) {
-  // TODO: replace with fetch('/api/scores', { method: 'POST', body: JSON.stringify(_entry) })
-  return null
+// Convert a Supabase row to the internal ScoreEntry shape used by the UI.
+function rowToEntry(row) {
+  return {
+    id:        row.id,
+    name:      row.name,
+    score:     row.score,
+    heightM:   row.height_m,
+    distanceM: row.distance_m,
+    moonClear: row.moon_clear,
+    date:      row.created_at,
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Submit a completed run score.
- * Saves locally immediately; also attempts remote sync (fire-and-forget).
  *
- * @param {string} name       — player nickname
- * @param {number} score
- * @param {number} heightM    — peak altitude metres
- * @param {number} distanceM  — horizontal distance metres
- * @param {boolean} moonClear — true if moon was reached
- * @returns {ScoreEntry}      — the saved entry (with rank populated)
+ * Online:  inserts into Supabase `scores` table.
+ * Offline: saves to localStorage only.
+ *
+ * Always saves locally as a backup regardless of online status.
+ *
+ * @returns {ScoreEntry & { rank: number }}
  */
 export async function submitScore(name, score, heightM, distanceM, moonClear = false) {
-  const entry = {
-    id:        makeId(),
-    name:      clampName(name),
-    score,
-    heightM,
-    distanceM,
-    moonClear,
-    date:      new Date().toISOString(),
+  const id    = makeId()
+  const cname = clampName(name)
+
+  // Always persist locally first — gameplay must continue even if network fails
+  const localEntry = {
+    id, name: cname, score, heightM, distanceM, moonClear,
+    date: new Date().toISOString(),
+  }
+  const updated = saveLocal([...loadLocal(), localEntry])
+  const localRank = updated.findIndex(e => e.id === id) + 1
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('scores').insert({
+        id,
+        name:       cname,
+        score,
+        height_m:   heightM,
+        distance_m: distanceM,
+        moon_clear: moonClear,
+      })
+      if (error) console.warn('[scoreboard] Supabase insert error:', error.message)
+    } catch (err) {
+      console.warn('[scoreboard] Supabase unreachable:', err.message)
+    }
   }
 
-  const existing = loadLocal()
-  const updated  = saveLocal([...existing, entry])
-
-  // Attempt remote sync — ignore failure, game must always continue
-  _syncRemote(entry).catch(() => {})
-
-  // Attach rank to the returned entry
-  const rank = updated.findIndex(e => e.id === entry.id) + 1
-  return { ...entry, rank }
+  return { ...localEntry, rank: localRank }
 }
 
 /**
  * Fetch the leaderboard.
- * Returns local data immediately; in a real implementation this would first
- * try the remote API and fall back to local.
  *
- * @param {number} limit — max entries to return (default 10)
+ * Online:  reads top entries from Supabase, ordered by score descending.
+ * Offline: returns local entries.
+ *
+ * @param {number} limit — max entries to return (default 15)
  * @returns {Array<ScoreEntry & { rank: number }>}
  */
-export async function fetchLeaderboard(limit = 10) {
-  // TODO: try remote first, fall back to local
-  // const remote = await fetch('/api/scores?limit=' + limit).then(r => r.json()).catch(() => null)
-  // if (remote) return remote
+export async function fetchLeaderboard(limit = 15) {
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('scores')
+        .select('id, name, score, height_m, distance_m, moon_clear, created_at')
+        .order('score', { ascending: false })
+        .limit(limit)
 
-  const entries = loadLocal()
+      if (error) {
+        console.warn('[scoreboard] Supabase fetch error:', error.message)
+      } else if (data) {
+        return data.map((row, i) => ({ ...rowToEntry(row), rank: i + 1 }))
+      }
+    } catch (err) {
+      console.warn('[scoreboard] Supabase unreachable:', err.message)
+    }
+  }
+
+  // Fallback: local scores
+  return loadLocal()
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-
-  return entries.map((e, i) => ({ ...e, rank: i + 1 }))
+    .map((e, i) => ({ ...e, rank: i + 1 }))
 }
 
-/**
- * Get the stored player name from the last session (if any).
- */
+// ── Player name persistence ───────────────────────────────────────────────────
+
 export function getSavedPlayerName() {
   try {
     return localStorage.getItem('armadillo-rush-player-name') ?? ''
@@ -137,18 +174,12 @@ export function getSavedPlayerName() {
   }
 }
 
-/**
- * Persist the player name so it pre-fills on the next session.
- */
 export function savePlayerName(name) {
   try {
     localStorage.setItem('armadillo-rush-player-name', clampName(name))
   } catch {}
 }
 
-/**
- * Return the player's personal best score entry (or null).
- */
 export function getPersonalBest(name) {
   const clamped = clampName(name)
   const entries = loadLocal().filter(e => e.name === clamped)

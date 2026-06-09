@@ -95,11 +95,27 @@ On sea contact:
 
 **Score formula:** accumulated from height, distance, and event bonuses.
 
-**Saving:** After each run the score is saved to `localStorage` automatically.
+Scores are stored in a **shared online leaderboard** (Supabase) so every player on the same deployed URL sees the same rankings. The client falls back to `localStorage` automatically if Supabase is not configured (local development without `.env.local`).
 
 **Nicknames:** Enter a name before your first run (max 16 characters). Stored under `armadillo-rush-player-name`. Empty or skipped → displays as "Anonymous". Click "Nickname: …" on the title screen to change it.
 
-**Backend extension:** `src/game/scoreboard.js` exports async `submitScore` and `fetchLeaderboard`. Replace the `_syncRemote` stub with a real `fetch('/api/scores', …)` call — no callers need changing.
+### Leaderboard setup (Supabase)
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Open the **SQL editor** and run `scripts/supabase-setup.sql` (creates the `scores` table and RLS policies).
+3. Copy your **Project URL** and **anon public key** from *Settings → API*.
+4. For local development create `.env.local` in the project root:
+   ```
+   VITE_SUPABASE_URL=https://your-project-id.supabase.co
+   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   ```
+5. For the deployed build, add the same two values as **repository secrets** in *GitHub → Settings → Secrets and variables → Actions*:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+
+   The GitHub Actions workflow (`.github/workflows/deploy.yml`) injects them at build time and deploys to GitHub Pages automatically on every push to `main`.
+
+The anon key is safe to expose — Supabase Row Level Security only permits `SELECT` and `INSERT` with server-side score and name validation. `UPDATE` and `DELETE` are denied.
 
 ## Tech Stack
 
