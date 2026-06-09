@@ -33,6 +33,8 @@ import {
   ROCKET_VX,
   ROCKET_VY,
   SPRING_VY_BONUS,
+  SPRING_VX_MULT,
+  SPRING_MIN_ANGLE,
   SPRING_SPEED_BONUS,
   createItem,
   getProceduralItemSpec,
@@ -1913,10 +1915,17 @@ class Game {
       LAUNCH_SPEED,
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
-    const springBonus = this.activeSpring ? SPRING_VY_BONUS : 0
-    if (this.activeSpring) this.activeSpring = null  // consume on use
-    const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + springBonus
+    const hasSpring = !!this.activeSpring
+    if (hasSpring) this.activeSpring = null  // consume on use
+    // Spring: force a high arc angle and boost both axes
+    const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
+    const effectiveLaunchSpeed = hasSpring
+      ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
+      : launchSpeed
+    const springVyBonus = hasSpring ? SPRING_VY_BONUS : 0
+    const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
+    const vx = hasSpring ? vxRaw * SPRING_VX_MULT : vxRaw
+    const vy = Math.sin(effectiveAngle) * effectiveLaunchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + springVyBonus
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -1927,16 +1936,22 @@ class Game {
     this.currentIsland = null
     const isEdgeJump = edgeRatio > 0.5
     const strongBoost = inputStrength >= 0.45
-    this.lastRating = isEdgeJump ? 'EDGE!' : strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
-    this._setArmadilloColor(isEdgeJump ? 0xffffff : strongBoost ? 0xfff176 : hadBoostInput ? 0xffb74d : 0xff7043)
-    this._spawnParticles(
-      this.armadillo.position.x,
-      this.armadillo.position.y,
-      isEdgeJump ? 0xffffff : strongBoost ? 0xffd54f : hadBoostInput ? 0xffb74d : 0xff7043,
-      isEdgeJump ? 20 : strongBoost ? 14 : hadBoostInput ? 8 : 6,
-      isEdgeJump ? 320 : strongBoost ? 260 : hadBoostInput ? 150 : 120,
-    )
-    this._playTone(isEdgeJump ? 820 : strongBoost ? 680 : hadBoostInput ? 430 : 360, 0.08, 0.05, 'triangle')
+    if (hasSpring) {
+      this.lastRating = 'SPRING!'
+      this._setArmadilloColor(0x00e5ff)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0x00e5ff, 24, 380)
+      this._playTone(1040, 0.10, 0.08, 'triangle')
+    } else {
+      this.lastRating = isEdgeJump ? 'EDGE!' : strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
+      this._setArmadilloColor(isEdgeJump ? 0xffffff : strongBoost ? 0xfff176 : hadBoostInput ? 0xffb74d : 0xff7043)
+      this._spawnParticles(
+        this.armadillo.position.x, this.armadillo.position.y,
+        isEdgeJump ? 0xffffff : strongBoost ? 0xffd54f : hadBoostInput ? 0xffb74d : 0xff7043,
+        isEdgeJump ? 20 : strongBoost ? 14 : hadBoostInput ? 8 : 6,
+        isEdgeJump ? 320 : strongBoost ? 260 : hadBoostInput ? 150 : 120,
+      )
+      this._playTone(isEdgeJump ? 820 : strongBoost ? 680 : hadBoostInput ? 430 : 360, 0.08, 0.05, 'triangle')
+    }
   }
 
   // Called when player releases input within the grace window after falling off an edge.
@@ -1947,18 +1962,30 @@ class Game {
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
     const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
     const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
-    const springBonus = this.activeSpring ? SPRING_VY_BONUS : 0
-    if (this.activeSpring) this.activeSpring = null
-    const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.abs(Math.sin(launchAngle) * launchSpeed) + BOOST_RELEASE_VERTICAL_KICK + springBonus
+    const hasSpring = !!this.activeSpring
+    if (hasSpring) this.activeSpring = null
+    const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
+    const effectiveLaunchSpeed = hasSpring
+      ? Math.min(LAUNCH_SPEED, Math.max(this.speedRatio * MAX_SPEED, 200) / Math.max(Math.cos(effectiveAngle), 0.35))
+      : launchSpeed
+    const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
+    const vx = hasSpring ? vxRaw * SPRING_VX_MULT : vxRaw
+    const vy = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + BOOST_RELEASE_VERTICAL_KICK + (hasSpring ? SPRING_VY_BONUS : 0)
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
     this.physics.setArmadilloVelocity(vx, vy)
     this._edgeFallGraceTimer = 0
-    this.lastRating = 'EDGE!'
-    this._setArmadilloColor(0xffffff)
-    this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffffff, 16, 280)
-    this._playTone(820, 0.08, 0.05, 'triangle')
+    if (hasSpring) {
+      this.lastRating = 'SPRING!'
+      this._setArmadilloColor(0x00e5ff)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0x00e5ff, 24, 380)
+      this._playTone(1040, 0.10, 0.08, 'triangle')
+    } else {
+      this.lastRating = 'EDGE!'
+      this._setArmadilloColor(0xffffff)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffffff, 16, 280)
+      this._playTone(820, 0.08, 0.05, 'triangle')
+    }
   }
 
   // Fired when the armadillo crosses the peak of a hill while rolling.
@@ -1978,25 +2005,37 @@ class Game {
     const launchSpeed   = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
     const vx            = Math.cos(launchAngle) * launchSpeed
     const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
-    const springBonus   = this.activeSpring ? SPRING_VY_BONUS : 0
-    if (this.activeSpring) this.activeSpring = null
-    const vy            = Math.abs(Math.sin(launchAngle) * launchSpeed) + crestKick + springBonus
+    const hasSpring     = !!this.activeSpring
+    if (hasSpring) this.activeSpring = null
+    const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
+    const effectiveLaunchSpeed = hasSpring
+      ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
+      : launchSpeed
+    const vxFinal       = hasSpring ? Math.cos(effectiveAngle) * effectiveLaunchSpeed * SPRING_VX_MULT : vx
+    const vy            = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + crestKick + (hasSpring ? SPRING_VY_BONUS : 0)
 
-    this.velocity.set(vx, vy)
+    this.velocity.set(vxFinal, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vx, vy)
+    this.physics.setArmadilloVelocity(vxFinal, vy)
     this._syncMotionToArmadillo()
     this.currentIsland  = null
 
     const isHeld        = this.boostHeld
-    this.lastRating     = isHeld ? 'CREST!' : 'CREST'
-    this._setArmadilloColor(isHeld ? 0xfff176 : 0xaed581)
-    this._spawnParticles(
-      this.armadillo.position.x, this.armadillo.position.y,
-      isHeld ? 0xfff176 : 0xdce775,
-      isHeld ? 16 : 10,
-      isHeld ? 260 : 180,
-    )
+    if (hasSpring) {
+      this.lastRating = 'SPRING!'
+      this._setArmadilloColor(0x00e5ff)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0x00e5ff, 24, 380)
+      this._playTone(1040, 0.10, 0.08, 'triangle')
+    } else {
+      this.lastRating     = isHeld ? 'CREST!' : 'CREST'
+      this._setArmadilloColor(isHeld ? 0xfff176 : 0xaed581)
+      this._spawnParticles(
+        this.armadillo.position.x, this.armadillo.position.y,
+        isHeld ? 0xfff176 : 0xdce775,
+        isHeld ? 16 : 10,
+        isHeld ? 260 : 180,
+      )
+    }
     this._playTone(isHeld ? 700 : 560, 0.07, 0.05, 'triangle')
   }
 

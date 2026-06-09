@@ -26,9 +26,13 @@ export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // �
 export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 665 px/s
 
 // Spring: extra vertical kick (px/s) applied at next jump
-export const SPRING_VY_BONUS       = 420
+export const SPRING_VY_BONUS       = 680
+// Spring: vx multiplier applied at next jump (forward boost)
+export const SPRING_VX_MULT        = 1.22
+// Spring: minimum launch angle (rad) enforced when spring fires
+export const SPRING_MIN_ANGLE      = Math.PI / 180 * 50   // 50° — always arcs high
 // Spring: speedRatio added immediately on collect (momentum recovery)
-export const SPRING_SPEED_BONUS    = 0.30
+export const SPRING_SPEED_BONUS    = 0.45
 
 // ─── Item spawn table ────────────────────────────────────────────────────────
 // Each entry: { islandIndex, offsetX, offsetY, type }
