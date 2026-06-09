@@ -1805,9 +1805,7 @@ class Game {
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
     const vx = Math.cos(launchAngle) * launchSpeed
-    // auto-launch from terrain end always gets a minimum vertical kick to clear the gap
-    const autoVerticalMin = source === 'auto' ? 480 : 0
-    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK * inputStrength + autoVerticalMin
+    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK * inputStrength
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -1895,13 +1893,18 @@ class Game {
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this._setArmadilloSprite('jump')
       this._updateFlight(simDt)
-      // rotate armadillo toward velocity direction during flight
-      if (this.velocity.lengthSq() > 1) {
-        const targetAngle = Math.atan2(this.velocity.y, this.velocity.x)
-        const diff = targetAngle - this.armadillo.rotation.z
-        // interpolate via shortest path (±π wrapping)
-        const wrapped = ((diff + Math.PI) % (Math.PI * 2)) - Math.PI
-        this.armadillo.rotation.z += wrapped * Math.min(1, simDt * 12)
+      if (this.boostHeld) {
+        // boost held in air: keep spinning clockwise (same as rolling)
+        const spinSpeed = Math.max(400, this.velocity.length())
+        this.armadillo.rotation.z += spinSpeed * simDt / (ARMADILLO_SIZE / 2)
+      } else {
+        // no input: tilt toward velocity direction
+        if (this.velocity.lengthSq() > 1) {
+          const targetAngle = Math.atan2(this.velocity.y, this.velocity.x)
+          const diff = targetAngle - this.armadillo.rotation.z
+          const wrapped = ((diff + Math.PI) % (Math.PI * 2)) - Math.PI
+          this.armadillo.rotation.z += wrapped * Math.min(1, simDt * 12)
+        }
       }
     } else if (this.sm.is(State.ROLLING)) {
       this._setArmadilloSprite(Math.floor(this.time * 10) % 2 === 0 ? 'walk1' : 'walk2')
