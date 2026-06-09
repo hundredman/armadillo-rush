@@ -157,8 +157,9 @@ class Game {
     this.boostButtonPulse = 0
     this.splashGameOverTimer = 0
     this.splashStarted = false
-    this.splashBounceUsed = false
     this.flightPeakY = 0       // peak altitude during flight (for bounce strength)
+    this.lives = 3
+    this.doubleJumpUsed = false
     this.bestRecord = this._loadBestRecord()
     this.isPaused = false
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
@@ -1439,7 +1440,7 @@ class Game {
     }
 
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this._trySeaBounce()
+      this._tryDoubleJump()
       return
     }
   }
@@ -1582,7 +1583,7 @@ class Game {
     }
 
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this._trySeaBounce()
+      this._tryDoubleJump()
     }
   }
 
@@ -1651,10 +1652,11 @@ class Game {
     this.boostButtonPulse = 0
     this.splashGameOverTimer = 0
     this.splashStarted = false
-    this.splashBounceUsed = false
     this.flightPeakY = 0
     this._lastBoostZoneRatio = 0
     this.isPaused = false
+    this.lives = 3
+    this.doubleJumpUsed = false
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1691,10 +1693,11 @@ class Game {
     this.boostButtonPulse = 0
     this.splashGameOverTimer = 0
     this.splashStarted = false
-    this.splashBounceUsed = false
     this.flightPeakY = 0
     this._lastBoostZoneRatio = 0
     this.isPaused = false
+    this.lives = 3
+    this.doubleJumpUsed = false
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1958,7 +1961,7 @@ class Game {
   _updateFlight(dt) {
     const prevX    = this.armadillo.position.x
     const prevY    = this.armadillo.position.y
-    const incomingVelocity = this.velocity.clone()
+    let incomingVelocity = this.velocity.clone()
 
     // track peak altitude during flight (for bounce strength)
     this.flightPeakY = Math.max(this.flightPeakY, prevY)
@@ -1970,7 +1973,8 @@ class Game {
       this._breakTerrainHits(preHits, incomingVelocity)
       this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
       this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
-      // don't return — continue to physics step so ball keeps moving this frame
+      // update incomingVelocity to post-break velocity for post-step check
+      incomingVelocity = this.velocity.clone()
     }
 
     // Planck step — gravity, collision, restitution
@@ -2251,7 +2255,7 @@ class Game {
     }
 
     this.currentIsland = island
-    this.splashBounceUsed = false  // reset sea bounce on island landing
+    this.doubleJumpUsed = false  // reset double-jump on landing
     const hSpeed = Math.abs(this.velocity.x)
     const impactSpeed = this.velocity.length()
     const landedSpeedRatio = Math.min(1, hSpeed / MAX_SPEED)
@@ -2386,51 +2390,17 @@ class Game {
     this.particleSystem.spawnBurst(x, y, color, maxCount, baseSpeed)
   }
 
-  _trySeaBounce() {
-    if (this.splashBounceUsed) return
-    const y = this.armadillo.position.y
-    const x = this.armadillo.position.x
+  _tryDoubleJump() {
+    if (this.doubleJumpUsed) return
+    this.doubleJumpUsed = true
 
-    // input window: 800px above sea ~ 160px below
-    if (y > SEA_LEVEL_Y + 800) return
-    if (y < SEA_LEVEL_Y - 160) return
-
-    // don't bounce if the ball is directly above a landable terrain surface
-    for (const island of this.islands) {
-      if (island.destroyed) continue
-      if (x < island.bounds.left || x > island.bounds.right) continue
-      if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
-      const surfaceY = getTerrainTopY(island, x)
-      // surface must be meaningfully above sea and the ball must be above it
-      if (surfaceY < SEA_LEVEL_Y + 100) continue
-      if (y >= surfaceY - ARMADILLO_SIZE / 2) return
-    }
-
-    // find highest nearby island and bounce well above it
-    let nearestIslandTopY = 200  // default minimum target
-    for (const island of this.islands) {
-      if (island.destroyed) continue
-      if (Math.abs(island.bowlCenter - this.armadillo.position.x) > 2400) continue
-      nearestIslandTopY = Math.max(nearestIslandTopY, island.bounds.top)
-    }
-    // need 400px above island top for comfortable landing
-    const targetPeakY = nearestIslandTopY + 400
-    const targetHeight = targetPeakY - SEA_LEVEL_Y
-    // factor in drop energy, always at least target height
-    const dropHeight = Math.max(targetHeight, this.flightPeakY - SEA_LEVEL_Y)
-    const bounceVy = Math.sqrt(2 * 980 * dropHeight)
-    const bounceVx = this.velocity.x * 0.75
-
-    this.splashBounceUsed = true
-    this.lastRating = 'BOUNCE'
-    this._triggerSplashEffect(this.armadillo.position.x)
-    this.armadillo.position.set(this.armadillo.position.x, SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 2, 0)
-    this.velocity.set(bounceVx, bounceVy)
-    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(bounceVx, bounceVy)
-    this.flightPeakY = SEA_LEVEL_Y  // reset: track new peak after bounce
+    // kick upward — preserve horizontal velocity, add vertical impulse
+    const jumpVy = Math.max(this.velocity.y, 0) + 620
+    this.velocity.set(this.velocity.x, jumpVy)
+    this.physics.setArmadilloVelocity(this.velocity.x, jumpVy)
     this._syncMotionToArmadillo()
-    this._playTone(320, 0.18, 0.1, 'sine')
+    this._playTone(480, 0.14, 0.08, 'sine')
+    this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd54f, 8, 160)
   }
 
   _triggerSplashEffect(x = this.armadillo.position.x) {
@@ -2449,14 +2419,48 @@ class Game {
 
     this._triggerSplashEffect(x)
     this.splashStarted = true
-    this.splashGameOverTimer = SPLASH_GAMEOVER_DELAY
-    this.lastRating = 'SPLASH'
-    this.armadillo.visible = false
-    this.armadillo.position.set(x, SEA_LEVEL_Y - ARMADILLO_SIZE, 0)
-    this.velocity.set(0, 0)
-    this.physics.setArmadilloPos(x, SEA_LEVEL_Y - ARMADILLO_SIZE)
-    this.physics.setArmadilloVelocity(0, 0)
+    this.lives = Math.max(0, this.lives - 1)
+
+    if (this.lives > 0) {
+      // still have lives — bounce back up automatically
+      this._doSeaBounce(x)
+      this.splashStarted = false  // allow future splashes
+      this.doubleJumpUsed = false  // reset double-jump on sea bounce
+    } else {
+      this.splashGameOverTimer = SPLASH_GAMEOVER_DELAY
+      this.lastRating = 'SPLASH'
+      this.armadillo.visible = false
+      this.armadillo.position.set(x, SEA_LEVEL_Y - ARMADILLO_SIZE, 0)
+      this.velocity.set(0, 0)
+      this.physics.setArmadilloPos(x, SEA_LEVEL_Y - ARMADILLO_SIZE)
+      this.physics.setArmadilloVelocity(0, 0)
+      this._syncMotionToArmadillo()
+    }
+  }
+
+  _doSeaBounce(x = this.armadillo.position.x) {
+    // find highest nearby island and bounce 1.2x that height above sea
+    let nearestIslandTopY = SEA_LEVEL_Y + 200
+    for (const island of this.islands) {
+      if (island.destroyed) continue
+      if (Math.abs(island.bowlCenter - x) > 2400) continue
+      nearestIslandTopY = Math.max(nearestIslandTopY, island.bounds.top)
+    }
+    // 1.2x the island's height above sea level (not the raw y coordinate)
+    const islandHeightAboveSea = nearestIslandTopY - SEA_LEVEL_Y
+    const targetHeight = Math.max(400, islandHeightAboveSea * 1.2)
+    const bounceVy = Math.sqrt(2 * 980 * targetHeight)
+    const bounceVx = this.velocity.x * 0.75
+
+    this.armadillo.visible = true
+    this.armadillo.position.set(x, SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 2, 0)
+    this.velocity.set(bounceVx, bounceVy)
+    this.physics.setArmadilloPos(x, SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 2)
+    this.physics.setArmadilloVelocity(bounceVx, bounceVy)
+    this.flightPeakY = SEA_LEVEL_Y
+    // _beginSplashGameOver is only called from FLYING/FALLING — state is already correct
     this._syncMotionToArmadillo()
+    this._playTone(320, 0.22, 0.12, 'sine')
   }
 
   _updateSplashGameOver(dt) {
@@ -2675,7 +2679,12 @@ class Game {
     const gameOverTitle = isMoonClear ? '🌕 MOON REACHED!' : (this.lastRating === 'SPLASH' ? '🌊 SPLASH!' : 'GAME OVER')
     const gameOverTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
 
+    const heartsHTML = [1,2,3].map(i =>
+      `<span class="heart ${i <= this.lives ? 'heart-full' : 'heart-empty'}">♥</span>`
+    ).join('')
+
     this.ui.innerHTML = `
+      <div class="lives-hud">${heartsHTML}</div>
       <div class="hud-panel hud-stats">
         <div><span>STATE</span><strong>${phaseText}</strong></div>
         <div><span>SCORE</span><strong>${score}</strong></div>
