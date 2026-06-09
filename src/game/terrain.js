@@ -847,38 +847,34 @@ const SHAPE_SEQUENCE = [
 export function generateNextIslandSpec(lastIsland, index) {
   const progress = Math.min(1, index / 70)
 
-  // Keep width small and consistent to fit more islands.
-  const w = Math.round(THREE.MathUtils.lerp(230, 330, Math.random()) + Math.sin(index * 1.37) * 16)
+  const w = Math.round(THREE.MathUtils.lerp(320, 480, Math.random()) + Math.sin(index * 1.37) * 20)
 
-  // Preserve per-shape character but cap steepness.
-  const depth = Math.round(THREE.MathUtils.lerp(24, 48, Math.random()) + progress * 8)
+  const depth = Math.round(THREE.MathUtils.lerp(24, 52, Math.random()) + progress * 10)
 
-  const rimH = Math.round(THREE.MathUtils.lerp(14, 30, Math.random()) + progress * 5)
+  const rimH = Math.round(THREE.MathUtils.lerp(14, 32, Math.random()) + progress * 6)
 
-  // Horizontal gap: as tight as possible without overlapping.
-  const minGap = THREE.MathUtils.lerp(10, 14, progress)
-  const maxGap = THREE.MathUtils.lerp(22, 38, progress)
+  // Horizontal gap
+  const minGap = THREE.MathUtils.lerp(12, 18, progress)
+  const maxGap = THREE.MathUtils.lerp(28, 48, progress)
   const gap = Math.round(THREE.MathUtils.lerp(minGap, maxGap, Math.random()))
 
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
-  // Vertical gap
+  // Vertical placement — stronger upward bias so islands climb consistently
   const lowAltitude = lastIsland.bowlFloor < 1400
   const verticalRange = THREE.MathUtils.lerp(
-    VIEWPORT_SAFE_HEIGHT * (lowAltitude ? 0.07 : 0.08),
-    VIEWPORT_SAFE_HEIGHT * 0.13,
+    VIEWPORT_SAFE_HEIGHT * (lowAltitude ? 0.10 : 0.14),
+    VIEWPORT_SAFE_HEIGHT * 0.20,
     progress,
   )
-  // Reduce downward jitter at low altitude to prevent islands staying low.
-  const downRatio = lowAltitude ? 0.18 : 0.38
+  const downRatio = lowAltitude ? 0.12 : 0.30
   const verticalJitter = THREE.MathUtils.lerp(-verticalRange * downRatio, verticalRange, Math.random())
-  // No seaShelfDrop at low altitude — already low, dropping more = unescapable.
   const seaShelfDrop = lastIsland.bowlFloor >= 1200 && index % 9 === 0
     ? THREE.MathUtils.lerp(50, 100, Math.random())
     : 0
-  // High climbBias at low altitude ensures a clear upward staircase flow.
-  const climbBias = THREE.MathUtils.lerp(lowAltitude ? 100 : 70, 100, progress)
+  // Stronger upward bias — keeps the path climbing even with jitter
+  const climbBias = THREE.MathUtils.lerp(lowAltitude ? 140 : 100, 140, progress)
   const newY = Math.max(-300, lastIsland.bowlFloor + verticalJitter + climbBias - seaShelfDrop)
   const biome = getBiomeForY(newY)
 

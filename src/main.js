@@ -2680,7 +2680,7 @@ class Game {
     const gameOverTitle = isMoonClear ? '🌕 MOON REACHED!' : (this.lastRating === 'SPLASH' ? '🌊 SPLASH!' : 'GAME OVER')
     const gameOverTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
 
-    const isGameActive = !this.sm.is(State.TITLE) && !this.sm.is(State.SLINGING)
+    const isGameActive = !this.sm.is(State.TITLE)
     const heartsHTML = [1,2,3].map(i => {
       const full = i <= this.lives
       return `<svg class="heart-pixel ${full ? 'heart-full' : 'heart-empty'}" width="20" height="20" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
