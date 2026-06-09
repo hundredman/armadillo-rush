@@ -416,8 +416,14 @@ button {
   font-weight: 900;
 }
 
-.result-card .primary-button {
+.result-card .primary-button,
+.result-card .secondary-button {
   width: 100%;
+  margin-bottom: 8px;
+}
+
+.result-card .secondary-button:last-child {
+  margin-bottom: 0;
 }
 
 /* moon reached clear */

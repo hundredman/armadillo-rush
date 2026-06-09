@@ -2891,7 +2891,7 @@ class Game {
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
               ${rankText}
             </div>
-            <button type="button" class="clickable primary-button" style="margin-bottom:6px" data-action="leaderboard">Leaderboard</button>
+            <button type="button" class="clickable primary-button" data-action="leaderboard">Leaderboard</button>
             <button type="button" class="clickable secondary-button" data-action="restart">Retry</button>
           </div>
         </div>
