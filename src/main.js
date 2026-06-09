@@ -1861,6 +1861,44 @@ class Game {
     this._playTone(820, 0.08, 0.05, 'triangle')
   }
 
+  // Fired when the armadillo crosses the peak of a hill while rolling.
+  // Bonus scales with speedRatio; boostHeld gives extra kick.
+  _launchFromHillCrest() {
+    const island = this.currentIsland
+    if (!island) return
+    if (!this.sm.transition(State.FALLING)) return
+
+    const crestBonus    = this.boostHeld ? 1.0 : 0.55        // held = full bonus, free = half
+    const speedBonus    = this.boostHeld ? BOOST_RELEASE_SPEED_KICK * 0.7 : 0
+    this.speedRatio     = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
+
+    // Launch angle: crest always sends the ball upward, biased slightly forward
+    const launchAngle   = THREE.MathUtils.degToRad(52)        // steeper than edge jump — hill pops up
+    const horizontalSpeed = this.speedRatio * MAX_SPEED
+    const launchSpeed   = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
+    const vx            = Math.cos(launchAngle) * launchSpeed
+    // Vertical kick scales with speedRatio so fast runs get bigger air
+    const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
+    const vy            = Math.abs(Math.sin(launchAngle) * launchSpeed) + crestKick
+
+    this.velocity.set(vx, vy)
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(vx, vy)
+    this._syncMotionToArmadillo()
+    this.currentIsland  = null
+
+    const isHeld        = this.boostHeld
+    this.lastRating     = isHeld ? 'CREST!' : 'CREST'
+    this._setArmadilloColor(isHeld ? 0xfff176 : 0xaed581)
+    this._spawnParticles(
+      this.armadillo.position.x, this.armadillo.position.y,
+      isHeld ? 0xfff176 : 0xdce775,
+      isHeld ? 16 : 10,
+      isHeld ? 260 : 180,
+    )
+    this._playTone(isHeld ? 700 : 560, 0.07, 0.05, 'triangle')
+  }
+
   _getExitLaunchAngle(island) {
     if (!island) return THREE.MathUtils.degToRad(45)
 
@@ -2396,6 +2434,9 @@ class Game {
       )
     }
 
+    // Sample slope before moving so we can detect crest crossing.
+    const slopeBefore = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+
     const moveX = this.speedRatio * MAX_SPEED * dt
     this.armadillo.position.x += moveX
     if (isTerrainDamagedAt(this.currentIsland, this.armadillo.position.x, ARMADILLO_SIZE / 2)) {
@@ -2404,6 +2445,19 @@ class Game {
     }
     // snap y to terrain top — follows slope naturally
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+
+    // ── Hill-crest launch ──────────────────────────────────────────────────
+    // Detect when the armadillo crosses the peak of a hill (slope flips from
+    // positive to negative) and fire a bonus launch.  Gated to hill/slope
+    // shapes only, minimum speed, and must still be within island bounds.
+    const slopeAfter = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+    const crossedCrest = slopeBefore > 0.08 && slopeAfter < -0.08   // ~5° threshold each side
+    const isHillShape  = this.currentIsland.shapeType === 'hill' || this.currentIsland.shapeType === 'slope'
+    const pastCenter   = this.armadillo.position.x > this.currentIsland.bowlCenter - 20
+    if (crossedCrest && isHillShape && pastCenter && this.speedRatio >= 0.55) {
+      this._launchFromHillCrest()
+      return
+    }
 
     // ground spin: drive rotation from speedRatio so it always matches forward speed.
     // spinAngleVel converges quickly so air→ground transition feels continuous.
