@@ -75,11 +75,11 @@ const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
 const UNDER_BREAK_SPEED = 320
 const DAMAGE_SPEED_FULL = 700
-const BOOST_ACCEL_PER_SEC = 1.2       // speedRatio/s gained while holding input
+const BOOST_ACCEL_PER_SEC = 2.2       // speedRatio/s gained while holding input
 const BOOST_SPEED_LIMIT = 1.8
-const BOOST_RELEASE_SPEED_KICK = 0.35
-const BOOST_RELEASE_VERTICAL_KICK = 920
-const ROLLING_FRICTION_PER_SEC = 0.18 // speedRatio/s lost to friction when no input
+const BOOST_RELEASE_SPEED_KICK = 0.50
+const BOOST_RELEASE_VERTICAL_KICK = 980
+const ROLLING_FRICTION_PER_SEC = 0.28 // speedRatio/s lost to friction when no input
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
 const SPACE_GRAVITY_FULL = 0.86
@@ -2380,11 +2380,8 @@ class Game {
 
     const bounds = this.currentIsland.bounds
     if (this.boostHeld) {
-      // Acceleration scales with current speed: faster spin = stronger push.
-      // At speedRatio 0, accel is 50% of max; at speedRatio 1.0, it's 100%.
-      const spinFactor = 0.5 + this.speedRatio * 0.5
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (BOOST_ACCEL_PER_SEC * spinFactor - ROLLING_FRICTION_PER_SEC) * dt,
+        this.speedRatio + (BOOST_ACCEL_PER_SEC - ROLLING_FRICTION_PER_SEC) * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
