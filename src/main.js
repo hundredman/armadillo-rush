@@ -1406,49 +1406,42 @@ class Game {
 
     // keyboard
     window.addEventListener('keydown', (event) => {
+      // Never intercept keyboard input while a text field has focus —
+      // the player must be able to type freely in the nickname input.
+      if (event.target instanceof HTMLInputElement) {
+        if (event.code === 'Enter' && this.showingNamePrompt) {
+          event.preventDefault()
+          this._confirmName(event.target.value)
+        }
+        return
+      }
+
       if (event.repeat) return
       if (event.code === 'Space') {
         event.preventDefault()
-        if (this.sm.is(State.TITLE)) {
-          event.stopImmediatePropagation()
-          return
-        }
+        if (this.sm.is(State.TITLE)) return
         this.spaceIsDown = true
         this._ensureAudio()
         this._handleKeyboardPress()
         return
       }
       if (event.code === 'Escape') {
+        if (this.showingNamePrompt) { this.showingNamePrompt = false; return }
+        if (this.showingLeaderboard) { this._closeLeaderboard(); return }
         event.preventDefault()
         this._togglePause()
       }
     }, { capture: true })
 
     window.addEventListener('keyup', (event) => {
+      if (event.target instanceof HTMLInputElement) return
       if (event.code === 'Space') {
         event.preventDefault()
         this.spaceIsDown = false
-        if (this.sm.is(State.TITLE)) {
-          event.stopImmediatePropagation()
-          return
-        }
+        if (this.sm.is(State.TITLE)) return
         this._endHold('keyboard')
       }
     }, { capture: true })
-
-    // Enter confirms name prompt
-    window.addEventListener('keydown', (event) => {
-      if (event.code === 'Enter' && this.showingNamePrompt) {
-        event.preventDefault()
-        const input = this.ui?.querySelector('.name-input')
-        this._confirmName(input ? input.value : '')
-        // stay on TITLE; player taps/clicks to start
-      }
-      if (event.code === 'Escape' && this.showingLeaderboard) {
-        event.preventDefault()
-        this._closeLeaderboard()
-      }
-    })
   }
 
   /** Convert screen coordinates to world coordinates. */
@@ -2885,7 +2878,7 @@ class Game {
       ${this.sm.is(State.TITLE) && !this.showingNamePrompt ? `
         <div class="start-layer">
           <div class="start-title">ARMADILLO RUSH</div>
-          <div class="start-subtitle">🌊 Sea → Sky → 🌕 Moon</div>
+          <div class="start-subtitle">🌊 Sea → ☁️ Sky → 🌕 Moon</div>
           <div class="start-subtitle">Click to start slinging</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
           <div class="start-tip">💡 ${TIPS[this._tipIndex]}</div>
