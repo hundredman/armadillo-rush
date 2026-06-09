@@ -138,6 +138,10 @@ class Game {
     this.slingPull = new THREE.Vector2(0, 0)  // pull vector (world coords)
     this.slingPower = 0                  // power ratio 0~1
     this.slingAngle = Math.PI / 4        // launch angle (radians)
+    // Set true when TITLE/GAMEOVER click transitions to SLINGING — the same
+    // pointer-up that dismissed the start screen must not trigger any gameplay
+    // action (sling drag, hold-release, etc.).  Cleared on next pointerup.
+    this._pendingPointerClear = false
     this.boostHeld = false
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
@@ -1368,6 +1372,13 @@ class Game {
 
     window.addEventListener('pointerup', (event) => {
       this.pointerIsDown = false
+      // This pointer-up belongs to the click that dismissed the title/gameover
+      // screen — ignore it entirely so it cannot accidentally start a sling drag
+      // or trigger a hold-release on the first frame of SLINGING state.
+      if (this._pendingPointerClear) {
+        this._pendingPointerClear = false
+        return
+      }
       if (this.slingDragging) {
         event.preventDefault()
         this._handlePointerRelease()
@@ -1378,6 +1389,7 @@ class Game {
 
     window.addEventListener('pointercancel', () => {
       this.pointerIsDown = false
+      this._pendingPointerClear = false
       this.slingDragging = false
       this.slingPull.set(0, 0)
       this._setArmadilloCurled(false)
@@ -1460,10 +1472,12 @@ class Game {
     if (this.isPaused) return
 
     // ── State-specific input dispatch ──────────────────────────────────────
-    // TITLE / GAMEOVER: start a new run
+    // TITLE / GAMEOVER: start a new run.  Mark the pointer as "used for UI"
+    // so the matching pointerup cannot start a sling drag or fire any action.
     if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
       this._resetRun()
       this.sm.transition(State.SLINGING)
+      this._pendingPointerClear = true  // consume this pointer gesture for UI only
       return
     }
 
@@ -1654,6 +1668,7 @@ class Game {
     this.spinAngleVel = 0
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
+    this._pendingPointerClear = false
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
