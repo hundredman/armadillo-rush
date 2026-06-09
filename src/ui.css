@@ -481,3 +481,173 @@ button {
     font-size: 11px;
   }
 }
+
+/* ── Name input overlay ─────────────────────────────────────────────────── */
+
+.name-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 22;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.68);
+  pointer-events: auto;
+}
+
+.name-card {
+  width: min(360px, calc(100vw - 40px));
+  padding: 28px 24px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(5, 7, 19, 0.96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  display: grid;
+  gap: 14px;
+  text-align: center;
+}
+
+.name-card-title {
+  font-size: 22px;
+  font-weight: 1000;
+  color: #ffd54f;
+}
+
+.name-card-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: -6px;
+}
+
+.name-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  transition: border-color 120ms;
+}
+
+.name-input:focus {
+  border-color: #ffd54f;
+}
+
+.name-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Leaderboard overlay ────────────────────────────────────────────────── */
+
+.leaderboard-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.62);
+  pointer-events: auto;
+}
+
+.leaderboard-card {
+  width: min(400px, calc(100vw - 40px));
+  max-height: min(560px, calc(100vh - 40px));
+  padding: 22px 20px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(5, 7, 19, 0.96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.leaderboard-title {
+  font-size: 20px;
+  font-weight: 1000;
+  color: #ffd54f;
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+.leaderboard-list {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.lb-row.lb-self {
+  background: rgba(255, 213, 79, 0.14);
+  border: 1px solid rgba(255, 213, 79, 0.3);
+}
+
+.lb-rank {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  text-align: center;
+}
+
+.lb-rank.top3 {
+  color: #ffd54f;
+  font-size: 14px;
+}
+
+.lb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-score {
+  color: #ffd54f;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.lb-meta {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  grid-column: 2 / -1;
+  margin-top: -2px;
+}
+
+.leaderboard-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.leaderboard-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 13px;
+  padding: 24px 0;
+}
+
+@media (max-width: 620px) {
+  .leaderboard-card {
+    padding: 16px 14px 14px;
+  }
+  .lb-row {
+    font-size: 12px;
+  }
+}

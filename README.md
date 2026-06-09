@@ -1,6 +1,6 @@
 # Armadillo Rush
 
-> Drag the slingshot, roll across rounded terrain, boost only on valid uphill zones, and climb from the sea to the moon.
+> Launch the armadillo from a slingshot. Hold to accelerate on terrain, release to jump. Spin in the air. Break through terrain. Climb from the sea to the moon.
 
 **Play online:** https://hundredman.github.io/armadillo-rush/
 
@@ -8,61 +8,92 @@
 
 Armadillo Rush is a 2D arcade physics game built with Three.js and Planck.js.
 
-The player launches a curled armadillo from a wooden slingshot, lands on floating terrain, rolls along the surface, and uses timed boost jumps to keep climbing. The lower world is bright sea and sky, mid altitude becomes cloud terrain, and the highest region turns into low-gravity space with meteor terrain.
+The player launches a curled armadillo from a wooden slingshot, lands on floating terrain islands, and uses hold-and-release timing to build speed and jump between islands. The lower world is bright sea and sky; mid altitude transitions to cloud terrain; the highest region is low-gravity space with meteor terrain.
 
-## Current Gameplay
+## Gameplay
 
-1. Drag the slingshot and release to launch.
-2. The armadillo rolls smoothly along terrain after landing.
-3. Click, tap, press the bottom `BOOST` button, or press `Space` to jump.
-4. A boost is granted only when the input happens on the upper part of an uphill boost zone.
-5. No input means no uphill acceleration. Passive rolling can slow down but does not create boost.
-6. Falling into the sea triggers a short splash, hides the armadillo, then shows the result screen.
-7. Reaching the moon height clears the run.
+1. Enter your nickname (shown on the leaderboard).
+2. Drag the slingshot pouch and release to launch.
+3. Land on terrain — the armadillo rolls freely.
+4. **Hold** Space / tap → accelerate while rolling.
+5. **Release** → jump off the terrain with accumulated spin force.
+6. **Hold** while airborne → continuous clockwise spin.
+7. Release in the air → spin slows; no air-jump fires.
+8. **Edge bonus**: releasing near the right edge of a terrain island gives an extra upward kick.
+9. Fall into the sea → lose one life (3 total). Each sea hit respawns you on the nearest island ahead.
+10. Reach moon altitude to clear the run.
+
+## Input Rules
+
+Input has two states: **held** and **released**. Effect depends on game state.
+
+| State | Hold begins | Hold ends (release) |
+| --- | --- | --- |
+| ROLLING | Accelerate | Jump |
+| FLYING / FALLING | Continuous spin | Spin decays — no air jump |
+| SLINGING | Sling drag | Launch (if pull sufficient) |
+| TITLE / GAMEOVER | Start new run | — |
+
+Key rules:
+- The armadillo never accelerates without held input — no passive slope effects.
+- Releasing in the air never triggers a jump.
+- If input is held through a landing, acceleration starts immediately on touchdown.
+- Spin speed is preserved across air→ground transitions and converted to initial ground speed.
 
 ## Controls
 
-| State | Mouse / Touch | Keyboard |
-| --- | --- | --- |
-| Title | Drag to enter slingshot mode | No action |
-| Retry | Click the result screen or Retry button | Space |
-| Slingshot | Drag and release to launch | No launch from Space |
-| Rolling | Click, tap, or bottom `BOOST` button to jump | Space |
-| Flying / Falling | No direct speed gain | No direct speed gain |
+| Device | Action |
+| --- | --- |
+| Mouse / Touch | Click / drag for all actions |
+| Keyboard | Space to hold/release; Escape to pause |
+| On-screen BOOST | Equivalent to pointer hold |
 
-## Boost Rules
+## Terrain Destruction
 
-Boost is intentionally strict:
+The armadillo can punch through soft terrain above a minimum speed threshold. When destruction triggers:
 
-- The player must click, tap, press the `BOOST` button, or press `Space`.
-- The armadillo must be on an uphill surface.
-- The contact point must be in the upper portion of that terrain.
-- Flat jumps, passive uphill rolling, terrain tunneling, and automatic edge exits do not add speed.
+- The game manually advances the armadillo's position through the terrain for that frame — Planck physics is bypassed entirely so no bounce-back occurs.
+- Dirt particles burst from the impact point.
+- Speed and `speedRatio` increase slightly from the impact energy.
+- The damage zone is recorded and excluded from future collision checks.
+- Destruction is continuous: successive frames keep breaking until the ball exits or loses speed.
 
-The boost zone is shown as a subtle terrain-integrated highlight: a light surface sheen and short ridge strokes along the valid upper uphill region.
+Destruction thresholds (approximate):
+- Soft-break entry: ~176 px/s
+- Standard break: ~320 px/s
+- Full-force break: ~700 px/s
 
-## Terrain And Biomes
+## Scoreboard
 
-- **Earth terrain:** rounded soil islands with grass, destructible surfaces, and soft early dirt.
-- **Cloud terrain:** appears at higher altitude and behaves like a springy bounce surface.
-- **Meteor terrain:** appears in space with heavier-looking rock colors and reduced gravity.
-- **Sea:** a real visible fail layer at the bottom of the world, not just a background.
+Armadillo Rush has a local-first leaderboard with a backend-ready API.
 
-Terrain is generated randomly on each attempt, with overlap avoidance and denser placement so the player has frequent landing options.
+**Score formula:** `floor(score)` — accumulated from height, distance, and event bonuses.
 
-## Visual Direction
+**Saving scores:** After each run the score is saved to `localStorage` automatically. The leaderboard button on the game-over card shows ranked scores.
 
-- The title screen shows a curled armadillo identity clearly before launch.
-- The in-game character is a compact curled armadillo/ball hybrid for readability at speed.
-- The slingshot is styled after a chunky wooden arcade slingshot with dark rubber bands and a leather pouch.
-- The sky transitions from bright sea-level blue to clouds and then to space.
+**Player names:** Enter a nickname before your first run. It is persisted across sessions. You can change it by clearing the stored name (`armadillo-rush-player-name` in localStorage).
+
+**Backend extension:** `src/game/scoreboard.js` exports async `submitScore` and `fetchLeaderboard`. Replace the `_syncRemote` stub with a `fetch('/api/scores', ...)` call to add online sync — no caller changes needed.
+
+Score entry shape:
+```json
+{
+  "id": "unique-run-id",
+  "name": "Player",
+  "score": 12345,
+  "heightM": 430,
+  "distanceM": 2200,
+  "moonClear": false,
+  "date": "2026-06-09T..."
+}
+```
 
 ## Tech Stack
 
 | Area | Technology |
 | --- | --- |
 | Rendering | Three.js |
-| Physics | Planck.js |
+| Physics | Planck.js (CCD bullet mode) |
 | Post effects | postprocessing |
 | Build | Vite |
 | Language | Vanilla JavaScript ES modules |
@@ -90,18 +121,21 @@ npm run verify
 
 ```text
 src/
-├── main.js                 # Game loop, slingshot, UI state, gameplay rules
-├── state.js                # TITLE → SLINGING → FLYING → ROLLING/FALLING → GAMEOVER
-├── config.js               # Shared tuning values
-├── ui.css                  # HUD, title, modal, boost button, portrait UI
+├── main.js               # Game loop, input, slingshot, rolling, flight,
+│                         #   terrain destruction, sea bounce, camera, UI, scoreboard HUD
+├── state.js              # TITLE → SLINGING → FLYING → ROLLING/FALLING → GAMEOVER
+├── config.js             # Shared tuning constants
+├── ui.css                # HUD, title, modal, boost button, hearts, leaderboard, name prompt
 ├── game/
-│   ├── terrain.js          # Terrain generation, biomes, destruction, boost-zone visuals
-│   ├── particles.js        # Instanced particle effects
-│   └── physics.js          # Planck.js world wrapper
+│   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
+│   │                     #   destruction (damageTerrain, isTerrainDamagedAt, getTerrainTopY)
+│   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
+│   ├── physics.js        # Planck.js world wrapper — terrain fixtures, gravity
+│   └── scoreboard.js     # Local-first leaderboard, player name storage, backend stub
 ├── renderer/
-│   ├── scene.js            # WebGL renderer and orthographic camera
-│   ├── background.js       # Background layers, sea, clouds, moon
-│   └── postfx.js           # Bloom, chromatic aberration, vignette
+│   ├── scene.js          # WebGL renderer and orthographic camera
+│   ├── background.js     # Background layers, sea, clouds, moon
+│   └── postfx.js         # Bloom, chromatic aberration, vignette
 └── shaders/
     ├── crater.vert/frag
     ├── particle.vert/frag

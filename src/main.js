@@ -9,6 +9,12 @@ import { ParticleSystem } from './game/particles.js'
 import { StateMachine, State } from './state.js'
 import { PhysicsWorld } from './game/physics.js'
 import {
+  submitScore,
+  fetchLeaderboard,
+  getSavedPlayerName,
+  savePlayerName,
+} from './game/scoreboard.js'
+import {
   DEFAULT_ISLAND_LAYOUT,
   createCurvedTerrain,
   damageTerrain,
@@ -21,11 +27,9 @@ import {
 } from './game/terrain.js'
 import {
   CAMERA_LERP,
-  FRICTION_PER_SEC,
   GRAVITY,
   MAX_SPEED,
   PX_PER_METER,
-  SLOPE_RESIST_PER_SEC,
   SCORE,
   SLOWMO_SCALE,
   SLOWMO_SEC,
@@ -67,20 +71,15 @@ const ISLAND_SPAWN_LOOKAHEAD = 22000
 const INITIAL_PROCEDURAL_ISLANDS = 120
 const ISLANDS_PER_SPAWN_TICK = 36
 
-const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(28)
-const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(68)
-const ROLLING_MIN_SPEED_RATIO = 0.38
-const UNDER_BREAK_SPEED = 520
-const DAMAGE_SPEED_FULL = 940
-const UPHILL_BOOST_MIN_ANGLE = THREE.MathUtils.degToRad(4)
-const UPHILL_BOOST_FULL_ANGLE = THREE.MathUtils.degToRad(22)
-const BOOST_ACCEL_PER_SEC = 5.0
-const BOOST_WEAK_RATIO = 0.55
+const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
+const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
+const UNDER_BREAK_SPEED = 320
+const DAMAGE_SPEED_FULL = 700
+const BOOST_ACCEL_PER_SEC = 1.2       // speedRatio/s gained while holding input
 const BOOST_SPEED_LIMIT = 1.8
-const BOOST_RELEASE_SPEED_KICK = 0.60
-const BOOST_RELEASE_VERTICAL_KICK = 700
-const UPHILL_BOOST_TOP_RATIO = 0.64
-const TERRAIN_END_BOOST_ZONE_PX = 72
+const BOOST_RELEASE_SPEED_KICK = 0.35
+const BOOST_RELEASE_VERTICAL_KICK = 920
+const ROLLING_FRICTION_PER_SEC = 0.18 // speedRatio/s lost to friction when no input
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
 const SPACE_GRAVITY_FULL = 0.86
@@ -94,12 +93,12 @@ const SKY_CLEAR_SPACE = new THREE.Color(0x000010)
 
 const TIPS = [
   'Hold to charge the slingshot — more power, more distance.',
-  'Press SPACE or tap just before hitting the sea to bounce back up.',
   'Smashing through terrain gives you a speed burst on exit.',
-  'Hold SPACE on an uphill slope to build boost, release at the crest to launch.',
+  'Hold SPACE while rolling to accelerate, release to jump.',
+  'Keep SPACE held in the air — the armadillo spins until landing.',
   'The higher you fly before hitting the sea, the stronger your bounce.',
   'Aim for the moon — height earns more points than distance.',
-  'Sea bounce is one-time only. Time it right.',
+  'You have 3 lives. The sea will bounce you back — use them wisely.',
   'Speed is everything. Don\'t let it stall on the slopes.',
 ]
 
@@ -141,8 +140,8 @@ class Game {
     this.slingAngle = Math.PI / 4        // launch angle (radians)
     this.boostHeld = false
     this.boostHoldSource = null
-    this.boostCharge = 0
-    this.boostPeakRatio = 0
+    this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
+    this._edgeFallGraceTimer = 0 // seconds remaining to still jump after falling off edge
     this.currentIsland = null
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length  // procedural generation index
 
@@ -154,7 +153,6 @@ class Game {
     this.trauma = 0
     this.flashTime = 0
     this.slowmoTime = 0
-    this.boostButtonPulse = 0
     this.splashGameOverTimer = 0
     this.splashStarted = false
     this.flightPeakY = 0       // peak altitude during flight (for bounce strength)
@@ -165,6 +163,13 @@ class Game {
     this.spaceIsDown = false
     this.bestRecord = this._loadBestRecord()
     this.isPaused = false
+
+    // Scoreboard state
+    this.playerName = getSavedPlayerName() || ''
+    this.showingNamePrompt = !this.playerName   // ask on first ever launch
+    this.showingLeaderboard = false
+    this.leaderboardEntries = []   // cached from last fetchLeaderboard() call
+    this.pendingScoreEntry = null  // set after game over, cleared after submission
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
     this.audio = null
 
@@ -232,7 +237,7 @@ class Game {
   }
 
   _randomizeInitialTerrainSpec(baseSpec, index) {
-    const shapePool = ['bowl', 'plateau', 'wave', 'ramp', 'dip', 'crest', 'double', 'saddle']
+    const shapePool = ['hill', 'valley', 'bowl', 'slope']
     const early = index < 8
     const nearSea = baseSpec.y < -160
     const yJitter = nearSea ? 44 : early ? 90 : 180
@@ -1319,10 +1324,25 @@ class Game {
       event.preventDefault()
       event.stopPropagation()
       this._ensureAudio()
-      if (button.dataset.action === 'pause') this._togglePause()
-      if (button.dataset.action === 'restart') this._restartToTitle()
-      if (button.dataset.action === 'boost') {
-        this._startBoostHold('pointer')
+      const action = button.dataset.action
+      if (action === 'pause') this._togglePause()
+      if (action === 'restart') this._restartToTitle()
+      if (action === 'boost') this._startBoostHold('pointer')
+      if (action === 'leaderboard') this._openLeaderboard()
+      if (action === 'leaderboard-close') this._closeLeaderboard()
+      if (action === 'name-confirm') {
+        const input = this.ui.querySelector('.name-input')
+        this._confirmName(input ? input.value : '')
+        // if called right at game start, begin the sling phase
+        if (this.sm.is(State.TITLE)) {
+          this.sm.transition(State.SLINGING)
+        }
+      }
+      if (action === 'name-skip') {
+        this._confirmName('Anonymous')
+        if (this.sm.is(State.TITLE)) {
+          this.sm.transition(State.SLINGING)
+        }
       }
       return true
     }
@@ -1330,6 +1350,7 @@ class Game {
     // ── Sling drag (mouse + touch) ──
     window.addEventListener('pointerdown', (event) => {
       if (handleControlButton(event)) return
+      if (this.showingNamePrompt || this.showingLeaderboard) return
       event.preventDefault()
       this._ensureAudio()
       this.pointerIsDown = true
@@ -1349,8 +1370,7 @@ class Game {
         this._handlePointerRelease()
         return
       }
-      // Non-sling: ROLLING = boost/jump, others = tap handling
-      this._handleBoostRelease('pointer')
+      this._endHold('pointer')
     }, { passive: false })
 
     window.addEventListener('pointercancel', () => {
@@ -1358,15 +1378,15 @@ class Game {
       this.slingDragging = false
       this.slingPull.set(0, 0)
       this._setArmadilloCurled(false)
-      this._cancelBoostHold()
+      this._cancelHold()
     })
 
     window.addEventListener('blur', () => {
-      this._cancelBoostHold()
+      this._cancelHold()
     })
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this._cancelBoostHold()
+      if (document.hidden) this._cancelHold()
     })
 
     // keyboard
@@ -1389,7 +1409,6 @@ class Game {
       }
     }, { capture: true })
 
-    // Space keyup: ignore TITLE, handle boost/jump for ROLLING
     window.addEventListener('keyup', (event) => {
       if (event.code === 'Space') {
         event.preventDefault()
@@ -1398,9 +1417,23 @@ class Game {
           event.stopImmediatePropagation()
           return
         }
-        this._handleBoostRelease('keyboard')
+        this._endHold('keyboard')
       }
     }, { capture: true })
+
+    // Enter confirms name prompt
+    window.addEventListener('keydown', (event) => {
+      if (event.code === 'Enter' && this.showingNamePrompt) {
+        event.preventDefault()
+        const input = this.ui?.querySelector('.name-input')
+        this._confirmName(input ? input.value : '')
+        if (this.sm.is(State.TITLE)) this.sm.transition(State.SLINGING)
+      }
+      if (event.code === 'Escape' && this.showingLeaderboard) {
+        event.preventDefault()
+        this._closeLeaderboard()
+      }
+    })
   }
 
   /** Convert screen coordinates to world coordinates. */
@@ -1423,32 +1456,30 @@ class Game {
   _handlePointerDown(clientX, clientY) {
     if (this.isPaused) return
 
-    if (this.sm.is(State.TITLE)) {
+    // ── State-specific input dispatch ──────────────────────────────────────
+    // TITLE / GAMEOVER: start a new run
+    if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
       this._resetRun()
       this.sm.transition(State.SLINGING)
       return
     }
 
-    if (this.sm.is(State.GAMEOVER)) {
-      this._resetRun()
-      this.sm.transition(State.SLINGING)
-      return
-    }
-
+    // SLINGING: begin sling drag
     if (this.sm.is(State.SLINGING)) {
       this.slingDragging = true
       this._handlePointerMove(clientX, clientY)
       return
     }
 
-    // ROLLING: hold to boost, release to jump
+    // ROLLING: begin hold — accelerates while held, jumps on release
     if (this.sm.is(State.ROLLING)) {
-      this._startBoostHold('pointer')
+      this._beginHold('pointer')
       return
     }
 
+    // FLYING / FALLING: hold for spin only — no jump on release in air
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this.preBoostSource = 'pointer'
+      this._beginHold('pointer')
       return
     }
   }
@@ -1499,81 +1530,58 @@ class Game {
     this._launchFromSling()
   }
 
-  // shared: pointerup / keyup(Space)
-  _handleBoostRelease(source = 'pointer') {
-    if (this.boostHeld && this.boostHoldSource === source) {
-      this._releaseBoostHold(source)
-      return
-    }
-    if (this.sm.is(State.GAMEOVER)) {
-      this._handleTap(source)
-    }
-  }
-
-  _pulseBoostButton() {
-    this.boostButtonPulse = 0.16
-  }
-
-  _startBoostHold(source = 'pointer') {
+  // ── Input hold / release ──────────────────────────────────────────────────
+  // _beginHold: called on pointerdown or Space keydown (never auto-called).
+  //   ROLLING  → sets boostHeld; acceleration runs in _updateRolling while true.
+  //   FLYING/FALLING → sets boostHeld; spin runs in _update while true. No jump.
+  _beginHold(source = 'pointer') {
     if (this.isPaused) return
     this._ensureAudio()
-    if (!this.sm.is(State.ROLLING)) {
-      this._handleTap(source)
-      return
-    }
     this.boostHeld = true
     this.boostHoldSource = source
-    this.boostCharge = 0
-    this.boostPeakRatio = 0
-    this._pulseBoostButton()
+    // Buffer: if held in air and still down at landing, fires boost immediately
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.preBoostSource = source
+    }
   }
 
-  _releaseBoostHold(source = 'pointer') {
+  // _endHold: called on pointerup or Space keyup.
+  //   ROLLING  → clears boostHeld, then jumps.
+  //   FALLING (just fell off edge while held) → still jumps, within a short grace window.
+  //   FLYING/FALLING (long airborne) → spin stops, no jump.
+  _endHold(source = 'pointer') {
     if (this.isPaused) return
+    if (!this.boostHeld || this.boostHoldSource !== source) return
     this.boostHeld = false
     this.boostHoldSource = null
     if (this.sm.is(State.ROLLING)) {
       this._launchFromIsland(source)
+    } else if (this.sm.is(State.FALLING) && this._edgeFallGraceTimer > 0) {
+      // just fell off edge during a hold — treat release as a jump
+      this._launchFromFallingEdge(source)
+    } else {
+      this.preBoostSource = null
     }
-    this.boostCharge = 0
-    this.boostPeakRatio = 0
   }
 
-  _cancelBoostHold() {
+  // _cancelHold: clears all hold state immediately (blur, pointercancel, pause).
+  _cancelHold() {
     this.boostHeld = false
     this.boostHoldSource = null
-    this.boostCharge = 0
-    this.boostPeakRatio = 0
-    this._lastBoostZoneRatio = 0
     this.preBoostSource = null
   }
 
-  _handleTap(source = 'pointer') {
-    if (this.isPaused) return
-    this._ensureAudio()
-    if (this.sm.is(State.TITLE)) {
-      return
-    }
-    // ROLLING: press to start boost; jump on release
-    if (this.sm.is(State.ROLLING)) {
-      this._startBoostHold(source)
-      return
-    }
-    if (this.sm.is(State.GAMEOVER)) {
-      this._resetRun()
-      this.sm.transition(State.SLINGING)
-      return
-    }
-  }
+  // Legacy aliases — kept so boost button handler still works
+  _startBoostHold(source) { this._beginHold(source) }
+  _cancelBoostHold()       { this._cancelHold() }
 
   // Space keydown
   _handleKeyboardPress() {
     if (this.isPaused) return
     this._ensureAudio()
 
-    if (this.sm.is(State.TITLE)) {
-      return
-    }
+    // ── State-specific input dispatch ──────────────────────────────────────
+    if (this.sm.is(State.TITLE)) return
 
     if (this.sm.is(State.GAMEOVER)) {
       this._resetRun()
@@ -1581,19 +1589,18 @@ class Game {
       return
     }
 
-    // SLINGING: launch only via drag release
-    if (this.sm.is(State.SLINGING)) {
-      return
-    }
+    // SLINGING: Space does not launch — drag only
+    if (this.sm.is(State.SLINGING)) return
 
-    // ROLLING: hold to boost, release to jump
+    // ROLLING: begin hold — accelerates while held, jumps on release
     if (this.sm.is(State.ROLLING)) {
-      this._startBoostHold('keyboard')
+      this._beginHold('keyboard')
       return
     }
 
+    // FLYING / FALLING: hold for spin only — no jump on release in air
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this.preBoostSource = 'keyboard'
+      this._beginHold('keyboard')
       return
     }
   }
@@ -1641,14 +1648,14 @@ class Game {
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
+    this.spinAngleVel = 0
+    this._edgeFallGraceTimer = 0
     this.slingDragging = false
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
     this.boostHeld = false
     this.boostHoldSource = null
-    this.boostCharge = 0
-    this.boostPeakRatio = 0
     this.currentIsland = null
     this.physics.setGravity(GRAVITY)
     this._restoreTerrain()
@@ -1660,11 +1667,9 @@ class Game {
     this.trauma = 0
     this.flashTime = 0
     this.slowmoTime = 0
-    this.boostButtonPulse = 0
     this.splashGameOverTimer = 0
     this.splashStarted = false
     this.flightPeakY = 0
-    this._lastBoostZoneRatio = 0
     this.isPaused = false
     this.lives = 3
     this.doubleJumpUsed = false
@@ -1683,14 +1688,14 @@ class Game {
   _restartToTitle() {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
+    this.spinAngleVel = 0
+    this._edgeFallGraceTimer = 0
     this.slingDragging = false
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
     this.boostHeld = false
     this.boostHoldSource = null
-    this.boostCharge = 0
-    this.boostPeakRatio = 0
     this.currentIsland = null
     this.physics.setGravity(GRAVITY)
     this._restoreTerrain()
@@ -1702,11 +1707,9 @@ class Game {
     this.trauma = 0
     this.flashTime = 0
     this.slowmoTime = 0
-    this.boostButtonPulse = 0
     this.splashGameOverTimer = 0
     this.splashStarted = false
     this.flightPeakY = 0
-    this._lastBoostZoneRatio = 0
     this.isPaused = false
     this.lives = 3
     this.doubleJumpUsed = false
@@ -1790,13 +1793,25 @@ class Game {
   _launchFromIsland(source = 'auto') {
     if (!this.currentIsland) return
     if (!this.sm.transition(State.FALLING)) return
-    const launchAngle = this._getExitLaunchAngle(this.currentIsland)
     const hadBoostInput = source === 'keyboard' || source === 'pointer'
-    const inputStrength = hadBoostInput
-      ? Math.max(BOOST_WEAK_RATIO, this.boostPeakRatio, this.boostCharge * 0.55)
+    const launchAngle = hadBoostInput
+      ? this._getExitLaunchAngle(this.currentIsland)
+      : 0  // no input = horizontal exit, no vertical kick
+    const inputStrength = hadBoostInput ? 1.0 : 0
+
+    // edge-jump bonus: near the right 22% of an island, reward the player with
+    // extra height and speed — releasing at the edge feels deliberate and skilled
+    const islandWidth = this.currentIsland.bounds.right - this.currentIsland.bounds.left
+    const edgeThreshold = islandWidth * 0.22
+    const distFromRight = this.currentIsland.bounds.right - this.armadillo.position.x
+    const edgeRatio = hadBoostInput
+      ? THREE.MathUtils.clamp(1 - distFromRight / edgeThreshold, 0, 1)
       : 0
+    const edgeVerticalBonus  = edgeRatio * 320   // up to +320 px/s upward kick
+    const edgeSpeedBonus     = edgeRatio * 0.25  // up to +0.25 speedRatio
+
     if (hadBoostInput) {
-      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + BOOST_RELEASE_SPEED_KICK * inputStrength)
+      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + (BOOST_RELEASE_SPEED_KICK + edgeSpeedBonus) * inputStrength)
     }
 
     const horizontalSpeed = this.speedRatio * MAX_SPEED
@@ -1805,7 +1820,7 @@ class Game {
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK * inputStrength
+    const vy = Math.sin(launchAngle) * launchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -1814,64 +1829,49 @@ class Game {
     this._syncMotionToArmadillo()
 
     this.currentIsland = null
+    const isEdgeJump = edgeRatio > 0.5
     const strongBoost = inputStrength >= 0.45
-    this.lastRating = strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
-    this._setArmadilloColor(strongBoost ? 0xfff176 : hadBoostInput ? 0xffb74d : 0xff7043)
+    this.lastRating = isEdgeJump ? 'EDGE!' : strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
+    this._setArmadilloColor(isEdgeJump ? 0xffffff : strongBoost ? 0xfff176 : hadBoostInput ? 0xffb74d : 0xff7043)
     this._spawnParticles(
       this.armadillo.position.x,
       this.armadillo.position.y,
-      strongBoost ? 0xffd54f : hadBoostInput ? 0xffb74d : 0xff7043,
-      strongBoost ? 14 : hadBoostInput ? 8 : 6,
-      strongBoost ? 260 : hadBoostInput ? 150 : 120,
+      isEdgeJump ? 0xffffff : strongBoost ? 0xffd54f : hadBoostInput ? 0xffb74d : 0xff7043,
+      isEdgeJump ? 20 : strongBoost ? 14 : hadBoostInput ? 8 : 6,
+      isEdgeJump ? 320 : strongBoost ? 260 : hadBoostInput ? 150 : 120,
     )
-    this._playTone(strongBoost ? 680 : hadBoostInput ? 430 : 360, 0.08, 0.05, 'triangle')
+    this._playTone(isEdgeJump ? 820 : strongBoost ? 680 : hadBoostInput ? 430 : 360, 0.08, 0.05, 'triangle')
   }
 
-  _getBoostAccelerationRatio(island, x, slopeAngle) {
-    const isUphillZone = this._isUpperUphillBoostZone(island, x)
-    const isEndZone = this._isTerrainEndBoostZone(island, x)
-    if (!isUphillZone && !isEndZone) return 0
-
-    if (isEndZone) {
-      const uphill = Math.max(0, Math.sin(slopeAngle))
-      return 1.0 + Math.min(0.25, uphill * 0.8)
-    }
-
-    const uphill = Math.sin(slopeAngle)
-    const min = Math.sin(UPHILL_BOOST_MIN_ANGLE)
-    const max = Math.sin(UPHILL_BOOST_FULL_ANGLE)
-    if (uphill <= min) return 0
-    const t = THREE.MathUtils.clamp((uphill - min) / (max - min), 0, 1)
-    return 0.68 + 0.52 * t
-  }
-
-  _isUpperUphillBoostZone(island, x) {
-    if (!island?.points?.length) return false
-    const topY = getTerrainTopY(island, x)
-    let minY = Infinity
-    let maxY = -Infinity
-    for (const p of island.points) {
-      minY = Math.min(minY, p.y)
-      maxY = Math.max(maxY, p.y)
-    }
-    const thresholdY = THREE.MathUtils.lerp(minY, maxY, UPHILL_BOOST_TOP_RATIO)
-    return topY >= thresholdY
-  }
-
-  _isTerrainEndBoostZone(island, x) {
-    if (!island?.bounds) return false
-    const start = island.bounds.right - TERRAIN_END_BOOST_ZONE_PX
-    return x >= start && x <= island.bounds.right + ARMADILLO_SIZE / 2
+  // Called when player releases input within the grace window after falling off an edge.
+  // Already in FALLING state — override velocity upward using current speedRatio.
+  _launchFromFallingEdge(source) {
+    const launchAngle = EXIT_LAUNCH_MIN_ANGLE  // conservative upward angle
+    const speedBonus = source === 'keyboard' || source === 'pointer' ? BOOST_RELEASE_SPEED_KICK : 0
+    this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
+    const horizontalSpeed = this.speedRatio * MAX_SPEED
+    const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
+    const vx = Math.cos(launchAngle) * launchSpeed
+    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK
+    this.velocity.set(vx, vy)
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(vx, vy)
+    this._edgeFallGraceTimer = 0
+    this.lastRating = 'EDGE!'
+    this._setArmadilloColor(0xffffff)
+    this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffffff, 16, 280)
+    this._playTone(820, 0.08, 0.05, 'triangle')
   }
 
   _getExitLaunchAngle(island) {
     if (!island) return THREE.MathUtils.degToRad(45)
 
-    // launch angle based on terrain slope at current position
+    // Base angle is 48°. Slope nudges it slightly but the clamp (40°–58°) keeps
+    // it clearly upward regardless of terrain angle at the release point.
     const slopeAngle = getTerrainSlopeAngle(island, this.armadillo.position.x)
-    const slopeLift = slopeAngle * 0.75
+    const slopeLift = THREE.MathUtils.clamp(slopeAngle, -0.2, 0.3) * 0.4
     return THREE.MathUtils.clamp(
-      THREE.MathUtils.degToRad(42) + slopeLift,
+      THREE.MathUtils.degToRad(48) + slopeLift,
       EXIT_LAUNCH_MIN_ANGLE,
       EXIT_LAUNCH_MAX_ANGLE,
     )
@@ -1891,21 +1891,18 @@ class Game {
     this.slowmoTime = Math.max(0, this.slowmoTime - dt)
     this.time += simDt
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this._edgeFallGraceTimer = Math.max(0, this._edgeFallGraceTimer - simDt)
       this._setArmadilloSprite('jump')
       this._updateFlight(simDt)
       if (this.boostHeld) {
-        // boost held in air: keep spinning clockwise (same as rolling)
-        const spinSpeed = Math.max(400, this.velocity.length())
-        this.armadillo.rotation.z += spinSpeed * simDt / (ARMADILLO_SIZE / 2)
+        // drive spinAngleVel toward a fast target while held — smooth ramp up/down
+        const targetSpin = Math.max(18, this.velocity.length() / (ARMADILLO_SIZE / 2))
+        this.spinAngleVel = THREE.MathUtils.lerp(this.spinAngleVel, targetSpin, Math.min(1, simDt * 8))
       } else {
-        // no input: tilt toward velocity direction
-        if (this.velocity.lengthSq() > 1) {
-          const targetAngle = Math.atan2(this.velocity.y, this.velocity.x)
-          const diff = targetAngle - this.armadillo.rotation.z
-          const wrapped = ((diff + Math.PI) % (Math.PI * 2)) - Math.PI
-          this.armadillo.rotation.z += wrapped * Math.min(1, simDt * 12)
-        }
+        // no input: bleed spin and tilt toward velocity direction
+        this.spinAngleVel *= Math.pow(0.18, simDt)   // fast decay when released
       }
+      this.armadillo.rotation.z -= this.spinAngleVel * simDt
     } else if (this.sm.is(State.ROLLING)) {
       this._setArmadilloSprite(Math.floor(this.time * 10) % 2 === 0 ? 'walk1' : 'walk2')
       this._updateRolling(simDt)
@@ -1979,23 +1976,18 @@ class Game {
   _updateFlight(dt) {
     const prevX    = this.armadillo.position.x
     const prevY    = this.armadillo.position.y
-    let incomingVelocity = this.velocity.clone()
+    const incomingVelocity = this.velocity.clone()
 
     // track peak altitude during flight (for bounce strength)
     this.flightPeakY = Math.max(this.flightPeakY, prevY)
 
-    // Check pierce before physics.step —
-    // must destroy terrain before Planck reflects the velocity.
-    const preHits = this._findPiercedTerrainHits(prevX, prevY, incomingVelocity, dt)
-    if (preHits.length > 0) {
-      this._breakTerrainHits(preHits, incomingVelocity)
-      this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-      this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
-      // update incomingVelocity to post-break velocity for post-step check
-      incomingVelocity = this.velocity.clone()
-    }
+    // Destruction pass — runs entirely in JS, never touches Planck this frame.
+    // Finds all terrain the ball path overlaps, damages all of them, then manually
+    // advances the ball past the last crater.  Planck is bypassed completely so
+    // it can never apply restitution against freshly-rebuilt fixtures.
+    if (this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
 
-    // Planck step — gravity, collision, restitution
+    // Normal flight — let Planck handle gravity + terrain collision.
     this.physics.setGravity(this._getGravityPx())
     this.physics.step(dt)
     const state = this.physics.getArmadilloState()
@@ -2006,13 +1998,6 @@ class Game {
 
     const prevBottom = prevY - ARMADILLO_SIZE / 2
     const nextBottom = state.y - ARMADILLO_SIZE / 2
-
-    // post-step: destroy any remaining penetration (high-speed / horizontal)
-    const postHits = this._findPiercedTerrainHits(prevX, prevY, incomingVelocity, dt)
-    if (postHits.length > 0) {
-      this._breakTerrainHits(postHits, incomingVelocity)
-      return
-    }
 
     if (this.physics.isGrounded() && this.velocity.y <= 180) {
       const groundedIsland = this._findGroundedIsland()
@@ -2079,7 +2064,8 @@ class Game {
       if (island.destroyed) continue
       const bounds = island.bounds
       const leftEdge = bounds.rampLeft ?? bounds.left
-      if (x < leftEdge - ARMADILLO_SIZE / 2 || x > bounds.right + ARMADILLO_SIZE / 2) continue
+      // Only land on the top surface — reject anything past the right edge
+      if (x < leftEdge - ARMADILLO_SIZE / 2 || x > bounds.right) continue
       if (x >= bounds.left && isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
       const topY = getTerrainTopY(island, x)
       // landed if bottom is near or below topY (proximity: 30px window)
@@ -2099,9 +2085,10 @@ class Game {
     for (const island of this.islands) {
       if (island.destroyed) continue
       const bounds = island.bounds
-      if (x < bounds.left - ARMADILLO_SIZE || x > bounds.right + ARMADILLO_SIZE) continue
+      // Only the top surface is valid ground — reject anything past the right edge
+      if (x < bounds.left - ARMADILLO_SIZE || x > bounds.right) continue
       if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
-      const topY = getTerrainTopY(island, THREE.MathUtils.clamp(x, bounds.left, bounds.right))
+      const topY = getTerrainTopY(island, x)
       const dist = Math.abs(bottom - topY)
       if (dist < bestDist && dist <= 36) {
         best = island
@@ -2112,17 +2099,20 @@ class Game {
     return best
   }
 
-  _findPiercedTerrainHits(prevX, prevY, incomingVelocity, dt) {
+  // Returns true if destruction happened this frame (caller must skip Planck step).
+  // Scans the full predicted path, damages every terrain segment the ball crosses,
+  // then manually places the ball just past the last crater so Planck never sees
+  // intact terrain geometry this frame.
+  _tryDestroyTerrain(prevX, prevY, incomingVelocity, dt) {
     const speed = incomingVelocity.length()
-    if (speed < UNDER_BREAK_SPEED * 0.4) return []
+    if (speed < UNDER_BREAK_SPEED * 0.55) return false
 
-    // sample movement path this frame (gravity-adjusted predicted position)
     const gravity = this._getGravityPx()
     const nextX = prevX + incomingVelocity.x * dt
     const nextY = prevY + (incomingVelocity.y - gravity * dt * 0.5) * dt
-    const dx = nextX - prevX
-    const dy = nextY - prevY
-    const steps = Math.max(3, Math.ceil(Math.hypot(dx, dy) / 16))
+    const steps = Math.max(4, Math.ceil(Math.hypot(nextX - prevX, nextY - prevY) / 10))
+
+    // Collect all unique (island, x) hits along the predicted path
     const hits = []
     const hitKeys = new Set()
 
@@ -2131,71 +2121,77 @@ class Game {
       const x = THREE.MathUtils.lerp(prevX, nextX, t)
       const y = THREE.MathUtils.lerp(prevY, nextY, t)
       const lower = y - ARMADILLO_SIZE / 2
-      const upper = y + ARMADILLO_SIZE / 2
 
       for (const island of this.islands) {
         if (island.destroyed) continue
         if (x < island.bounds.left - ARMADILLO_SIZE / 2 || x > island.bounds.right + ARMADILLO_SIZE / 2) continue
         if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
-
         const topY = getTerrainTopY(island, x)
-        // body must be inside terrain
-        if (lower >= topY || upper <= island.bounds.bottom) continue
-        // descending from above (landing) — skip, defer to landing check.
-        // destroy only when entering from below/horizontally with center below topY.
-        if (incomingVelocity.y <= 0 && y >= topY) continue
+        // ball must be penetrating the terrain surface
+        if (lower >= topY) continue
+        if (y <= island.bounds.bottom) continue
+        // skip slow near-vertical descents — those should land, not destroy
+        if (incomingVelocity.y < 0
+          && Math.abs(incomingVelocity.y) > Math.abs(incomingVelocity.x) * 2
+          && speed < UNDER_BREAK_SPEED * 1.2) continue
 
-        const key = `${this.islands.indexOf(island)}:${Math.round(x / 16)}`
+        const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
         hitKeys.add(key)
-        hits.push({ terrain: island, x, y })
+        hits.push({ island, x, y })
       }
     }
 
-    return hits
-  }
+    if (hits.length === 0) return false
 
-  _breakTerrainHits(hits, incomingVelocity) {
+    // Damage every hit zone
     const touched = new Set()
     for (const hit of hits) {
-      this._breakTerrainAt(hit.terrain, hit.x, hit.y, incomingVelocity, false)
-      touched.add(hit.terrain)
+      const impactSpeed = speed
+      const damage = hit.island.softBreak || impactSpeed < UNDER_BREAK_SPEED
+        ? this._getSoftTerrainDamageProfile(impactSpeed)
+        : this._getTerrainDamageProfile(impactSpeed)
+      damageTerrain(hit.island, hit.x, damage.radius, damage.depth)
+      touched.add(hit.island)
+      this.particleSystem.spawnDirt(hit.x, hit.y, 28 + Math.floor(damage.force * 20))
     }
 
-    for (const terrain of touched) this.physics.addTerrain(terrain)
+    // Rebuild physics fixtures for all touched terrain
+    for (const island of touched) this.physics.addTerrain(island)
 
+    // Advance ball manually along the incoming direction by one full dt,
+    // then lift above any terrain it still overlaps.
     const angle = Math.atan2(incomingVelocity.y, incomingVelocity.x)
-    let exitX = this.armadillo.position.x + Math.cos(angle) * 20
-    let exitY = this.armadillo.position.y + Math.sin(angle) * 20
+    let exitX = prevX + incomingVelocity.x * dt
+    let exitY = prevY + (incomingVelocity.y - gravity * dt * 0.5) * dt
 
-    // still inside terrain — push above topY
-    let burstedOut = false
-    for (const terrain of touched) {
-      if (isTerrainDamagedAt(terrain, exitX, ARMADILLO_SIZE / 2)) continue
-      const topY = getTerrainTopY(terrain, exitX)
+    // Ensure the ball is fully above all hit terrain surfaces
+    for (const island of touched) {
+      if (isTerrainDamagedAt(island, exitX, ARMADILLO_SIZE / 2)) continue
+      const topY = getTerrainTopY(island, exitX)
       if (exitY - ARMADILLO_SIZE / 2 < topY) {
-        exitY = topY + ARMADILLO_SIZE / 2 + 2
-        burstedOut = true
+        exitY = topY + ARMADILLO_SIZE / 2 + 4
       }
     }
 
-    // burst-out: explode out in the exact travel direction with a strong speed spike
-    const speed = incomingVelocity.length()
-    let exitVx, exitVy
-    if (burstedOut) {
-      // snap velocity to travel direction and apply explosion multiplier
-      const burstSpeed = speed * 1.65 + 340
-      exitVx = Math.cos(angle) * burstSpeed
-      exitVy = Math.sin(angle) * burstSpeed
-      this.speedRatio = Math.min(this.speedRatio + 0.30, BOOST_SPEED_LIMIT)
-    } else {
-      // still tunneling — small nudge, keep original direction
-      exitVx = incomingVelocity.x + Math.cos(angle) * speed * 0.12
-      exitVy = incomingVelocity.y + Math.sin(angle) * speed * 0.12
-    }
+    // Preserve velocity direction, apply a modest speed-through bonus
+    const exitSpeed = Math.max(speed, speed * 1.05 + 60)
+    const exitVx = Math.cos(angle) * exitSpeed
+    const exitVy = Math.sin(angle) * exitSpeed
+    this.speedRatio = Math.min(this.speedRatio + 0.25, BOOST_SPEED_LIMIT)
 
     this.armadillo.position.set(exitX, exitY, 0)
     this.velocity.set(exitVx, exitVy)
+
+    // Push Planck body to exit position and zero contact state —
+    // setArmadilloPos also zeroes velocity and angular velocity, so call
+    // setArmadilloVelocity immediately after to restore exit velocity.
+    this.physics.setArmadilloPos(exitX, exitY)
+    this.physics.setArmadilloVelocity(exitVx, exitVy)
+
+    this._setArmadilloColor(0xffd54f)
+    this._triggerImpact(0.45, 0x6d4c41, exitX, exitY)
+    return true
   }
 
   _breakTerrainAt(terrain, x = this.armadillo.position.x, y = this.armadillo.position.y, impactVelocity = this.velocity, refreshPhysics = true) {
@@ -2204,10 +2200,14 @@ class Game {
       ? this._getSoftTerrainDamageProfile(impactSpeed)
       : this._getTerrainDamageProfile(impactSpeed)
     damageTerrain(terrain, x, damage.radius, damage.depth)
-    if (refreshPhysics) this.physics.addTerrain(terrain)
+    if (refreshPhysics) {
+      this.physics.addTerrain(terrain)
+      // only sync velocity when we're the sole owner of the physics state
+      this.physics.setArmadilloVelocity(impactVelocity.x, impactVelocity.y)
+    }
+    // when called from _breakTerrainHits (refreshPhysics=false), velocity is set
+    // there after all hits are processed — do not touch it here
     this.particleSystem.spawnDirt(x, y, 32 + Math.floor(damage.force * 24))
-    this.physics.setArmadilloVelocity(impactVelocity.x, impactVelocity.y)
-    // no speed penalty on destroy — acceleration from exit kick only
     this._setArmadilloColor(0xffd54f)
     this._triggerImpact(0.52 + damage.depth * 0.2, 0x6d4c41, x, y)
   }
@@ -2216,8 +2216,8 @@ class Game {
     const force = THREE.MathUtils.clamp((speed - UNDER_BREAK_SPEED) / (DAMAGE_SPEED_FULL - UNDER_BREAK_SPEED), 0, 1)
     return {
       force,
-      depth: 0.56 + force * 1.0,
-      radius: 36 + force * 58,
+      depth: 0.7 + force * 1.1,
+      radius: 44 + force * 62,
     }
   }
 
@@ -2225,8 +2225,8 @@ class Game {
     const force = THREE.MathUtils.clamp(speed / UNDER_BREAK_SPEED, 0.35, 1)
     return {
       force,
-      depth: 1.0 + force * 0.55,
-      radius: 48 + force * 42,
+      depth: 1.1 + force * 0.6,
+      radius: 54 + force * 48,
     }
   }
 
@@ -2274,14 +2274,17 @@ class Game {
 
     this.currentIsland = island
     this.doubleJumpUsed = false
-    this._cancelBoostHold()  // clear any held input from flight so boost doesn't fire automatically on landing
     const hSpeed = Math.abs(this.velocity.x)
     const impactSpeed = this.velocity.length()
-    const landedSpeedRatio = Math.min(1, hSpeed / MAX_SPEED)
-    this.speedRatio = Math.max(
-      ROLLING_MIN_SPEED_RATIO,
-      Math.max(this.speedRatio * 0.97, Math.min(this.speedRatio, landedSpeedRatio)),
-    )
+    // Landing speed: take the best of horizontal velocity and spin-implied speed,
+    // so a player who was spinning fast in air doesn't lose momentum on touchdown
+    const speedFromH    = hSpeed / MAX_SPEED
+    const speedFromSpin = (this.spinAngleVel * (ARMADILLO_SIZE / 2)) / MAX_SPEED
+    const landedSpeedRatio = Math.min(BOOST_SPEED_LIMIT, Math.max(speedFromH, speedFromSpin * 0.75))
+    this.speedRatio = landedSpeedRatio
+    // Snap spinAngleVel to the contact-roll speed immediately so rotation
+    // matches forward movement from the very first ground frame
+    this.spinAngleVel = landedSpeedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)
     this.velocity.set(0, 0)
     this.physics.setArmadilloVelocity(0, 0)
     this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
@@ -2310,34 +2313,49 @@ class Game {
       this.sm.transition(State.ROLLING)
     }
 
-    // fire buffered pre-boost only if input is still held at landing
-    if (this.preBoostSource) {
-      const src = this.preBoostSource
+    // Determine new boostHeld state atomically — no cancel+re-begin gap.
+    // If input is still physically down, keep/start boost; otherwise clear all hold state.
+    if (this.pointerIsDown) {
+      this.boostHeld = true
+      this.boostHoldSource = 'pointer'
       this.preBoostSource = null
-      const stillHeld = src === 'pointer' ? this.pointerIsDown : this.spaceIsDown
-      if (stillHeld) this._startBoostHold(src)
+    } else if (this.spaceIsDown) {
+      this.boostHeld = true
+      this.boostHoldSource = 'keyboard'
+      this.preBoostSource = null
+    } else {
+      this.boostHeld = false
+      this.boostHoldSource = null
+      this.preBoostSource = null
     }
   }
 
   _springFromCloudIsland(island) {
     // cloud landing: treat like a normal landing but give a speed + launch bonus
     this.currentIsland = island
-    this._cancelBoostHold()
-    this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.40)
     const hSpeed = Math.abs(this.velocity.x)
-    const landedSpeedRatio = Math.min(1, hSpeed / MAX_SPEED)
-    this.speedRatio = Math.max(this.speedRatio, landedSpeedRatio)
+    const landedSpeedRatio = Math.min(BOOST_SPEED_LIMIT, hSpeed / MAX_SPEED)
+    // Cloud bonus: land at actual speed + 0.40 bonus, capped at limit
+    this.speedRatio = Math.min(BOOST_SPEED_LIMIT, landedSpeedRatio + 0.40)
+    this.spinAngleVel = this.speedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)
     this.velocity.set(0, 0)
     this.physics.setArmadilloVelocity(0, 0)
     this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
     }
-    if (this.preBoostSource) {
-      const src = this.preBoostSource
+    if (this.pointerIsDown) {
+      this.boostHeld = true
+      this.boostHoldSource = 'pointer'
       this.preBoostSource = null
-      const stillHeld = src === 'pointer' ? this.pointerIsDown : this.spaceIsDown
-      if (stillHeld) this._startBoostHold(src)
+    } else if (this.spaceIsDown) {
+      this.boostHeld = true
+      this.boostHoldSource = 'keyboard'
+      this.preBoostSource = null
+    } else {
+      this.boostHeld = false
+      this.boostHoldSource = null
+      this.preBoostSource = null
     }
     this.lastRating = 'CLOUD'
     this._setArmadilloColor(0xd8f4ff)
@@ -2350,63 +2368,69 @@ class Game {
     if (!this.currentIsland) return
 
     const bounds = this.currentIsland.bounds
-    const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
-    // sin(angle) > 0 = uphill. No auto-accel; uphill resistance only.
-    const slopeFactor = Math.sin(slopeAngle)
-    // slope resist only when going uphill — no auto-accel on downhill without input
-    const slopeResist = slopeFactor > 0 ? -slopeFactor * SLOPE_RESIST_PER_SEC : 0
-
     if (this.boostHeld) {
-      const zoneBoostRatio = this._getBoostAccelerationRatio(this.currentIsland, this.armadillo.position.x, slopeAngle)
-      const boostAccelRatio = Math.max(BOOST_WEAK_RATIO, zoneBoostRatio)
+      // Acceleration scales with current speed: faster spin = stronger push.
+      // At speedRatio 0, accel is 50% of max; at speedRatio 1.0, it's 100%.
+      const spinFactor = 0.5 + this.speedRatio * 0.5
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (boostAccelRatio * BOOST_ACCEL_PER_SEC + slopeResist - FRICTION_PER_SEC) * dt,
+        this.speedRatio + (BOOST_ACCEL_PER_SEC * spinFactor - ROLLING_FRICTION_PER_SEC) * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
-      this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
-      this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
-      this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
-      this._setArmadilloColor(zoneBoostRatio > 0 ? 0xfff176 : 0xffb74d)
-
-      // boost zone crest crossed into downhill: launch immediately
-      const wasInBoostZone = this._lastBoostZoneRatio > 0
-      const leftBoostZone = wasInBoostZone && zoneBoostRatio === 0
-      const isDownhill = slopeFactor < -0.05
-      if (leftBoostZone && isDownhill) {
-        this._releaseBoostHold(this.boostHoldSource ?? 'keyboard')
-        return
-      }
-      this._lastBoostZoneRatio = zoneBoostRatio
+      this.lastRating = 'HOLD'
+      this._setArmadilloColor(0xffb74d)
     } else {
-      // no input: only friction + uphill resist, no boost accel, no downhill accel
+      // no input: friction only
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (slopeResist - FRICTION_PER_SEC * 4) * dt,
+        this.speedRatio - ROLLING_FRICTION_PER_SEC * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
-      this._lastBoostZoneRatio = 0
     }
 
     const moveX = this.speedRatio * MAX_SPEED * dt
     this.armadillo.position.x += moveX
     if (isTerrainDamagedAt(this.currentIsland, this.armadillo.position.x, ARMADILLO_SIZE / 2)) {
-      this._launchFromIsland('auto')
+      this._fallOff()
       return
     }
     // snap y to terrain top — follows slope naturally
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
-    // clockwise rotation when rolling right
-    this.armadillo.rotation.z += moveX / (ARMADILLO_SIZE / 2)
+
+    // ground spin: drive rotation from speedRatio so it always matches forward speed.
+    // spinAngleVel converges quickly so air→ground transition feels continuous.
+    const contactSpin = this.speedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)  // rad/s
+    const spinTarget = this.boostHeld
+      ? Math.max(contactSpin, 10 + this.speedRatio * 18)   // held: visibly spinning even when slow
+      : contactSpin
+    this.spinAngleVel = THREE.MathUtils.lerp(this.spinAngleVel, spinTarget, Math.min(1, dt * 14))
+    this.armadillo.rotation.z -= this.spinAngleVel * dt
 
     this._updateStallState(dt)
 
     if (this.armadillo.position.x >= bounds.right - ARMADILLO_SIZE / 2) {
-      this.armadillo.position.x = bounds.right - ARMADILLO_SIZE / 2
-      this._launchFromIsland('auto')
+      this.armadillo.position.x = bounds.right + ARMADILLO_SIZE
+      this._fallOff()
     }
   }
 
+
+  _fallOff() {
+    if (!this.currentIsland) return
+    if (!this.sm.transition(State.FALLING)) return
+    const vx = this.speedRatio * MAX_SPEED
+    // Carry a small downward component so the exit from the edge isn't a jarring
+    // horizontal snap — matches how a rolling ball naturally leaves a surface edge
+    const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+    const vy = Math.min(0, Math.sin(slopeAngle) * vx * 0.5)
+    this.velocity.set(vx, vy)
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(vx, vy)
+    this._syncMotionToArmadillo()
+    // grace window: if input is released within 120ms after falling off edge, still jump
+    this._edgeFallGraceTimer = 0.12
+    this.currentIsland = null
+  }
 
   _updateStallState(dt) {
     if (this.speedRatio <= STALL_SPEED_RATIO) {
@@ -2497,9 +2521,9 @@ class Game {
       }
     }
 
-    // teleport onto left quarter of island so ball can roll forward naturally
+    // teleport onto left portion of island — 15% from left edge gives more room to recover
     const landX = targetIsland
-      ? targetIsland.bounds.left + (targetIsland.bounds.right - targetIsland.bounds.left) * 0.25
+      ? targetIsland.bounds.left + (targetIsland.bounds.right - targetIsland.bounds.left) * 0.15
       : x
     const landY = targetIsland
       ? getTerrainTopY(targetIsland, landX) + ARMADILLO_SIZE / 2 + 4
@@ -2575,7 +2599,6 @@ class Game {
   _updateEffects(dt) {
     this.trauma = Math.max(0, this.trauma - dt * 1.8)
     this.flashTime = Math.max(0, this.flashTime - dt)
-    this.boostButtonPulse = Math.max(0, this.boostButtonPulse - dt)
   }
 
   _gameOver(reason) {
@@ -2584,12 +2607,39 @@ class Game {
     this.velocity.set(0, 0)
     this.lastRating = reason
     this._saveBestRecord()
+    this._submitRunScore()
 
     if (reason === 'SPLASH' && !this.splashStarted) {
       this._triggerSplashEffect(this.armadillo.position.x)
     } else {
       this._playTone(96, 0.22, 0.1, 'triangle')
     }
+  }
+
+  _submitRunScore() {
+    const heightM   = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
+    const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
+    const score     = this._getScore()
+    const moonClear = this.lastRating === 'MOON'
+    const name      = this.playerName || 'Anonymous'
+    submitScore(name, score, heightM, distanceM, moonClear)
+      .then(entry => { this.pendingScoreEntry = entry })
+      .catch(() => {})
+  }
+
+  async _openLeaderboard() {
+    this.leaderboardEntries = await fetchLeaderboard(15)
+    this.showingLeaderboard = true
+  }
+
+  _closeLeaderboard() {
+    this.showingLeaderboard = false
+  }
+
+  _confirmName(name) {
+    this.playerName = name.trim().slice(0, 16) || 'Anonymous'
+    savePlayerName(this.playerName)
+    this.showingNamePrompt = false
   }
 
   _ensureAudio() {
@@ -2705,7 +2755,7 @@ class Game {
     const showControlRow = !this.isPaused
       && !this.sm.is(State.TITLE)
       && !this.sm.is(State.GAMEOVER)
-    const boostButtonActive = this.boostHeld || this.boostButtonPulse > 0
+    const boostButtonActive = this.boostHeld
     const boostButtonReady = this.sm.is(State.ROLLING)
 
     const action = this.splashGameOverTimer > 0
@@ -2755,6 +2805,27 @@ class Game {
       </svg>`
     }).join('')
 
+    // ── Leaderboard rows HTML ──────────────────────────────────────────────
+    const lbRowsHtml = this.leaderboardEntries.length === 0
+      ? '<div class="leaderboard-empty">No scores yet — be the first!</div>'
+      : this.leaderboardEntries.map(e => {
+          const isSelf = e.name === this.playerName
+          const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank
+          const moonBadge = e.moonClear ? ' 🌕' : ''
+          return `
+            <div class="lb-row${isSelf ? ' lb-self' : ''}">
+              <span class="lb-rank${e.rank <= 3 ? ' top3' : ''}">${medal}</span>
+              <span class="lb-name">${e.name}${moonBadge}</span>
+              <span class="lb-score">${e.score.toLocaleString()}</span>
+              <span class="lb-meta">${e.heightM}m high · ${e.distanceM}m far</span>
+            </div>`
+        }).join('')
+
+    // ── Rank summary for game-over card ───────────────────────────────────
+    const rankText = this.pendingScoreEntry
+      ? `<div><span>RANK</span><strong>#${this.pendingScoreEntry.rank}</strong></div>`
+      : ''
+
     this.ui.innerHTML = `
       ${isGameActive ? `<div class="lives-hud">${heartsHTML}</div>` : ''}
       <div class="hud-panel hud-stats">
@@ -2790,8 +2861,10 @@ class Game {
               <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
               <div><span>DIST</span><strong>${distanceM}m</strong></div>
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
+              ${rankText}
             </div>
-            <button type="button" class="clickable primary-button" data-action="restart">Retry</button>
+            <button type="button" class="clickable primary-button" style="margin-bottom:6px" data-action="leaderboard">Leaderboard</button>
+            <button type="button" class="clickable secondary-button" data-action="restart">Retry</button>
           </div>
         </div>
       ` : ''}
@@ -2810,6 +2883,33 @@ class Game {
         <div class="control-row">
           <button type="button" class="clickable secondary-button" data-action="pause">${pauseLabel}</button>
           <button type="button" class="clickable primary-button" data-action="restart">Restart</button>
+        </div>
+      ` : ''}
+
+      ${this.showingLeaderboard ? `
+        <div class="leaderboard-layer">
+          <div class="leaderboard-card">
+            <div class="leaderboard-title">LEADERBOARD</div>
+            <div class="leaderboard-list">${lbRowsHtml}</div>
+            <div class="leaderboard-actions">
+              <button type="button" class="clickable secondary-button" data-action="leaderboard-close">Close</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      ${this.showingNamePrompt ? `
+        <div class="name-layer">
+          <div class="name-card">
+            <div class="name-card-title">What's your name?</div>
+            <div class="name-card-sub">Your name will appear on the leaderboard.</div>
+            <input class="name-input clickable" type="text" maxlength="16"
+              placeholder="Enter nickname…"
+              value="${this.playerName}"
+              autocomplete="off" spellcheck="false" />
+            <button type="button" class="clickable primary-button" data-action="name-confirm">Play</button>
+            <button type="button" class="clickable secondary-button" data-action="name-skip">Skip</button>
+          </div>
         </div>
       ` : ''}
 

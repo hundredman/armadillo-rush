@@ -8,9 +8,6 @@ const VIEWPORT_SAFE_WIDTH = 960
 const VIEWPORT_SAFE_HEIGHT = 720
 const CLOUD_TERRAIN_Y = 2600
 const SPACE_TERRAIN_Y = 10500
-const BOOST_SLOPE_MIN = Math.tan(THREE.MathUtils.degToRad(4))
-const BOOST_TOP_RATIO = 0.64
-const BOOST_END_ZONE_PX = 72
 
 function getBiomeForY(y) {
   if (y >= SPACE_TERRAIN_Y) return 'meteor'
@@ -23,8 +20,6 @@ function getBiomeStyle(biome) {
     return {
       soil: 0xf7fbff,
       grass: 0xd8f4ff,
-      boost: 0xfff3b0,
-      boostLine: 0xffd54f,
       ridge: 0xffffff,
       bottomScale: 0.72,
     }
@@ -33,8 +28,6 @@ function getBiomeStyle(biome) {
     return {
       soil: 0x4c4f5a,
       grass: 0x7c6f62,
-      boost: 0xc9a64a,
-      boostLine: 0xffd166,
       ridge: 0xcaa46a,
       bottomScale: 0.95,
     }
@@ -42,8 +35,6 @@ function getBiomeStyle(biome) {
   return {
     soil: 0x6d4c41,
     grass: 0x66bb6a,
-    boost: 0xd7e76a,
-    boostLine: 0xffe66d,
     ridge: 0xc5e1a5,
     bottomScale: 1,
   }
@@ -52,41 +43,42 @@ function getBiomeStyle(biome) {
 // Island layout: x=center, y=floor, w=width, depth=height variation, rimH=rim height
 // y=0 is sling position. Early islands vary vertically with sufficient spacing.
 export const DEFAULT_ISLAND_LAYOUT = [
-  // ── Early islands: densely packed so multiple fit on screen ──
-  { x:  220, y:  -80, w: 420, depth: 22, rimH: 14, shapeType: 'plateau', softBreak: true },
-  { x:  330, y:  120, w: 520, depth: 28, rimH: 18, shapeType: 'bowl', softBreak: true },
-  { x:  455, y:  -30, w: 390, depth: 24, rimH: 15, shapeType: 'wave', softBreak: true },
-  { x:  610, y:  200, w: 480, depth: 25, rimH: 16, shapeType: 'plateau', softBreak: true },
-  { x:  750, y:  -60, w: 420, depth: 23, rimH: 15, shapeType: 'dip', softBreak: true },
-  { x:  895, y:  130, w: 500, depth: 32, rimH: 18, shapeType: 'wave', softBreak: true },
-  { x: 1185, y:  280, w: 470, depth: 30, rimH: 20, shapeType: 'ramp', softBreak: true },
-  { x: 1305, y:   50, w: 405, depth: 26, rimH: 17, shapeType: 'bowl', softBreak: true },
-  { x: 1475, y:  200, w: 490, depth: 34, rimH: 20, shapeType: 'dip', softBreak: true },
-  { x: 1770, y:  380, w: 460, depth: 29, rimH: 18, shapeType: 'crest', softBreak: true },
-  { x: 1905, y:   80, w: 400, depth: 25, rimH: 16, shapeType: 'saddle', softBreak: true },
-  { x: 2070, y:  230, w: 475, depth: 36, rimH: 21, shapeType: 'double', softBreak: true },
-  { x: 2370, y:  300, w: 450, depth: 31, rimH: 20, shapeType: 'saddle', softBreak: true },
-  { x: 2670, y:  105, w: 480, depth: 35, rimH: 22, shapeType: 'bowl', softBreak: true },
-  { x: 2975, y:  455, w: 450, depth: 30, rimH: 21, shapeType: 'plateau', softBreak: true },
-  { x: 3280, y:  205, w: 470, depth: 38, rimH: 22, shapeType: 'wave', softBreak: true },
-  { x: 3590, y:  605, w: 440, depth: 34, rimH: 23, shapeType: 'ramp' },
-  { x: 4115, y:  340, w: 440, depth: 40, rimH: 24, shapeType: 'dip' },
-  { x: 4430, y:  790, w: 420, depth: 35, rimH: 24, shapeType: 'crest' },
-  { x: 4745, y:  500, w: 435, depth: 42, rimH: 25, shapeType: 'double' },
-  { x: 5060, y:  960, w: 410, depth: 38, rimH: 25, shapeType: 'saddle' },
-  { x: 5380, y:  680, w: 430, depth: 41, rimH: 26, shapeType: 'bowl' },
-  { x: 5700, y: 1180, w: 410, depth: 39, rimH: 25, shapeType: 'plateau' },
-  { x: 6020, y:  860, w: 425, depth: 44, rimH: 27, shapeType: 'wave' },
-  { x: 6340, y: 1430, w: 405, depth: 40, rimH: 26, shapeType: 'ramp' },
-  { x: 6665, y: 1080, w: 430, depth: 46, rimH: 28, shapeType: 'dip' },
-  { x: 6990, y: 1690, w: 410, depth: 42, rimH: 27, shapeType: 'crest' },
-  { x: 7320, y: 1300, w: 425, depth: 48, rimH: 29, shapeType: 'double' },
-  { x: 7650, y: 1950, w: 410, depth: 43, rimH: 28, shapeType: 'saddle' },
+  // ── Early islands: gentle hills so the player learns the momentum mechanic ──
+  { x:  240, y:  -60, w: 500, depth: 55, rimH: 22, shapeType: 'bowl',   softBreak: true },
+  { x:  440, y:   80, w: 540, depth: 65, rimH: 26, shapeType: 'hill',   softBreak: true },
+  { x:  660, y:  -20, w: 480, depth: 60, rimH: 24, shapeType: 'valley', softBreak: true },
+  { x:  860, y:  160, w: 520, depth: 70, rimH: 28, shapeType: 'slope',  softBreak: true },
+  { x: 1080, y:   40, w: 500, depth: 62, rimH: 25, shapeType: 'bowl',   softBreak: true },
+  { x: 1290, y:  260, w: 540, depth: 75, rimH: 30, shapeType: 'hill',   softBreak: true },
+  { x: 1520, y:  100, w: 510, depth: 68, rimH: 27, shapeType: 'valley', softBreak: true },
+  { x: 1740, y:  360, w: 530, depth: 80, rimH: 32, shapeType: 'slope',  softBreak: true },
+  { x: 1980, y:  180, w: 500, depth: 72, rimH: 28, shapeType: 'hill',   softBreak: true },
+  { x: 2210, y:  460, w: 550, depth: 85, rimH: 34, shapeType: 'bowl',   softBreak: true },
+  { x: 2460, y:  250, w: 520, depth: 78, rimH: 30, shapeType: 'valley', softBreak: true },
+  { x: 2700, y:  540, w: 540, depth: 88, rimH: 35, shapeType: 'hill',   softBreak: true },
+  { x: 2960, y:  340, w: 510, depth: 82, rimH: 32, shapeType: 'slope',  softBreak: true },
+  { x: 3210, y:  640, w: 550, depth: 92, rimH: 36, shapeType: 'bowl',   softBreak: true },
+  { x: 3480, y:  420, w: 530, depth: 86, rimH: 34, shapeType: 'valley', softBreak: true },
+  { x: 3730, y:  760, w: 545, depth: 95, rimH: 38, shapeType: 'hill' },
+  { x: 4000, y:  520, w: 520, depth: 88, rimH: 35, shapeType: 'slope' },
+  { x: 4260, y:  870, w: 550, depth: 98, rimH: 40, shapeType: 'bowl' },
+  { x: 4540, y:  630, w: 530, depth: 92, rimH: 36, shapeType: 'valley' },
+  { x: 4810, y: 1000, w: 545, depth: 102, rimH: 42, shapeType: 'hill' },
+  { x: 5090, y:  760, w: 520, depth: 96, rimH: 38, shapeType: 'slope' },
+  { x: 5360, y: 1160, w: 550, depth: 105, rimH: 44, shapeType: 'bowl' },
+  { x: 5640, y:  920, w: 530, depth: 100, rimH: 40, shapeType: 'valley' },
+  { x: 5920, y: 1320, w: 545, depth: 108, rimH: 44, shapeType: 'hill' },
+  { x: 6200, y: 1060, w: 520, depth: 102, rimH: 42, shapeType: 'slope' },
+  { x: 6480, y: 1490, w: 550, depth: 112, rimH: 46, shapeType: 'bowl' },
+  { x: 6760, y: 1230, w: 530, depth: 106, rimH: 43, shapeType: 'valley' },
+  { x: 7040, y: 1660, w: 545, depth: 115, rimH: 47, shapeType: 'hill' },
+  { x: 7320, y: 1400, w: 520, depth: 110, rimH: 45, shapeType: 'slope' },
+  { x: 7600, y: 1870, w: 550, depth: 118, rimH: 48, shapeType: 'bowl' },
 ]
 
 /**
  * Generate terrain top curve.
- * shapeType: 'bowl' | 'ramp' | 'wave' | 'plateau' | 'dip' | 'double' | 'crest' | 'saddle'
+ * shapeType: 'hill' | 'valley' | 'slope' | 'bowl'
  * All shapes use smooth CatmullRom splines.
  *
  * @param {number} x      center x (world coords)
@@ -101,86 +93,53 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
   const right = x + w / 2
   const style = getBiomeStyle(biome)
 
+  // All shapes follow Tiny Wings convention: entry is low-left so the ball
+  // rolls naturally downhill into the valley then up the far side.
   let controls
-  if (shapeType === 'ramp') {
-    // gradual ramp: low left, high right
+  if (shapeType === 'hill') {
+    // Classic Tiny Wings hill: low entry → valley → high crest → low exit
+    // Ball gains speed in the valley, launches off the crest
+    const valleyY = y
+    const crestY  = y + depth + rimH
+    const entryY  = y + depth * 0.30
+    const exitY   = y + depth * 0.20
+    controls = [
+      new THREE.Vector3(left,             entryY,              0),
+      new THREE.Vector3(left  + w * 0.20, valleyY,             0),
+      new THREE.Vector3(left  + w * 0.50, crestY,              0),
+      new THREE.Vector3(right - w * 0.15, valleyY + depth * 0.15, 0),
+      new THREE.Vector3(right,            exitY,               0),
+    ]
+  } else if (shapeType === 'valley') {
+    // Deep valley: high entry → steep drop → climb out
+    // Maximises speed gain; launch off the right rim
+    const entryY  = y + depth * 0.55 + rimH
+    const floorY  = y
+    const exitY   = y + depth * 0.70 + rimH
+    controls = [
+      new THREE.Vector3(left,             entryY,              0),
+      new THREE.Vector3(left  + w * 0.25, floorY + depth * 0.08, 0),
+      new THREE.Vector3(x,                floorY,              0),
+      new THREE.Vector3(right - w * 0.22, floorY + depth * 0.35, 0),
+      new THREE.Vector3(right,            exitY,               0),
+    ]
+  } else if (shapeType === 'slope') {
+    // Ascending slope: low entry → steady climb → high exit ramp
+    // Holding boost here powers through the climb
     const baseY = y
     const topY  = y + depth + rimH
     controls = [
-      new THREE.Vector3(left,             baseY,              0),
-      new THREE.Vector3(left  + w * 0.35, baseY + depth * 0.1, 0),
-      new THREE.Vector3(left  + w * 0.65, baseY + depth * 0.72, 0),
-      new THREE.Vector3(right,            topY,               0),
-    ]
-  } else if (shapeType === 'plateau') {
-    // wide flat plateau: stable rolling, no jump bonus
-    const baseY = y
-    controls = [
-      new THREE.Vector3(left,             baseY + rimH * 0.9, 0),
-      new THREE.Vector3(left  + w * 0.18, baseY + depth * 0.18, 0),
-      new THREE.Vector3(left  + w * 0.42, baseY + depth * 0.08, 0),
-      new THREE.Vector3(left  + w * 0.68, baseY + depth * 0.10, 0),
-      new THREE.Vector3(right - w * 0.16, baseY + depth * 0.20, 0),
-      new THREE.Vector3(right,            baseY + rimH * 0.8, 0),
-    ]
-  } else if (shapeType === 'dip') {
-    // shallow dip: natural speed dip and recovery
-    const rimY = y + depth + rimH
-    controls = [
-      new THREE.Vector3(left,             rimY * 0.96 + y * 0.04, 0),
-      new THREE.Vector3(left  + w * 0.18, y + depth * 0.35, 0),
-      new THREE.Vector3(left  + w * 0.46, y - depth * 0.12, 0),
-      new THREE.Vector3(left  + w * 0.72, y + depth * 0.28, 0),
-      new THREE.Vector3(right,            y + depth * 0.72, 0),
-    ]
-  } else if (shapeType === 'double') {
-    // W-shaped double bowl: two dips in one terrain
-    const rimY = y + depth + rimH
-    controls = [
-      new THREE.Vector3(left,             rimY, 0),
-      new THREE.Vector3(left  + w * 0.18, y + depth * 0.08, 0),
-      new THREE.Vector3(left  + w * 0.36, y + depth * 0.52, 0),
-      new THREE.Vector3(left  + w * 0.55, y, 0),
-      new THREE.Vector3(left  + w * 0.76, y + depth * 0.42, 0),
-      new THREE.Vector3(right,            rimY * 0.92 + y * 0.08, 0),
-    ]
-  } else if (shapeType === 'crest') {
-    // round hill: good for uphill boost
-    const baseY = y
-    controls = [
-      new THREE.Vector3(left,             baseY + depth * 0.18, 0),
-      new THREE.Vector3(left  + w * 0.24, baseY + depth * 0.62, 0),
-      new THREE.Vector3(left  + w * 0.50, baseY + depth + rimH, 0),
-      new THREE.Vector3(left  + w * 0.76, baseY + depth * 0.54, 0),
-      new THREE.Vector3(right,            baseY + depth * 0.12, 0),
-    ]
-  } else if (shapeType === 'saddle') {
-    // asymmetric S saddle: mixed uphill/downhill
-    const baseY = y
-    controls = [
-      new THREE.Vector3(left,             baseY + depth * 0.64, 0),
-      new THREE.Vector3(left  + w * 0.18, baseY + depth * 0.18, 0),
-      new THREE.Vector3(left  + w * 0.42, baseY + depth * 0.36, 0),
-      new THREE.Vector3(left  + w * 0.62, baseY + depth + rimH, 0),
-      new THREE.Vector3(right - w * 0.12, baseY + depth * 0.24, 0),
-      new THREE.Vector3(right,            baseY + depth * 0.42, 0),
-    ]
-  } else if (shapeType === 'wave') {
-    // S-wave: low left → low plateau → high right
-    const baseY = y
-    const midY  = y + depth * 0.35
-    const topY  = y + depth + rimH
-    controls = [
-      new THREE.Vector3(left,             baseY + rimH * 0.6, 0),
-      new THREE.Vector3(left  + w * 0.25, baseY,              0),
-      new THREE.Vector3(left  + w * 0.5,  midY,               0),
-      new THREE.Vector3(right - w * 0.22, topY - rimH * 0.2,  0),
-      new THREE.Vector3(right,            topY,               0),
+      new THREE.Vector3(left,             baseY + rimH * 0.4,  0),
+      new THREE.Vector3(left  + w * 0.28, baseY + depth * 0.18, 0),
+      new THREE.Vector3(left  + w * 0.55, baseY + depth * 0.58, 0),
+      new THREE.Vector3(right - w * 0.10, topY  - rimH * 0.15, 0),
+      new THREE.Vector3(right,            topY,                0),
     ]
   } else {
-    // bowl (default): high edges, low center — U shape
+    // bowl (default): symmetric U — low center, high rims on both sides
+    // Good for building speed in the dip, natural launch off either rim
     const rimY    = y + depth + rimH
-    const innerY  = y + depth * 0.18
+    const innerY  = y + depth * 0.15
     const centerY = y
     controls = [
       new THREE.Vector3(left,             rimY,    0),
@@ -252,45 +211,8 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
   )
   ridge.position.z = 0.04
 
-  const boostRibbon = new THREE.Mesh(
-    createBoostRibbonGeometry(topPoints, []),
-    new THREE.MeshBasicMaterial({
-      color: style.boost,
-      transparent: true,
-      opacity: biome === 'meteor' ? 0.56 : 0.62,
-      depthTest: false,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-  )
-  boostRibbon.position.z = 0.038
-
-  const boostLine = new THREE.LineSegments(
-    createBoostLineGeometry(topPoints, []),
-    new THREE.LineBasicMaterial({
-      color: style.boostLine,
-      transparent: true,
-      opacity: biome === 'cloud' ? 0.95 : 0.88,
-      depthTest: false,
-    }),
-  )
-  boostLine.position.z = 0.072
-
-  const boostMarkers = new THREE.Mesh(
-    createBoostMarkerGeometry(topPoints, []),
-    new THREE.MeshBasicMaterial({
-      color: 0xfff176,
-      transparent: true,
-      opacity: biome === 'meteor' ? 0.74 : 0.82,
-      depthTest: false,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-  )
-  boostMarkers.position.z = 0.11
-
   const mesh = new THREE.Group()
-  mesh.add(soil, grass, boostRibbon, ridge, boostLine, boostMarkers)
+  mesh.add(soil, grass, ridge)
 
   return {
     mesh,
@@ -300,7 +222,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     damageMarks: [],
     softBreak,
     biome,
-    visuals: { soil, grass, ridge, boostRibbon, boostLine, boostMarkers },
+    visuals: { soil, grass, ridge },
     visualMeta: { left, right, x, w, bottomY, bottomCurveY, cornerR, sideDrop, leftTop, rightTop },
     bounds: { left, right, top: maxY, bottom: bottomCurveY, rampLeft: left - LEFT_RAMP_W },
     bowlCenter: x,
@@ -309,7 +231,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
 }
 
 export function rebuildTerrainGraphics(terrain) {
-  const { soil, grass, ridge, boostRibbon, boostLine, boostMarkers } = terrain.visuals
+  const { soil, grass, ridge } = terrain.visuals
 
   soil.geometry.dispose()
   soil.geometry = new THREE.ShapeGeometry(createTerrainBodyShapes(terrain), 18)
@@ -319,15 +241,6 @@ export function rebuildTerrainGraphics(terrain) {
 
   ridge.geometry.dispose()
   ridge.geometry = createRidgeGeometry(terrain.points, terrain.damageZones)
-
-  boostRibbon.geometry.dispose()
-  boostRibbon.geometry = createBoostRibbonGeometry(terrain.points, terrain.damageZones)
-
-  boostLine.geometry.dispose()
-  boostLine.geometry = createBoostLineGeometry(terrain.points, terrain.damageZones)
-
-  boostMarkers.geometry.dispose()
-  boostMarkers.geometry = createBoostMarkerGeometry(terrain.points, terrain.damageZones)
 }
 
 function createTerrainBodyShapes(terrain) {
@@ -451,155 +364,6 @@ function createRidgeGeometry(points, zones) {
     )
   }
   return new THREE.BufferGeometry().setFromPoints(vertices)
-}
-
-function createBoostLineGeometry(points, zones) {
-  const merged = mergeDamageZones({ damageZones: zones, bounds: { left: -Infinity, right: Infinity } })
-  const thresholdY = getBoostHeightThreshold(points)
-  const endStartX = points[points.length - 1].x - BOOST_END_ZONE_PX
-  const vertices = []
-  let dashCooldown = 0
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i]
-    const b = points[i + 1]
-    const dx = b.x - a.x
-    if (dx <= 0) continue
-    dashCooldown -= dx
-
-    const midX = (a.x + b.x) / 2
-    if (merged.some((zone) => midX >= zone.left && midX <= zone.right)) continue
-
-    const slope = (b.y - a.y) / dx
-    const midY = (a.y + b.y) / 2
-    const isUphillBoost = slope >= BOOST_SLOPE_MIN && midY >= thresholdY
-    const isEndBoost = midX >= endStartX
-    if ((!isUphillBoost && !isEndBoost) || dashCooldown > 0) continue
-
-    const angle = Math.atan2(b.y - a.y, dx)
-    const along = new THREE.Vector2(Math.cos(angle), Math.sin(angle))
-    const normal = new THREE.Vector2(-along.y, along.x)
-    const center = new THREE.Vector2(midX, midY).addScaledVector(normal, isEndBoost && !isUphillBoost ? 5.2 : 6.4)
-    const half = Math.min(isEndBoost && !isUphillBoost ? 13 : 17, dx * 0.42)
-    const start = center.clone().addScaledVector(along, -half)
-    const end = center.clone().addScaledVector(along, half)
-    vertices.push(
-      new THREE.Vector3(start.x, start.y, 0),
-      new THREE.Vector3(end.x, end.y, 0),
-    )
-    dashCooldown = 28
-  }
-
-  return new THREE.BufferGeometry().setFromPoints(vertices)
-}
-
-function createBoostRibbonGeometry(points, zones) {
-  const merged = mergeDamageZones({ damageZones: zones, bounds: { left: -Infinity, right: Infinity } })
-  const thresholdY = getBoostHeightThreshold(points)
-  const endStartX = points[points.length - 1].x - BOOST_END_ZONE_PX
-  const positions = []
-  const indices = []
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i]
-    const b = points[i + 1]
-    const dx = b.x - a.x
-    if (dx <= 0) continue
-
-    const midX = (a.x + b.x) / 2
-    if (merged.some((zone) => midX >= zone.left && midX <= zone.right)) continue
-
-    const slope = (b.y - a.y) / dx
-    const midY = (a.y + b.y) / 2
-    const isUphillBoost = slope >= BOOST_SLOPE_MIN && midY >= thresholdY
-    const isEndBoost = midX >= endStartX
-    if (!isUphillBoost && !isEndBoost) continue
-
-    const base = positions.length / 3
-    const insetA = getBoostBandInset(points, i)
-    const insetB = getBoostBandInset(points, i + 1)
-    positions.push(
-      a.x, a.y + 1.2, 0,
-      b.x, b.y + 1.2, 0,
-      b.x, b.y - insetB, 0,
-      a.x, a.y - insetA, 0,
-    )
-    indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setIndex(indices)
-  return geometry
-}
-
-function createBoostMarkerGeometry(points, zones) {
-  const merged = mergeDamageZones({ damageZones: zones, bounds: { left: -Infinity, right: Infinity } })
-  const thresholdY = getBoostHeightThreshold(points)
-  const endStartX = points[points.length - 1].x - BOOST_END_ZONE_PX
-  const positions = []
-  const indices = []
-  let markerCooldown = 0
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i]
-    const b = points[i + 1]
-    const dx = b.x - a.x
-    if (dx <= 0) continue
-    markerCooldown -= dx
-
-    const midX = (a.x + b.x) / 2
-    if (merged.some((zone) => midX >= zone.left && midX <= zone.right)) continue
-
-    const slope = (b.y - a.y) / dx
-    const midY = (a.y + b.y) / 2
-    const isUphillBoost = slope >= BOOST_SLOPE_MIN && midY >= thresholdY
-    const isEndBoost = midX >= endStartX
-    if ((!isUphillBoost && !isEndBoost) || markerCooldown > 0) continue
-
-    const angle = Math.atan2(b.y - a.y, dx)
-    const along = new THREE.Vector2(Math.cos(angle), Math.sin(angle))
-    const normal = new THREE.Vector2(-along.y, along.x)
-    const center = new THREE.Vector2(midX, midY).addScaledVector(normal, 13)
-    const size = isEndBoost && !isUphillBoost ? 8 : 9.5
-    const tip = center.clone().addScaledVector(along, size * 0.95)
-    const back = center.clone().addScaledVector(along, -size * 0.65)
-    const wingA = back.clone().addScaledVector(normal, size * 0.45)
-    const wingB = back.clone().addScaledVector(normal, -size * 0.45)
-    const base = positions.length / 3
-    positions.push(
-      tip.x, tip.y, 0,
-      wingA.x, wingA.y, 0,
-      center.x, center.y, 0,
-      tip.x, tip.y, 0,
-      center.x, center.y, 0,
-      wingB.x, wingB.y, 0,
-    )
-    indices.push(base, base + 1, base + 2, base + 3, base + 4, base + 5)
-    markerCooldown = isEndBoost ? 32 : 42
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setIndex(indices)
-  return geometry
-}
-
-function getBoostBandInset(points, index) {
-  const prev = points[Math.max(0, index - 1)]
-  const next = points[Math.min(points.length - 1, index + 1)]
-  const localSlope = Math.abs((next.y - prev.y) / Math.max(1, next.x - prev.x))
-  return THREE.MathUtils.clamp(6 + localSlope * 7, 6, 12)
-}
-
-function getBoostHeightThreshold(points) {
-  let minY = Infinity
-  let maxY = -Infinity
-  for (const p of points) {
-    minY = Math.min(minY, p.y)
-    maxY = Math.max(maxY, p.y)
-  }
-  return THREE.MathUtils.lerp(minY, maxY, BOOST_TOP_RATIO)
 }
 
 function mergeDamageZones(terrain) {
@@ -832,9 +596,9 @@ function createDamageMark(radius, depth) {
 
 // shape sequence for procedural islands
 const SHAPE_SEQUENCE = [
-  'bowl', 'plateau', 'wave', 'ramp',
-  'dip', 'crest', 'double', 'saddle',
-  'plateau', 'bowl', 'crest', 'wave',
+  'hill', 'valley', 'bowl', 'slope',
+  'bowl', 'hill', 'valley', 'slope',
+  'hill', 'bowl', 'valley', 'hill',
 ]
 
 /**
@@ -847,42 +611,35 @@ const SHAPE_SEQUENCE = [
 export function generateNextIslandSpec(lastIsland, index) {
   const progress = Math.min(1, index / 70)
 
-  const w = Math.round(THREE.MathUtils.lerp(320, 480, Math.random()) + Math.sin(index * 1.37) * 20)
+  // Wider islands with more pronounced depth — Tiny Wings feel
+  const w = Math.round(THREE.MathUtils.lerp(420, 620, Math.random()) + Math.sin(index * 1.37) * 30)
+  const depth = Math.round(THREE.MathUtils.lerp(50, 110, Math.random()) + progress * 20)
+  const rimH  = Math.round(THREE.MathUtils.lerp(20, 50, Math.random()) + progress * 10)
 
-  const depth = Math.round(THREE.MathUtils.lerp(24, 52, Math.random()) + progress * 10)
-
-  const rimH = Math.round(THREE.MathUtils.lerp(14, 32, Math.random()) + progress * 6)
-
-  // Horizontal gap
-  const minGap = THREE.MathUtils.lerp(12, 18, progress)
-  const maxGap = THREE.MathUtils.lerp(28, 48, progress)
+  // Tighter gaps so the ball can carry momentum between islands
+  const minGap = THREE.MathUtils.lerp(8, 14, progress)
+  const maxGap = THREE.MathUtils.lerp(20, 40, progress)
   const gap = Math.round(THREE.MathUtils.lerp(minGap, maxGap, Math.random()))
 
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
-  // Vertical placement — stronger upward bias so islands climb consistently
-  const lowAltitude = lastIsland.bowlFloor < 1400
+  // Vertical placement: gentle upward climb with occasional small drops
   const verticalRange = THREE.MathUtils.lerp(
-    VIEWPORT_SAFE_HEIGHT * (lowAltitude ? 0.10 : 0.14),
-    VIEWPORT_SAFE_HEIGHT * 0.20,
+    VIEWPORT_SAFE_HEIGHT * 0.12,
+    VIEWPORT_SAFE_HEIGHT * 0.22,
     progress,
   )
-  const downRatio = lowAltitude ? 0.12 : 0.30
-  const verticalJitter = THREE.MathUtils.lerp(-verticalRange * downRatio, verticalRange, Math.random())
-  const seaShelfDrop = lastIsland.bowlFloor >= 1200 && index % 9 === 0
-    ? THREE.MathUtils.lerp(50, 100, Math.random())
-    : 0
-  // Stronger upward bias — keeps the path climbing even with jitter
-  const climbBias = THREE.MathUtils.lerp(lowAltitude ? 140 : 100, 140, progress)
-  const newY = Math.max(-300, lastIsland.bowlFloor + verticalJitter + climbBias - seaShelfDrop)
+  const verticalJitter = THREE.MathUtils.lerp(-verticalRange * 0.25, verticalRange, Math.random())
+  const climbBias = THREE.MathUtils.lerp(80, 120, progress)
+  const newY = Math.max(-300, lastIsland.bowlFloor + verticalJitter + climbBias)
   const biome = getBiomeForY(newY)
 
-  let shapeType = SHAPE_SEQUENCE[(index + Math.floor(Math.random() * 3)) % SHAPE_SEQUENCE.length]
+  let shapeType = SHAPE_SEQUENCE[(index + Math.floor(Math.random() * 2)) % SHAPE_SEQUENCE.length]
   if (biome === 'cloud') {
-    shapeType = ['plateau', 'bowl', 'wave', 'double'][index % 4]
+    shapeType = ['valley', 'bowl', 'hill', 'bowl'][index % 4]
   } else if (biome === 'meteor') {
-    shapeType = ['crest', 'saddle', 'dip', 'wave'][index % 4]
+    shapeType = ['hill', 'valley', 'slope', 'bowl'][index % 4]
   }
 
   return { x: newX, y: newY, w, depth, rimH, shapeType, biome }

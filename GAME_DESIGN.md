@@ -1,202 +1,302 @@
-# Armadillo Rush — Current Design Notes
+# Armadillo Rush — Game Design Document
 
-Last updated: 2026-06-08
+Last updated: 2026-06-09
 
 ## Core Pitch
 
-Armadillo Rush is a 2D arcade physics game about launching a curled armadillo from a slingshot, rolling across rounded terrain, and climbing from the sea to the moon.
+Armadillo Rush is a 2D arcade physics game about launching a curled armadillo from a slingshot, rolling across floating terrain, and climbing from the sea to the moon.
 
-The main skill is not repeated tapping. The player must identify the upper uphill boost zone and press at the right moment.
+The core skill is hold-and-release timing: hold input to accelerate on terrain, release to jump. In the air, holding input spins the armadillo. Spin momentum carries into the next landing and becomes ground speed.
 
 ## Player Loop
 
-1. Drag the slingshot pouch from the title screen.
-2. Release the pouch to launch.
-3. Fly, land, and roll along terrain.
-4. Press the bottom `BOOST` button, click/tap, or press `Space` only on valid upper uphill boost zones.
-5. Keep enough speed to cross gaps and climb.
-6. Splash into the sea for game over, or reach moon altitude to clear.
+1. Enter a nickname (persisted for leaderboard).
+2. Drag the slingshot pouch from the title screen.
+3. Release the pouch to launch.
+4. Fly and land on terrain.
+5. Hold Space / tap → accelerate while rolling.
+6. Release → jump. Spin energy converts to jump force.
+7. In the air, hold to spin continuously.
+8. Land on the next island; momentum carries forward.
+9. Fall into the sea → lose one life (3 total); respawn ahead.
+10. Reach moon altitude → run clear; score saved.
 
-## Controls
+## Input State Machine
 
-| Situation | Input | Result |
-| --- | --- | --- |
-| Title | Drag | Enter slingshot mode and aim |
-| Game over | Click / Retry button / Space | Enter slingshot mode |
-| Slingshot mode | Drag and release | Launch |
-| Slingshot mode | Space | Does not launch |
-| Rolling | Click / tap / `BOOST` button / Space | Jump; boost only if zone is valid |
-| Flying / falling | Click / Space | No direct speed gain |
+Input has exactly two states: **held** and **released**.
 
-## Boost Rule
+### Hold begins (pointerdown / Space keydown)
 
-Boost is granted only when all conditions are true:
+| Game state | Effect |
+| --- | --- |
+| TITLE / GAMEOVER | Enter SLINGING mode |
+| SLINGING | Begin sling drag |
+| ROLLING | `boostHeld = true` — acceleration begins immediately |
+| FLYING / FALLING | `boostHeld = true` — spin begins |
 
-- Input source is player action: pointer, `BOOST` button, or keyboard.
-- The armadillo is rolling on terrain.
-- The terrain slope is uphill.
-- The contact point is in the upper portion of that terrain.
+### While held
 
-No-input rolling, flat jumps, edge auto-launch, terrain tunneling, and ordinary uphill rolling do not add speed.
+| Game state | Effect |
+| --- | --- |
+| ROLLING | `speedRatio += (BOOST_ACCEL_PER_SEC - ROLLING_FRICTION_PER_SEC) × dt` |
+| FLYING / FALLING | Armadillo spins clockwise; spin rate tracks velocity magnitude |
 
-## Boost Visualization
+The armadillo never accelerates when `boostHeld` is false. No passive slope effects.
 
-The boost zone should feel like part of the terrain, not a UI sticker.
+### Hold ends (pointerup / Space keyup)
 
-Current style:
+| Game state | Effect |
+| --- | --- |
+| ROLLING | `boostHeld = false`, `_launchFromIsland` fires — **jump** |
+| ROLLING near right edge | Edge bonus applies — extra upward kick and speed boost |
+| FLYING / FALLING | `boostHeld = false`, spin decays, **no air jump** |
+| FALLING (within 120ms grace) | `_launchFromFallingEdge` fires — edge-fall bonus jump |
+| SLINGING | Fires launch if sling pull is sufficient |
 
-- brighter biome-matched surface sheen
-- high-contrast ridge strokes following the terrain tangent
-- only shown on valid upper uphill segments
+Releasing input while airborne (past the 120ms grace window) never triggers a jump.
 
-## Slingshot Design
+### Hold cancelled (pointercancel / blur / visibilitychange)
 
-The slingshot is inspired by arcade slingshots such as Angry Birds:
+All hold state clears immediately. No jump fires.
 
-- thick rounded wooden Y frame
-- dark rubber bands
-- leather pouch
-- visible wood knots and highlights
-- drag-only launch
-- dotted trajectory preview while dragging
+### Landing while held
 
-## Armadillo Visual Design
+If `boostHeld` is true at the moment of landing, acceleration starts immediately. The game reads `pointerIsDown` and `spaceIsDown` directly at landing time to reconstruct `boostHeld` atomically — this avoids race conditions from event ordering.
 
-The player character may read as a compact rolling ball during high-speed play, but the armadillo identity must be visible before launch.
+## Speed System
 
-Current approach:
+Speed is tracked as `speedRatio` ∈ [0, 1.8].
 
-- title screen portrait shows a curled armadillo form
-- in-game object is a curled ball hybrid
-- shell bands, small head, snout, ear, tail, and feet provide identity
-- color flashes/tints show impact, boost, and special states without replacing the silhouette
+- **Hold on terrain**: `speedRatio += BOOST_ACCEL_PER_SEC × dt - ROLLING_FRICTION_PER_SEC × dt`
+- **No input on terrain**: `speedRatio -= ROLLING_FRICTION_PER_SEC × dt` (decelerates to zero)
+- **Jump release**: `speedRatio += BOOST_RELEASE_SPEED_KICK`; launch gets `BOOST_RELEASE_VERTICAL_KICK` added to vy
+- **Landing speed**: derived from max(horizontal speed, spinAngleVel × armadilloRadius × 0.75)
+- **Terrain destruction hit**: `speedRatio += 0.25` per hit (capped at BOOST_SPEED_LIMIT)
+
+Actual velocity = `speedRatio × MAX_SPEED` in the rolling direction.
+
+## Spin System
+
+Spin is stored in `spinAngleVel` (rad/s, positive = clockwise). It persists across all state transitions.
+
+**In the air (held):**
+```
+targetSpin = max(18, velocity.length / armadilloRadius)
+spinAngleVel = lerp(spinAngleVel, targetSpin, min(1, dt × 8))
+```
+
+**In the air (not held):**
+```
+spinAngleVel *= pow(0.18, dt)   // fast decay
+```
+
+**On ground:**
+```
+contactSpin = speedRatio × MAX_SPEED / armadilloRadius
+spinTarget  = boostHeld ? max(contactSpin, 10 + speedRatio × 18) : contactSpin
+spinAngleVel = lerp(spinAngleVel, spinTarget, min(1, dt × 14))
+```
+
+**At landing:**
+```
+speedFromH    = horizontalSpeed / MAX_SPEED
+speedFromSpin = spinAngleVel × armadilloRadius / MAX_SPEED
+landedSpeedRatio = min(BOOST_SPEED_LIMIT, max(speedFromH, speedFromSpin × 0.75))
+spinAngleVel = landedSpeedRatio × MAX_SPEED / armadilloRadius
+```
+
+## Jump System
+
+### Normal island release (`_launchFromIsland`)
+
+1. `_getExitLaunchAngle(island)` — reads slope at current x, clamps result to [40°, 58°].
+2. `launchSpeed = min(LAUNCH_SPEED, horizontalSpeed / max(cos(angle), 0.35))`
+3. `vy = sin(angle) × launchSpeed + BOOST_RELEASE_VERTICAL_KICK`
+4. `speedRatio += BOOST_RELEASE_SPEED_KICK`
+
+### Edge-fall grace jump (`_launchFromFallingEdge`)
+
+Fires within 120ms of falling off the right edge:
+- Fixed 40° launch angle.
+- Same vertical kick and speed bonus as normal release.
 
 ## Terrain System
 
-Terrain is made of smooth rounded floating islands. Each run randomizes terrain positions and shapes while avoiding overlaps.
+Islands are procedurally generated with four shape types:
 
-Shape vocabulary:
+| Shape | Profile |
+| --- | --- |
+| hill | low entry → valley → crest → low exit |
+| valley | high entry → deep drop → high exit |
+| slope | low left → steady ascending ramp |
+| bowl | symmetric U (high rims, low center) |
 
-- bowl
-- ramp
-- plateau
-- dip
-- double
-- crest
-- saddle
-- wave
+### Top-surface collision
 
-Design requirements:
+Only the top surface of terrain counts as valid ground. The right edge boundary (`bounds.right`) is enforced in both `_findGroundedIsland` and `_findLandingIsland` — x positions past the right edge are rejected, preventing wall-riding on vertical side faces.
 
-- dense enough that the player does not fall too easily
-- varied vertically and horizontally
-- no overlapping terrain edges that can trap the armadillo
-- rounded corners and smooth tops
-- destructible soft dirt early in the run
+### Bounds structure
+
+```js
+bounds: {
+  left:     number,  // leftmost x of terrain chain
+  right:    number,  // rightmost x
+  top:      number,  // highest y point
+  bottom:   number,  // lowest y point
+  rampLeft: number,  // x where the ramp entry ends
+}
+```
+
+## Terrain Destruction
+
+Destruction is fully self-contained in `_tryDestroyTerrain`. When it fires, Planck physics is skipped entirely for that frame — no bounce-back is possible.
+
+### Trigger
+
+- Entry speed ≥ `UNDER_BREAK_SPEED × 0.55` (~176 px/s).
+- Ball trajectory (swept from prevPos to nextPos) intersects un-damaged terrain top surface.
+- Ball is not moving nearly-straight-down at low speed (prevents destruction from normal landing descent).
+
+### Execution
+
+1. Sweep trajectory in steps; collect all hit (island, x) pairs.
+2. For each hit: compute damage profile from speed; call `damageTerrain(island, x, radius, depth)`.
+3. Rebuild Planck fixtures for touched islands.
+4. Advance armadillo to exit position (above the newly damaged zone).
+5. Exit speed ≥ entry speed (slight boost: `max(speed, speed × 1.05 + 60)`).
+6. `speedRatio += 0.25` (capped at `BOOST_SPEED_LIMIT`).
+7. Dirt particles at each impact point.
+
+### Damage profiles
+
+| Speed range | Profile |
+| --- | --- |
+| < UNDER_BREAK_SPEED (soft break) | Small radius, shallow depth |
+| UNDER_BREAK_SPEED → DAMAGE_SPEED_FULL | Interpolated |
+| ≥ DAMAGE_SPEED_FULL (700 px/s) | Full radius and depth |
 
 ## Biomes
 
-| Biome | Altitude Role | Gameplay |
-| --- | --- | --- |
-| Earth | Early game | Rounded dirt/grass terrain, destructible soil |
-| Cloud | Mid game | Springy bounce terrain |
-| Meteor | Space | Rock terrain with reduced gravity |
+| Biome | Altitude | Terrain | Special |
+| --- | --- | --- | --- |
+| Earth | Low | Rounded dirt/grass | Destructible soft soil |
+| Cloud | Mid | Fluffy white | Speed bonus on landing |
+| Meteor | High | Rocky | Reduced gravity |
 
-## Sea And Failure
+## Sea And Lives
 
-The sea is a visible world layer. When the armadillo touches it:
+The player has 3 lives shown as pixel hearts.
 
+When the armadillo hits the sea:
 1. Splash particles and ripples trigger.
-2. The armadillo disappears quickly.
-3. The result modal appears shortly after.
+2. One life is lost.
+3. If lives remain → respawn slightly left of the nearest forward island with a forward speed bonus.
+4. If all lives are gone → result modal appears.
 
-This keeps the fail feedback readable without making the player wait through a long sinking animation.
+## Scoreboard
 
-## Physics
+### Score calculation
 
-- Rolling is controlled by `speedRatio` and terrain slope.
-- Uphill applies resistance unless a valid player boost is triggered.
-- Flying/falling uses Planck.js.
-- Space altitude lowers gravity.
-- Cloud terrain applies a spring bounce.
-- Terrain destruction is allowed regardless of speed, with softer early dirt damage.
+Accumulated through the run:
+- Height bonus: scored continuously above sea level.
+- Distance bonus: scored per pixel traveled right.
+- Event bonuses: EDGE jump, MOON clear.
 
-## UI
+### Local storage
 
-Required visible UI:
+`submitScore` saves entries to `localStorage` key `armadillo-rush-scores` (max 100 entries, trimmed by score descending). Entries are ranked on read, not on write.
 
-- HUD stats
-- top-right pause/restart controls
-- bottom-center circular `BOOST` button during active play
-- `BOOST` button press animation for pointer and Space input
-- title portrait and launch instructions
-- result modal for splash or moon clear
+### Player name
+
+Stored under `armadillo-rush-player-name`. Prompted on first launch; pre-filled on subsequent runs. Max 16 characters.
+
+### Backend extension point
+
+`_syncRemote(entry)` in `src/game/scoreboard.js` is the only change needed to add online sync:
+
+```js
+async function _syncRemote(entry) {
+  return fetch('/api/scores', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).then(r => r.json())
+}
+```
+
+`submitScore` and `fetchLeaderboard` are already async — no callers need updating.
+
+## Physics Parameters
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| MAX_SPEED | 1100 px/s | Rolling velocity ceiling |
+| BOOST_ACCEL_PER_SEC | 1.2 (ratio/s) | Hold acceleration rate |
+| BOOST_SPEED_LIMIT | 1.8 | speedRatio ceiling |
+| BOOST_RELEASE_SPEED_KICK | 0.35 | Jump speed bonus |
+| BOOST_RELEASE_VERTICAL_KICK | 920 px/s | Extra vy on jump |
+| ROLLING_FRICTION_PER_SEC | 0.18 (ratio/s) | Deceleration without hold |
+| EXIT_LAUNCH_MIN_ANGLE | 40° | Jump angle floor |
+| EXIT_LAUNCH_MAX_ANGLE | 58° | Jump angle ceiling |
+| UNDER_BREAK_SPEED | 320 px/s | Soft-break threshold |
+| DAMAGE_SPEED_FULL | 700 px/s | Full-damage threshold |
 
 ## Rendering
 
-Core rendering features:
-
-- Three.js orthographic side view
-- procedural sky transition from sea-level blue to clouds to space
-- visible sea layer and foam
-- moon target visuals
-- particle effects
-- post-processing: bloom, chromatic aberration, vignette
+- Three.js `WebGLRenderer` with `OrthographicCamera`.
+- Fixed-timestep accumulator game loop (1/60 s) with position interpolation.
+- Procedural sky shader (sea blue → cloud white → space black).
+- Bloom, chromatic aberration, vignette via `postprocessing`.
+- Instanced particles (dirt, burst, flame, rating text, splash).
 
 ## Implementation Map
 
 ```text
 src/main.js
-  Game state, input, slingshot, armadillo, sea, camera, UI
+  Game state machine, input (_beginHold / _endHold / _cancelHold),
+  slingshot drag, armadillo physics, rolling, flight, terrain destruction
+  (_tryDestroyTerrain), sea bounce, camera follow, HUD (_renderHud),
+  scoreboard wiring (_submitRunScore, _openLeaderboard, _confirmName)
 
 src/game/terrain.js
-  Terrain shape generation, biomes, destruction, boost visuals
+  Shape generation (hill/valley/slope/bowl), biome config,
+  damage system (damageTerrain, isTerrainDamagedAt, getTerrainTopY)
 
 src/game/physics.js
-  Planck.js world, terrain fixtures, gravity
+  Planck.js world, ChainShape terrain fixtures, bullet CCD,
+  gravity scaling by altitude
 
 src/game/particles.js
-  Burst, dirt, rating, flame, splash particles
+  Instanced geometry particle system (dirt, burst, flame, splash, rating)
+
+src/game/scoreboard.js
+  Local-first leaderboard, submitScore, fetchLeaderboard,
+  getSavedPlayerName / savePlayerName, backend stub
 
 src/renderer/
-  WebGL scene, background, post effects
+  WebGL scene, sky/background, post effects
 
 src/ui.css
-  HUD, title portrait, boost button, modals
+  HUD, title screen, game-over modal, pause menu, boost button,
+  pixel heart lives, leaderboard overlay, name-prompt overlay
 ```
 
 ## Current Status
 
 Implemented:
-
-- drag-only slingshot launch
-- wooden arcade slingshot visual
-- curled armadillo identity
-- random dense terrain generation
-- terrain overlap avoidance
-- terrain destruction
-- sea splash failure
-- cloud and meteor biomes
-- reduced space gravity
-- bottom-center boost button
-- Space-linked button press feedback
-- natural terrain-integrated boost-zone visuals
-- moon clear state
-- terrain stress validation script
-
-Known tuning areas:
-
-- boost-zone color intensity after more playtesting
-- exact terrain density and gap difficulty
-- slingshot framing on small screens
-- armadillo readability at very high speed
-
-## Verification
-
-Recommended checks before handing off a build:
-
-```bash
-npm run verify
-```
-
-`stress:terrain` validates dense random terrain generation across earth, cloud, and meteor biomes.
+- Drag-only slingshot launch with trajectory preview
+- Wooden arcade slingshot visual (Y-shape, knots, rubber bands)
+- Curled armadillo with spin identity
+- Procedural terrain (hill/valley/slope/bowl) with biomes
+- Terrain destruction (continuous, bounce-back-free, Planck-bypassing)
+- Sea splash failure with 3-life bounce system
+- Cloud speed bonus and meteor reduced gravity
+- Bottom-center BOOST button with Space feedback
+- Moon-clear state
+- `spinAngleVel` unified spin system — persists across all transitions
+- Edge-fall grace jump (120ms window after falling off right edge)
+- Jump angle clamped to 40–58° range
+- Top-surface-only collision — right wall no longer walkable
+- Atomic boostHeld reconstruction at landing — smooth hold-through-landing
+- Local-first leaderboard with player name input
+- GitHub-ready project structure with clean docs
