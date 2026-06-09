@@ -1820,20 +1820,35 @@ class Game {
   }
 
   _buildItems() {
-    // Remove old items from scene
-    for (const item of this.items ?? []) {
-      this.renderer.remove(item.mesh)
-    }
+    for (const item of this.items ?? []) this.renderer.remove(item.mesh)
     this.items = []
 
-    // Static layout items
     for (const entry of ITEM_SPAWN_TABLE) {
       const island = this.islands[entry.islandIndex]
       if (!island) continue
-      const wx = island.bowlCenter + entry.offsetX
+
+      // Randomize x-offset within the island's safe interior (±60 px, clamped)
+      const xJitter = (Math.random() - 0.5) * 120
+      const islandHalfW = (island.bounds.right - island.bounds.left) * 0.38
+      const clampedOffsetX = THREE.MathUtils.clamp(
+        entry.offsetX + xJitter,
+        -islandHalfW, islandHalfW,
+      )
+
+      // Occasionally swap Spring↔Rocket within the same section (~30% chance)
+      // Hearts are never swapped — they're fixed milestone rewards.
+      let type = entry.type
+      if (type !== 'heart' && Math.random() < 0.30) {
+        type = type === 'rocket' ? 'spring' : 'rocket'
+      }
+
+      // Small y-offset jitter so items aren't all at identical heights
+      const yJitter = Math.random() * 16
+
+      const wx = island.bowlCenter + clampedOffsetX
       const terrainY = getTerrainTopY(island, wx)
-      const wy = terrainY + entry.offsetY
-      const item = createItem(entry.type, wx, wy)
+      const wy = terrainY + entry.offsetY + yJitter
+      const item = createItem(type, wx, wy)
       this.renderer.add(item.mesh)
       this.items.push(item)
     }
@@ -1843,10 +1858,19 @@ class Game {
   _trySpawnItemForIsland(island, islandIndex) {
     const spec = getProceduralItemSpec(islandIndex)
     if (!spec) return
-    const wx = island.bowlCenter + spec.offsetX
+
+    // Jitter position and occasionally swap non-heart types
+    const xJitter = (Math.random() - 0.5) * 80
+    const islandHalfW = (island.bounds.right - island.bounds.left) * 0.38
+    const clampedOffsetX = THREE.MathUtils.clamp(spec.offsetX + xJitter, -islandHalfW, islandHalfW)
+    let type = spec.type
+    if (type !== 'heart' && Math.random() < 0.25) {
+      type = type === 'rocket' ? 'spring' : 'rocket'
+    }
+    const wx = island.bowlCenter + clampedOffsetX
     const terrainY = getTerrainTopY(island, wx)
-    const wy = terrainY + spec.offsetY
-    const item = createItem(spec.type, wx, wy)
+    const wy = terrainY + spec.offsetY + Math.random() * 14
+    const item = createItem(type, wx, wy)
     this.renderer.add(item.mesh)
     this.items.push(item)
   }
@@ -1924,8 +1948,13 @@ class Game {
       : launchSpeed
     const springVyBonus = hasSpring ? SPRING_VY_BONUS : 0
     const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
-    const vx = hasSpring ? vxRaw * SPRING_VX_MULT : vxRaw
-    const vy = Math.sin(effectiveAngle) * effectiveLaunchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + springVyBonus
+    const vxBoosted = hasSpring ? vxRaw * SPRING_VX_MULT : vxRaw
+    // Always exit moving rightward — a corner snap can produce zero or negative vx
+    const minVx = Math.max(horizontalSpeed * 0.4, 120)
+    const vx = Math.max(vxBoosted, minVx)
+    // Ensure vy is always upward — corner geometry can produce a downward normal
+    const vyRaw = Math.sin(effectiveAngle) * effectiveLaunchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + springVyBonus
+    const vy = Math.max(vyRaw, 200)
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -2042,10 +2071,23 @@ class Game {
   _getExitLaunchAngle(island) {
     if (!island) return THREE.MathUtils.degToRad(45)
 
-    // Base angle is 48°. Slope nudges it slightly but the clamp (40°–58°) keeps
-    // it clearly upward regardless of terrain angle at the release point.
-    const slopeAngle = getTerrainSlopeAngle(island, this.armadillo.position.x)
-    const slopeLift = THREE.MathUtils.clamp(slopeAngle, -0.2, 0.3) * 0.4
+    const ax = this.armadillo.position.x
+
+    // Near the right edge the terrain surface curves sharply downward or turns
+    // vertical (the side wall).  The slope sampler will return a near-vertical
+    // or negative angle there, which would send the ball sideways or downward.
+    // Override to a safe fixed angle for any position within two ball-widths of
+    // the right edge so the jump always escapes upward.
+    const distFromRight = island.bounds.right - ax
+    if (distFromRight < ARMADILLO_SIZE * 2) {
+      return THREE.MathUtils.degToRad(52)   // safe steep-ish upward angle
+    }
+
+    // Normal case: base 48°, terrain slope nudges it slightly.
+    // Only allow the slope to push the angle upward (positive slopeLift), never
+    // downward — a descending slope should not reduce the launch angle below 48°.
+    const slopeAngle = getTerrainSlopeAngle(island, ax)
+    const slopeLift = THREE.MathUtils.clamp(slopeAngle, 0, 0.3) * 0.4
     return THREE.MathUtils.clamp(
       THREE.MathUtils.degToRad(48) + slopeLift,
       EXIT_LAUNCH_MIN_ANGLE,
