@@ -1117,14 +1117,7 @@ class Game {
         { dx: 50, dy: 50, dw: 156, dh: 156 },
       )
 
-      const shadow = new THREE.Mesh(
-        new THREE.CircleGeometry(18, 40),
-        new THREE.MeshBasicMaterial({ color: 0x120b08, transparent: true, opacity: 0.24 }),
-      )
-      shadow.scale.set(1.18, 0.82, 1)
-      shadow.position.set(1, -1, 0.04)
-
-	      const sprite = new THREE.Mesh(
+      const sprite = new THREE.Mesh(
 	        new THREE.PlaneGeometry(54, 54),
 	        new THREE.MeshBasicMaterial({
 	          map: idleTexture,
@@ -1135,7 +1128,7 @@ class Game {
       sprite.position.z = 0.12
       sprite.renderOrder = 20
 
-      group.add(shadow, sprite)
+      group.add(sprite)
 	      this.armadilloBody = sprite
 	      this.armadilloShell = sprite
       this.armadilloSprite = sprite
@@ -1161,13 +1154,6 @@ class Game {
       opacity: 0.24,
       side: THREE.DoubleSide,
     })
-
-    const shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(18.6, 64),
-      new THREE.MeshBasicMaterial({ color: 0x21140f, transparent: true, opacity: 0.28 }),
-    )
-    shadow.scale.set(1.04, 0.92, 1)
-    shadow.position.set(0.8, -1.2, 0.045)
 
     const shell = new THREE.Mesh(new THREE.CircleGeometry(17, 64), shellMat)
     shell.scale.set(1, 1, 1)
@@ -2144,23 +2130,21 @@ class Game {
         if (y <= island.bounds.bottom) continue
 
         // ── Destruction direction gate ────────────────────────────────────
-        // Require meaningful forward (horizontal) momentum OR a fast-enough
-        // spin to act as a drill.  A straight-down fall must never destroy
-        // terrain; the armadillo should land normally instead.
+        // Destruction only fires when the armadillo is moving primarily
+        // forward (horizontally).  Spin adds power to an already-forward
+        // impact but can never substitute for horizontal movement.
         //
-        // Angle rule: horizontal component must be ≥ 55 % of total speed.
-        // cos(56°) ≈ 0.56, so this rejects anything steeper than ~56° from
-        // horizontal — covers nearly-vertical drops at any speed.
-        const hasForwardMomentum = Math.abs(incomingVelocity.x) >= speed * 0.55
-
-        // Spin rule: if the ball is spinning fast enough that rim tangential
-        // speed exceeds UNDER_BREAK_SPEED it can punch through terrain even
-        // on a steep approach (like a drill), but only if vx is still forward
-        // (positive) so it won't destroy terrain it's flying away from.
-        const rimSpeed = this.spinAngleVel * (ARMADILLO_SIZE / 2)
-        const hasDrillSpin = rimSpeed >= UNDER_BREAK_SPEED && incomingVelocity.x > 0
-
-        if (!hasForwardMomentum && !hasDrillSpin) continue
+        // Two hard requirements, BOTH must pass:
+        //
+        // 1. Forward direction: vx must be positive (moving right).
+        //    A ball moving left or stationary horizontally cannot destroy.
+        //
+        // 2. Shallow angle: horizontal component ≥ 70 % of total speed.
+        //    cos(45.6°) ≈ 0.70, so anything steeper than ~46° from
+        //    horizontal is rejected — including all steep descents and
+        //    near-vertical drops regardless of total speed or spin.
+        if (incomingVelocity.x <= 0) continue
+        if (incomingVelocity.x < speed * 0.70) continue
 
         const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
