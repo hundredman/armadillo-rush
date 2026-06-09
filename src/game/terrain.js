@@ -122,6 +122,48 @@ export const DEFAULT_ISLAND_LAYOUT = [
   { x:18440, y: 4840, w: 675, depth: 158, rimH: 68, shapeType: 'slope' },
   { x:18880, y: 4630, w: 660, depth: 154, rimH: 66, shapeType: 'bowl' },
   { x:19330, y: 5060, w: 680, depth: 160, rimH: 70, shapeType: 'hill' },
+
+  // ── Section 8: Upper cloud — broader platforms, gentler gaps for recovery ──
+  { x:19790, y: 4880, w: 700, depth: 155, rimH: 68, shapeType: 'slope' },
+  { x:20270, y: 5280, w: 720, depth: 162, rimH: 72, shapeType: 'bowl' },
+  { x:20760, y: 5060, w: 705, depth: 158, rimH: 70, shapeType: 'hill' },
+  { x:21260, y: 5490, w: 730, depth: 166, rimH: 74, shapeType: 'valley' },
+  { x:21770, y: 5260, w: 710, depth: 162, rimH: 71, shapeType: 'slope' },
+  { x:22290, y: 5680, w: 740, depth: 170, rimH: 76, shapeType: 'bowl' },
+  { x:22820, y: 5440, w: 720, depth: 165, rimH: 73, shapeType: 'hill' },
+  { x:23360, y: 5870, w: 745, depth: 172, rimH: 77, shapeType: 'valley' },
+  { x:23910, y: 5650, w: 730, depth: 168, rimH: 75, shapeType: 'slope' },
+  { x:24470, y: 6080, w: 755, depth: 175, rimH: 78, shapeType: 'hill' },
+  { x:25040, y: 5860, w: 740, depth: 172, rimH: 76, shapeType: 'bowl' },
+  { x:25620, y: 6310, w: 760, depth: 178, rimH: 80, shapeType: 'valley' },
+
+  // ── Section 9: Cloud–space transition — tall steps, wide platforms ──────────
+  { x:26210, y: 6090, w: 750, depth: 175, rimH: 78, shapeType: 'slope' },
+  { x:26810, y: 6560, w: 775, depth: 182, rimH: 82, shapeType: 'hill' },
+  { x:27420, y: 6320, w: 760, depth: 178, rimH: 80, shapeType: 'bowl' },
+  { x:28040, y: 6800, w: 785, depth: 186, rimH: 84, shapeType: 'valley' },
+  { x:28670, y: 6560, w: 770, depth: 182, rimH: 82, shapeType: 'slope' },
+  { x:29310, y: 7060, w: 795, depth: 190, rimH: 86, shapeType: 'hill' },
+  { x:29960, y: 6820, w: 780, depth: 185, rimH: 84, shapeType: 'bowl' },
+  { x:30620, y: 7340, w: 800, depth: 194, rimH: 88, shapeType: 'valley' },
+  { x:31290, y: 7100, w: 785, depth: 190, rimH: 86, shapeType: 'slope' },
+  { x:31970, y: 7640, w: 810, depth: 198, rimH: 90, shapeType: 'hill' },
+  { x:32660, y: 7400, w: 795, depth: 194, rimH: 88, shapeType: 'bowl' },
+  { x:33360, y: 7960, w: 820, depth: 202, rimH: 92, shapeType: 'valley' },
+  { x:34070, y: 7720, w: 805, depth: 198, rimH: 90, shapeType: 'slope' },
+  { x:34790, y: 8300, w: 830, depth: 206, rimH: 94, shapeType: 'hill' },
+  { x:35520, y: 8060, w: 815, depth: 202, rimH: 92, shapeType: 'bowl' },
+  { x:36260, y: 8660, w: 840, depth: 210, rimH: 96, shapeType: 'valley' },
+
+  // ── Section 10: Deep space approach — meteor-style, reduced gravity zone ───
+  { x:37010, y: 9200, w: 820, depth: 205, rimH: 94, shapeType: 'slope' },
+  { x:37770, y: 9820, w: 840, depth: 212, rimH: 97, shapeType: 'hill' },
+  { x:38540, y: 9560, w: 825, depth: 208, rimH: 95, shapeType: 'bowl' },
+  { x:39320, y:10180, w: 850, depth: 218, rimH: 99, shapeType: 'valley' },
+  { x:40110, y: 9920, w: 835, depth: 214, rimH: 97, shapeType: 'slope' },
+  { x:40910, y:10580, w: 860, depth: 222, rimH:102, shapeType: 'hill' },
+  { x:41720, y:10320, w: 845, depth: 218, rimH: 99, shapeType: 'bowl' },
+  { x:42540, y:11000, w: 870, depth: 228, rimH:104, shapeType: 'valley' },
 ]
 
 /**

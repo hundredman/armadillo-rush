@@ -1,6 +1,6 @@
 # Armadillo Rush — Game Design Document
 
-Last updated: 2026-06-09
+Last updated: 2026-06-09 (terrain expansion + item system)
 
 ## Core Pitch
 
@@ -119,6 +119,63 @@ spinAngleVel = landedSpeedRatio × MAX_SPEED / armadilloRadius
 Fires within 120ms of falling off the right edge:
 - Fixed 40° launch angle.
 - Same vertical kick and speed bonus as normal release.
+
+## Item System
+
+Three collectible item types float above terrain on a gentle bob animation. Items are placed in `src/game/items.js` via `ITEM_SPAWN_TABLE` (static layout entries) and `getProceduralItemSpec` (procedural islands).
+
+| Item | Visual | Effect | Duration |
+| --- | --- | --- | --- |
+| Booster ⚡ | Gold spinning diamond | +0.55 speedRatio on collect; BOOST_ACCEL_PER_SEC × 1.6 while active | 6s |
+| Jump ↑ | Cyan arrow | +420 px/s vy on next jump (consumed on use) | 8s |
+| Heart ♥ | Red heart | +1 life (max 3) | instant |
+
+### Collection
+
+`checkItemCollection` compares armadillo center against each uncollected item center with a 38 px radius. Collection is active during FLYING, FALLING, and ROLLING states only.
+
+### Effect application
+
+**Booster**: Applied immediately on collect; `activeBooster.timeLeft` counts down each frame. While active, `_updateRolling` multiplies `BOOST_ACCEL_PER_SEC` by `BOOSTER_ACCEL_MULT` (1.6). HUD shows a gold bar.
+
+**Jump**: `activeJump` is stored until the next jump fires (`_launchFromIsland`, `_launchFromFallingEdge`, or `_launchFromHillCrest`). Each of those adds `JUMP_VY_BONUS` (420 px/s) to vy and clears `activeJump` immediately. HUD shows a cyan bar.
+
+**Heart**: `this.lives = Math.min(3, this.lives + 1)`. No timer.
+
+### Placement philosophy
+
+- Boosters near flat runs, long slopes, and before wide gaps — reward momentum.
+- Jumps near hill crests and right edges — rescue low launches, encourage risk.
+- Hearts are rare (3 in static layout), placed after hard sections as milestones.
+
+### HUD indicators
+
+A small overlay left of the lives row shows active booster / jump bars with icon and remaining-duration fill. Bars update every frame via inline style.
+
+## Terrain Layout
+
+### Static layout (src/game/terrain.js `DEFAULT_ISLAND_LAYOUT`)
+
+105 hand-authored islands across 10 sections, from x≈240 to x≈42540:
+
+| Section | Islands | Theme |
+| --- | --- | --- |
+| 1 – Learning zone | 0–7 | Gentle shapes, soft-break soil, teaches mechanics |
+| 2 – Building momentum | 8–15 | Wider islands, more hills, softBreak enabled |
+| 3 – Speed zone | 16–23 | Tighter gaps, rewards fast runs |
+| 4 – Mid climb | 24–31 | Increasing height, more crests to ride |
+| 5 – Pre-cloud | 32–39 | Destructible terrain, big hills, softBreak |
+| 6 – Cloud entry | 40–47 | Wider platforms, valley chains |
+| 7 – High cloud | 48–64 | Big gaps, large hills, long runs |
+| 8 – Upper cloud | 65–76 | Broader platforms, gentler gaps for recovery |
+| 9 – Cloud–space transition | 77–92 | Tall steps, very wide platforms |
+| 10 – Deep space approach | 93–104 | Meteor-style, reduced gravity zone |
+
+Procedural generation continues from island 105 onward using `generateNextIslandSpec`.
+
+### Shape variety
+
+Each section intentionally mixes all four shapes (hill, valley, slope, bowl) with no two identical consecutive shapes. `softBreak` islands are concentrated in sections 1–2 and 5 to give beginners and mid-game players extra terrain to work with.
 
 ## Terrain System
 
@@ -269,6 +326,11 @@ src/game/physics.js
 src/game/particles.js
   Instanced geometry particle system (dirt, burst, flame, splash, rating)
 
+src/game/items.js
+  Item types (booster/jump/heart), ITEM_SPAWN_TABLE, mesh builders,
+  createItem, updateItems, checkItemCollection, markCollected,
+  getProceduralItemSpec
+
 src/game/scoreboard.js
   Local-first leaderboard, submitScore, fetchLeaderboard,
   getSavedPlayerName / savePlayerName, backend stub
@@ -278,7 +340,8 @@ src/renderer/
 
 src/ui.css
   HUD, title screen, game-over modal, pause menu, boost button,
-  pixel heart lives, leaderboard overlay, name-prompt overlay
+  pixel heart lives, leaderboard overlay, name-prompt overlay,
+  item effect bars (booster gold / jump cyan)
 ```
 
 ## Current Status
@@ -288,13 +351,16 @@ Implemented:
 - Wooden arcade slingshot visual (Y-shape, knots, rubber bands)
 - Curled armadillo with spin identity
 - Procedural terrain (hill/valley/slope/bowl) with biomes
+- 105-island hand-authored static layout + unlimited procedural continuation
 - Terrain destruction (continuous, bounce-back-free, Planck-bypassing)
 - Sea splash failure with 3-life bounce system
+- Item system: Booster ⚡, Jump ↑, Heart ♥ — collectible pickups with timed effects
 - Cloud speed bonus and meteor reduced gravity
 - Bottom-center BOOST button with Space feedback
 - Moon-clear state
 - `spinAngleVel` unified spin system — persists across all transitions
 - Edge-fall grace jump (120ms window after falling off right edge)
+- Hill-crest launch bonus — hill peaks act like an edge jump
 - Jump angle clamped to 40–58° range
 - Top-surface-only collision — right wall no longer walkable
 - Atomic boostHeld reconstruction at landing — smooth hold-through-landing

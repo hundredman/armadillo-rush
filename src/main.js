@@ -26,6 +26,21 @@ import {
   isTerrainDamagedAt,
 } from './game/terrain.js'
 import {
+  ITEM_SPAWN_TABLE,
+  ITEM_BOOSTER_DURATION,
+  ITEM_JUMP_DURATION,
+  ITEM_COLLECT_RADIUS,
+  BOOSTER_SPEED_BONUS,
+  BOOSTER_ACCEL_MULT,
+  JUMP_VY_BONUS,
+  JUMP_ANGLE_BONUS_DEG,
+  createItem,
+  getProceduralItemSpec,
+  updateItems,
+  checkItemCollection,
+  markCollected,
+} from './game/items.js'
+import {
   CAMERA_LERP,
   GRAVITY,
   MAX_SPEED,
@@ -178,6 +193,11 @@ class Game {
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
     this.audio = null
 
+    // Item system
+    this.items = []            // all spawned item objects
+    this.activeBooster = null  // { timeLeft } or null
+    this.activeJump = null     // { timeLeft } or null
+
     // landing ripple effect pool (max 4 simultaneous)
     this.ripples = []
     this._buildRipplePool()
@@ -225,12 +245,14 @@ class Game {
   _spawnNextIsland() {
     const last = this.islands[this.islands.length - 1]
     const spec = this._avoidTerrainOverlap(generateNextIslandSpec(last, this.islandIndex), last)
+    const idx = this.islandIndex
     this.islandIndex += 1
     const island = createCurvedTerrain(spec)
     this.renderer.add(island.mesh)
     this.islands.push(island)
     this.physics.addTerrain(island)
     this.maxHeightPx = Math.max(this.maxHeightPx, island.bounds.top + 240)
+    if (this.items) this._trySpawnItemForIsland(island, idx)
   }
 
   _avoidTerrainOverlap(spec, previousIsland) {
@@ -1673,6 +1695,8 @@ class Game {
     this.lives = 3
     this.doubleJumpUsed = false
     this.preBoostSource = null
+    this.activeBooster = null
+    this.activeJump = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1713,6 +1737,8 @@ class Game {
     this.lives = 3
     this.doubleJumpUsed = false
     this.preBoostSource = null
+    this.activeBooster = null
+    this.activeJump = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1752,6 +1778,40 @@ class Game {
     }
 
     this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
+
+    this._buildItems()
+  }
+
+  _buildItems() {
+    // Remove old items from scene
+    for (const item of this.items ?? []) {
+      this.renderer.remove(item.mesh)
+    }
+    this.items = []
+
+    // Static layout items
+    for (const entry of ITEM_SPAWN_TABLE) {
+      const island = this.islands[entry.islandIndex]
+      if (!island) continue
+      const wx = island.bowlCenter + entry.offsetX
+      const terrainY = getTerrainTopY(island, wx)
+      const wy = terrainY + entry.offsetY
+      const item = createItem(entry.type, wx, wy)
+      this.renderer.add(item.mesh)
+      this.items.push(item)
+    }
+  }
+
+  /** Spawn item for a procedurally generated island (if any). */
+  _trySpawnItemForIsland(island, islandIndex) {
+    const spec = getProceduralItemSpec(islandIndex)
+    if (!spec) return
+    const wx = island.bowlCenter + spec.offsetX
+    const terrainY = getTerrainTopY(island, wx)
+    const wy = terrainY + spec.offsetY
+    const item = createItem(spec.type, wx, wy)
+    this.renderer.add(item.mesh)
+    this.items.push(item)
   }
 
   _togglePause() {
@@ -1818,8 +1878,10 @@ class Game {
       LAUNCH_SPEED,
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
+    const jumpBonus = this.activeJump ? JUMP_VY_BONUS : 0
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength
+    const vy = Math.sin(launchAngle) * launchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + jumpBonus
+    if (this.activeJump) this.activeJump = null  // consume on use
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -1850,9 +1912,10 @@ class Game {
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
     const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
     const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
+    const jumpBonus = this.activeJump ? JUMP_VY_BONUS : 0
+    if (this.activeJump) this.activeJump = null
     const vx = Math.cos(launchAngle) * launchSpeed
-    // Always positive (upward) — Math.sin of a clamped upward angle + the vertical kick
-    const vy = Math.abs(Math.sin(launchAngle) * launchSpeed) + BOOST_RELEASE_VERTICAL_KICK
+    const vy = Math.abs(Math.sin(launchAngle) * launchSpeed) + BOOST_RELEASE_VERTICAL_KICK + jumpBonus
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
     this.physics.setArmadilloVelocity(vx, vy)
@@ -1879,9 +1942,10 @@ class Game {
     const horizontalSpeed = this.speedRatio * MAX_SPEED
     const launchSpeed   = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
     const vx            = Math.cos(launchAngle) * launchSpeed
-    // Vertical kick scales with speedRatio so fast runs get bigger air
     const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
-    const vy            = Math.abs(Math.sin(launchAngle) * launchSpeed) + crestKick
+    const jumpBonus     = this.activeJump ? JUMP_VY_BONUS : 0
+    if (this.activeJump) this.activeJump = null
+    const vy            = Math.abs(Math.sin(launchAngle) * launchSpeed) + crestKick + jumpBonus
 
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
@@ -1950,6 +2014,7 @@ class Game {
     }
     this._updateSplashGameOver(simDt)
     this._updateParticles(simDt)
+    this._updateItems(simDt)
     this._updateEffects(dt)
     this._tickSlingSnap(dt)
     this._updateScenery()
@@ -2429,13 +2494,14 @@ class Game {
 
     const bounds = this.currentIsland.bounds
     if (this.boostHeld) {
+      const accel = BOOST_ACCEL_PER_SEC * (this.activeBooster ? BOOSTER_ACCEL_MULT : 1)
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (BOOST_ACCEL_PER_SEC - ROLLING_FRICTION_PER_SEC) * dt,
+        this.speedRatio + (accel - ROLLING_FRICTION_PER_SEC) * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
-      this.lastRating = 'HOLD'
-      this._setArmadilloColor(0xffb74d)
+      this.lastRating = this.activeBooster ? 'BOOST!' : 'HOLD'
+      this._setArmadilloColor(this.activeBooster ? 0xffb300 : 0xffb74d)
     } else {
       // no input: friction only
       this.speedRatio = THREE.MathUtils.clamp(
@@ -2709,6 +2775,57 @@ class Game {
     )
   }
 
+  _updateItems(dt) {
+    updateItems(this.items, dt, this.time)
+
+    // Tick active effect timers
+    if (this.activeBooster) {
+      this.activeBooster.timeLeft -= dt
+      if (this.activeBooster.timeLeft <= 0) this.activeBooster = null
+    }
+    if (this.activeJump) {
+      this.activeJump.timeLeft -= dt
+      if (this.activeJump.timeLeft <= 0) this.activeJump = null
+    }
+
+    // Collection check — only during active flight/rolling, not while slinging or game over
+    const canCollect = this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)
+    if (!canCollect) return
+
+    const ax = this.armadillo.position.x
+    const ay = this.armadillo.position.y
+    const hit = checkItemCollection(this.items, ax, ay)
+    if (!hit) return
+
+    markCollected(hit)
+    this._applyItemEffect(hit)
+  }
+
+  _applyItemEffect(item) {
+    if (item.type === 'booster') {
+      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + BOOSTER_SPEED_BONUS)
+      this.activeBooster = { timeLeft: ITEM_BOOSTER_DURATION }
+      this.lastRating = 'BOOST!'
+      this._setArmadilloColor(0xffb300)
+      this._spawnParticles(item.x, item.y, 0xfff176, 18, 260)
+      this._playTone(660, 0.12, 0.08, 'triangle')
+    } else if (item.type === 'jump') {
+      this.activeJump = { timeLeft: ITEM_JUMP_DURATION }
+      this.lastRating = 'JUMP UP!'
+      this._setArmadilloColor(0x00e5ff)
+      this._spawnParticles(item.x, item.y, 0x80deea, 14, 220)
+      this._playTone(780, 0.10, 0.07, 'sine')
+    } else if (item.type === 'heart') {
+      this.lives = Math.min(3, this.lives + 1)
+      this.lastRating = 'HEART!'
+      this._setArmadilloColor(0xff1744)
+      this._spawnParticles(item.x, item.y, 0xff8a80, 20, 240)
+      this.flashTime = Math.max(this.flashTime, 0.08)
+      this._playTone(880, 0.14, 0.09, 'sine')
+      setTimeout(() => this._playTone(1100, 0.10, 0.08, 'sine'), 120)
+    }
+  }
+
   _clearParticles() {
     this.particleSystem.clear()
   }
@@ -2943,8 +3060,28 @@ class Game {
       ? `<div><span>RANK</span><strong>#${this.pendingScoreEntry.rank}</strong></div>`
       : ''
 
+    // ── Active item effect indicators ─────────────────────────────────────
+    const boosterPct = this.activeBooster
+      ? Math.ceil((this.activeBooster.timeLeft / ITEM_BOOSTER_DURATION) * 100)
+      : 0
+    const jumpPct = this.activeJump
+      ? Math.ceil((this.activeJump.timeLeft / ITEM_JUMP_DURATION) * 100)
+      : 0
+    const itemEffectsHTML = isGameActive && (this.activeBooster || this.activeJump) ? `
+      <div class="item-effects-hud">
+        ${this.activeBooster ? `<div class="item-effect item-effect-booster">
+          <span class="item-effect-icon">⚡</span>
+          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${boosterPct}%"></div></div>
+        </div>` : ''}
+        ${this.activeJump ? `<div class="item-effect item-effect-jump">
+          <span class="item-effect-icon">↑</span>
+          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${jumpPct}%"></div></div>
+        </div>` : ''}
+      </div>` : ''
+
     this.ui.innerHTML = `
       ${isGameActive ? `<div class="lives-hud">${heartsHTML}</div>` : ''}
+      ${itemEffectsHTML}
       <div class="hud-panel hud-stats">
         <div><span>STATE</span><strong>${phaseText}</strong></div>
         <div><span>SCORE</span><strong>${score}</strong></div>

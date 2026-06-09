@@ -681,3 +681,54 @@ button {
     font-size: 12px;
   }
 }
+
+/* ── Item effect HUD ──────────────────────────────────────────────────────── */
+.item-effects-hud {
+  position: fixed;
+  top: 56px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.item-effect {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 6px;
+  padding: 3px 7px 3px 5px;
+  backdrop-filter: blur(3px);
+}
+
+.item-effect-icon {
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+
+.item-effect-bar {
+  width: 54px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.item-effect-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+.item-effect-booster .item-effect-fill {
+  background: #ffb300;
+}
+
+.item-effect-jump .item-effect-fill {
+  background: #00e5ff;
+}

@@ -20,8 +20,22 @@ The player launches a curled armadillo from a wooden slingshot, lands on floatin
 6. **Hold** while airborne → continuous clockwise spin.
 7. Release in the air → spin slows; no air-jump fires.
 8. **Edge bonus**: releasing near the right edge of a terrain island gives an extra upward kick.
-9. Fall into the sea → lose one life (3 total). Each sea hit respawns you on the nearest island ahead.
-10. Reach moon altitude to clear the run.
+9. **Hill crest bonus**: crossing the peak of a hill at speed fires a bonus launch upward.
+10. **Collect items** floating above terrain to gain power-ups (see Items below).
+11. Fall into the sea → lose one life (3 total). Each sea hit respawns you on the nearest island ahead.
+12. Reach moon altitude to clear the run.
+
+## Items
+
+Three collectible pickups float above terrain islands:
+
+| Item | Icon | Effect |
+| --- | --- | --- |
+| **Booster** | ⚡ Gold diamond | Instant +speed; acceleration rate ×1.6 for 6 seconds |
+| **Jump** | ↑ Cyan arrow | Next jump gets a large extra upward kick (+420 px/s vy); consumed on use |
+| **Heart** | ♥ Red heart | Restore one life (max 3) |
+
+Items are placed near risky sections and recovery paths. Active Booster and Jump effects are shown as colored bars in the HUD top-left.
 
 ## Input Rules
 
@@ -122,13 +136,18 @@ npm run verify
 ```text
 src/
 ├── main.js               # Game loop, input, slingshot, rolling, flight,
-│                         #   terrain destruction, sea bounce, camera, UI, scoreboard HUD
+│                         #   terrain destruction, sea bounce, camera, UI, scoreboard HUD,
+│                         #   item collection + effects (_updateItems, _applyItemEffect)
 ├── state.js              # TITLE → SLINGING → FLYING → ROLLING/FALLING → GAMEOVER
 ├── config.js             # Shared tuning constants
-├── ui.css                # HUD, title, modal, boost button, hearts, leaderboard, name prompt
+├── ui.css                # HUD, title, modal, boost button, hearts, leaderboard,
+│                         #   name prompt, item effect bars
 ├── game/
 │   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
+│   │                     #   105-island static layout, procedural continuation,
 │   │                     #   destruction (damageTerrain, isTerrainDamagedAt, getTerrainTopY)
+│   ├── items.js          # Item types (Booster/Jump/Heart), spawn table, mesh builders,
+│   │                     #   collection check, animation, effect constants
 │   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
 │   ├── physics.js        # Planck.js world wrapper — terrain fixtures, gravity
 │   └── scoreboard.js     # Local-first leaderboard, player name storage, backend stub
