@@ -320,27 +320,27 @@ button {
 
 .lives-hud {
   position: fixed;
-  top: 14px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 6px;
+  gap: 5px;
   z-index: 20;
+  image-rendering: pixelated;
 }
 
-.heart {
-  font-size: 26px;
-  line-height: 1;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-  transition: transform 0.15s ease, opacity 0.2s ease;
+.heart-pixel {
+  display: block;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
 }
 
-.heart-full {
-  color: #ff4757;
+.heart-pixel.heart-full rect {
+  fill: #e8354a;
 }
 
-.heart-empty {
-  color: rgba(255, 255, 255, 0.2);
+.heart-pixel.heart-empty rect {
+  fill: rgba(255, 255, 255, 0.18);
 }
 
 .start-tip {

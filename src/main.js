@@ -74,11 +74,11 @@ const UNDER_BREAK_SPEED = 520
 const DAMAGE_SPEED_FULL = 940
 const UPHILL_BOOST_MIN_ANGLE = THREE.MathUtils.degToRad(4)
 const UPHILL_BOOST_FULL_ANGLE = THREE.MathUtils.degToRad(22)
-const BOOST_ACCEL_PER_SEC = 3.5
+const BOOST_ACCEL_PER_SEC = 5.0
 const BOOST_WEAK_RATIO = 0.55
-const BOOST_SPEED_LIMIT = 1.5
-const BOOST_RELEASE_SPEED_KICK = 0.45
-const BOOST_RELEASE_VERTICAL_KICK = 560
+const BOOST_SPEED_LIMIT = 1.8
+const BOOST_RELEASE_SPEED_KICK = 0.60
+const BOOST_RELEASE_VERTICAL_KICK = 700
 const UPHILL_BOOST_TOP_RATIO = 0.64
 const TERRAIN_END_BOOST_ZONE_PX = 72
 const SPACE_GRAVITY_RATIO = 0.28
@@ -1439,10 +1439,6 @@ class Game {
       return
     }
 
-    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this._tryDoubleJump()
-      return
-    }
   }
 
   _handlePointerMove(clientX, clientY) {
@@ -1582,9 +1578,6 @@ class Game {
       return
     }
 
-    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this._tryDoubleJump()
-    }
   }
 
   _syncMotionToArmadillo() {
@@ -2166,14 +2159,14 @@ class Game {
     let exitVx, exitVy
     if (burstedOut) {
       // snap velocity to travel direction and apply explosion multiplier
-      const burstSpeed = speed * 1.45 + 260
+      const burstSpeed = speed * 1.65 + 340
       exitVx = Math.cos(angle) * burstSpeed
       exitVy = Math.sin(angle) * burstSpeed
-      this.speedRatio = Math.min(this.speedRatio + 0.22, BOOST_SPEED_LIMIT)
+      this.speedRatio = Math.min(this.speedRatio + 0.30, BOOST_SPEED_LIMIT)
     } else {
       // still tunneling — small nudge, keep original direction
-      exitVx = incomingVelocity.x + Math.cos(angle) * speed * 0.10
-      exitVy = incomingVelocity.y + Math.sin(angle) * speed * 0.10
+      exitVx = incomingVelocity.x + Math.cos(angle) * speed * 0.12
+      exitVy = incomingVelocity.y + Math.sin(angle) * speed * 0.12
     }
 
     this.armadillo.position.set(exitX, exitY, 0)
@@ -2255,7 +2248,8 @@ class Game {
     }
 
     this.currentIsland = island
-    this.doubleJumpUsed = false  // reset double-jump on landing
+    this.doubleJumpUsed = false
+    this._cancelBoostHold()  // clear any held input from flight so boost doesn't fire automatically on landing
     const hSpeed = Math.abs(this.velocity.x)
     const impactSpeed = this.velocity.length()
     const landedSpeedRatio = Math.min(1, hSpeed / MAX_SPEED)
@@ -2679,12 +2673,23 @@ class Game {
     const gameOverTitle = isMoonClear ? '🌕 MOON REACHED!' : (this.lastRating === 'SPLASH' ? '🌊 SPLASH!' : 'GAME OVER')
     const gameOverTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
 
-    const heartsHTML = [1,2,3].map(i =>
-      `<span class="heart ${i <= this.lives ? 'heart-full' : 'heart-empty'}">♥</span>`
-    ).join('')
+    const isGameActive = !this.sm.is(State.TITLE) && !this.sm.is(State.SLINGING)
+    const heartsHTML = [1,2,3].map(i => {
+      const full = i <= this.lives
+      return `<svg class="heart-pixel ${full ? 'heart-full' : 'heart-empty'}" width="20" height="20" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+        <rect x="1" y="2" width="3" height="1"/><rect x="6" y="2" width="3" height="1"/>
+        <rect x="0" y="3" width="4" height="1"/><rect x="5" y="3" width="4" height="1"/>
+        <rect x="0" y="4" width="9" height="1"/>
+        <rect x="0" y="5" width="9" height="1"/>
+        <rect x="1" y="6" width="7" height="1"/>
+        <rect x="2" y="7" width="5" height="1"/>
+        <rect x="3" y="8" width="3" height="1"/>
+        <rect x="4" y="9" width="1" height="1"/>
+      </svg>`
+    }).join('')
 
     this.ui.innerHTML = `
-      <div class="lives-hud">${heartsHTML}</div>
+      ${isGameActive ? `<div class="lives-hud">${heartsHTML}</div>` : ''}
       <div class="hud-panel hud-stats">
         <div><span>STATE</span><strong>${phaseText}</strong></div>
         <div><span>SCORE</span><strong>${score}</strong></div>
