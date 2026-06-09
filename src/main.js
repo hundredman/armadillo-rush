@@ -2260,9 +2260,11 @@ class Game {
       if (this.armadillo.position.y >= MOON_TARGET_Y) { this._reachMoon(); return }
       if (this.armadillo.position.y < SEA_LEVEL_Y)    { this._beginSplashGameOver(this.armadillo.position.x); return }
 
-      // When the last grace frame expires, restore terrain fixtures and flush contacts
-      // so Planck has correct geometry but no stale impulses from the removal gap.
-      if (this._spawnGraceTimer === 0 && this._pendingTerrainRebuild.size > 0) {
+      // Restore terrain fixtures one frame before grace fully expires so the ball
+      // has one more manual-integration step to travel away from the surface.
+      // This means the *next* grace frame will have correct geometry in Planck
+      // but no physics.step() yet — the frame after that is the first real step.
+      if (this._spawnGraceTimer === 1 && this._pendingTerrainRebuild.size > 0) {
         for (const island of this._pendingTerrainRebuild) this.physics.addTerrain(island)
         this._pendingTerrainRebuild.clear()
         this.physics.flushContacts()
@@ -2514,38 +2516,52 @@ class Game {
       this._pendingTerrainRebuild.add(island)
     }
 
+    // Determine if this is an upward punch-through (ball moving up into terrain
+    // from below) vs a normal forward/downward hit.  Upward hits need more
+    // clearance because the ball may still be geometrically inside the island
+    // body when fixtures are restored.
+    const isUpwardHit = incomingVelocity.y > 0
+
     // Advance ball manually along the incoming direction by one full dt,
     // then lift above any terrain it still overlaps.
     let exitX = prevX + incomingVelocity.x * dt
     let exitY = prevY + (incomingVelocity.y - gravity * dt * 0.5) * dt
 
-    // Ensure the ball is fully above all hit terrain surfaces
+    // Ensure the ball is fully clear of all hit terrain surfaces.
+    // For upward hits use a larger clearance margin so gravity during the
+    // grace window cannot pull the ball back into contact before fixtures restore.
+    const clearance = isUpwardHit ? ARMADILLO_SIZE + 8 : 4
     for (const island of touched) {
       if (isTerrainDamagedAt(island, exitX, ARMADILLO_SIZE / 2)) continue
       const topY = getTerrainTopY(island, exitX)
       if (exitY - ARMADILLO_SIZE / 2 < topY) {
-        exitY = topY + ARMADILLO_SIZE / 2 + 4
+        exitY = topY + ARMADILLO_SIZE / 2 + clearance
       }
     }
 
-    // Preserve full incoming speed plus a small bonus.  Clamp exit vy to >= 0.
+    // Preserve full incoming speed plus a small bonus.
+    // For upward hits, preserve vy exactly — clamping to 0 would kill upward momentum.
+    // For downward/horizontal hits, clamp vy to >= 0 so the ball doesn't exit
+    // pointing back into the terrain surface.
     const exitSpeed = speed * 1.05 + 40
     const exitVx = incomingVelocity.x >= 0
       ? Math.max(incomingVelocity.x, exitSpeed * 0.7)
       : incomingVelocity.x
-    const exitVy = Math.max(incomingVelocity.y, 0)
+    const exitVy = isUpwardHit ? incomingVelocity.y : Math.max(incomingVelocity.y, 0)
     this.speedRatio = Math.min(this.speedRatio + 0.15, BOOST_SPEED_LIMIT)
 
     this.armadillo.position.set(exitX, exitY, 0)
     this.velocity.set(exitVx, exitVy)
 
     // Move Planck body to exit position (no fixture to collide against now).
-    // Extend grace window — consecutive destruction frames keep resetting it,
-    // so grace only starts counting down after the last destruction frame.
+    // Use a longer grace window for upward hits — the ball needs more frames to
+    // travel clear of the terrain before fixtures are restored and physics.step()
+    // can issue a contact impulse.
     this.physics.moveArmadilloPos(exitX, exitY)
     this.physics.setArmadilloVelocity(exitVx, exitVy)
     this.physics.flushContacts()
-    this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 3)
+    const graceFrames = isUpwardHit ? 4 : 3
+    this._spawnGraceTimer = Math.max(this._spawnGraceTimer, graceFrames)
 
     this._setArmadilloColor(0xffd54f)
     this._triggerDestructionImpact(0.35, 0x6d4c41, exitX, exitY)
