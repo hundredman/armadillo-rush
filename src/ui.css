@@ -725,10 +725,10 @@ button {
   transition: width 0.1s linear;
 }
 
-.item-effect-booster .item-effect-fill {
-  background: #ffb300;
+.item-effect-rocket .item-effect-fill {
+  background: #ff6d00;
 }
 
-.item-effect-jump .item-effect-fill {
+.item-effect-spring .item-effect-fill {
   background: #00e5ff;
 }

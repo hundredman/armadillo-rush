@@ -1,173 +1,213 @@
 import * as THREE from 'three'
 
 /**
- * Item system — Booster, Jump, Heart
+ * Item system — Rocket, Spring, Heart
  *
  * Each item is a world-space object with:
- *   type:       'booster' | 'jump' | 'heart'
+ *   type:       'rocket' | 'spring' | 'heart'
  *   x, y:       world position (center)
  *   mesh:       THREE.Group added to the scene
  *   collected:  boolean
  *   bobOffset:  float, per-item phase for bob animation
  *
  * Active effect state stored on the Game instance:
- *   game.activeBooster  { timeLeft }  — speed multiplier active
- *   game.activeJump     { timeLeft }  — next-jump enhancer active
+ *   game.activeRocket  { timeLeft }  — rocket thrust active; velocity overridden each frame
+ *   game.activeSpring  { timeLeft }  — next-jump enhancer active
  */
 
-export const ITEM_BOOSTER_DURATION = 6.0  // seconds
-export const ITEM_JUMP_DURATION    = 8.0  // seconds
+export const ITEM_ROCKET_DURATION  = 2.2  // seconds of sustained rocket thrust
+export const ITEM_SPRING_DURATION  = 8.0  // seconds the spring bonus is held ready
 export const ITEM_COLLECT_RADIUS   = 38   // px — collection trigger distance
 
-// Booster: speedRatio boost amount added on collect
-export const BOOSTER_SPEED_BONUS    = 0.55
-// Booster: multiplier on BOOST_ACCEL_PER_SEC while active
-export const BOOSTER_ACCEL_MULT     = 1.6
-// Jump: extra vertical kick (px/s) applied at next jump
-export const JUMP_VY_BONUS          = 420
-// Jump: angle correction — forces launch angle toward ideal (deg, added to effective angle)
-export const JUMP_ANGLE_BONUS_DEG   = 6
+// Rocket: thrust velocity (px/s) applied every frame while active, at 45°
+export const ROCKET_SPEED          = 940  // px/s — total speed magnitude during thrust
+export const ROCKET_ANGLE          = Math.PI / 4  // 45° upward-forward
+export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 665 px/s
+export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 665 px/s
+
+// Spring: extra vertical kick (px/s) applied at next jump
+export const SPRING_VY_BONUS       = 420
+// Spring: speedRatio added immediately on collect (momentum recovery)
+export const SPRING_SPEED_BONUS    = 0.30
 
 // ─── Item spawn table ────────────────────────────────────────────────────────
 // Each entry: { islandIndex, offsetX, offsetY, type }
 //   islandIndex: which island in DEFAULT_ISLAND_LAYOUT (0-based) to attach near
 //   offsetX: x offset from island center (px)
 //   offsetY: y offset above terrain top (px)
-//   type: 'booster' | 'jump' | 'heart'
+//   type: 'rocket' | 'spring' | 'heart'
 //
 // Placement philosophy:
-//   - Boosters near long flat runs and before big gaps (reward momentum)
-//   - Jumps near hill crests and before tricky edges (rescue low launches)
-//   - Hearts are rare — placed after the hardest sections only
+//   - Rockets near wide gaps and dangerous sections — immediate escape tool
+//   - Springs near hill crests and right edges — enhance the next jump
+//   - Hearts are rare (3 in static layout) — milestone rewards after hard sections
 export const ITEM_SPAWN_TABLE = [
-  // ── Section 1 (learning) — one booster and one jump to teach the system ──
-  { islandIndex:  1, offsetX:  30, offsetY: 48, type: 'booster' },
-  { islandIndex:  4, offsetX: -20, offsetY: 52, type: 'jump'    },
+  // ── Section 1 (learning) — introduce both new types early ────────────────
+  { islandIndex:  1, offsetX:  30, offsetY: 48, type: 'rocket' },
+  { islandIndex:  4, offsetX: -20, offsetY: 52, type: 'spring' },
 
   // ── Section 2 (building momentum) ────────────────────────────────────────
-  { islandIndex:  9, offsetX:  40, offsetY: 46, type: 'booster' },
-  { islandIndex: 12, offsetX: -30, offsetY: 50, type: 'jump'    },
-  { islandIndex: 14, offsetX:  20, offsetY: 44, type: 'booster' },
+  { islandIndex:  9, offsetX:  40, offsetY: 46, type: 'rocket' },
+  { islandIndex: 12, offsetX: -30, offsetY: 50, type: 'spring' },
+  { islandIndex: 14, offsetX:  20, offsetY: 44, type: 'rocket' },
 
-  // ── Section 3 (speed zone) — boosters reward fast runs; heart after gap ──
-  { islandIndex: 17, offsetX:  50, offsetY: 48, type: 'booster' },
-  { islandIndex: 19, offsetX: -40, offsetY: 52, type: 'jump'    },
-  { islandIndex: 21, offsetX:   0, offsetY: 56, type: 'heart'   },  // first heart — mid-run reward
-  { islandIndex: 22, offsetX:  35, offsetY: 46, type: 'booster' },
+  // ── Section 3 (speed zone) — rockets before gaps; heart after the crossing
+  { islandIndex: 17, offsetX:  50, offsetY: 48, type: 'rocket' },
+  { islandIndex: 19, offsetX: -40, offsetY: 52, type: 'spring' },
+  { islandIndex: 21, offsetX:   0, offsetY: 56, type: 'heart'  },  // first heart
+  { islandIndex: 22, offsetX:  35, offsetY: 46, type: 'rocket' },
 
   // ── Section 4 (mid climb) ─────────────────────────────────────────────────
-  { islandIndex: 25, offsetX: -25, offsetY: 50, type: 'jump'    },
-  { islandIndex: 27, offsetX:  45, offsetY: 44, type: 'booster' },
-  { islandIndex: 30, offsetX:   0, offsetY: 54, type: 'jump'    },
-  { islandIndex: 31, offsetX: -35, offsetY: 48, type: 'booster' },
+  { islandIndex: 25, offsetX: -25, offsetY: 50, type: 'spring' },
+  { islandIndex: 27, offsetX:  45, offsetY: 44, type: 'rocket' },
+  { islandIndex: 30, offsetX:   0, offsetY: 54, type: 'spring' },
+  { islandIndex: 31, offsetX: -35, offsetY: 48, type: 'rocket' },
 
-  // ── Section 5 (pre-cloud, destructible) — jump helps clear soft terrain ──
-  { islandIndex: 33, offsetX:  30, offsetY: 52, type: 'jump'    },
-  { islandIndex: 35, offsetX:  50, offsetY: 46, type: 'booster' },
-  { islandIndex: 37, offsetX: -20, offsetY: 48, type: 'jump'    },
-  { islandIndex: 39, offsetX:   0, offsetY: 60, type: 'heart'   },  // second heart — pre-cloud milestone
+  // ── Section 5 (pre-cloud, destructible) ───────────────────────────────────
+  { islandIndex: 33, offsetX:  30, offsetY: 52, type: 'spring' },
+  { islandIndex: 35, offsetX:  50, offsetY: 46, type: 'rocket' },
+  { islandIndex: 37, offsetX: -20, offsetY: 48, type: 'spring' },
+  { islandIndex: 39, offsetX:   0, offsetY: 60, type: 'heart'  },  // second heart — pre-cloud milestone
 
   // ── Section 6 (cloud entry) ───────────────────────────────────────────────
-  { islandIndex: 41, offsetX:  40, offsetY: 50, type: 'booster' },
-  { islandIndex: 43, offsetX: -30, offsetY: 52, type: 'jump'    },
-  { islandIndex: 45, offsetX:  25, offsetY: 46, type: 'booster' },
-  { islandIndex: 47, offsetX:   0, offsetY: 54, type: 'jump'    },
+  { islandIndex: 41, offsetX:  40, offsetY: 50, type: 'rocket' },
+  { islandIndex: 43, offsetX: -30, offsetY: 52, type: 'spring' },
+  { islandIndex: 45, offsetX:  25, offsetY: 46, type: 'rocket' },
+  { islandIndex: 47, offsetX:   0, offsetY: 54, type: 'spring' },
 
   // ── Section 7 (high cloud) ────────────────────────────────────────────────
-  { islandIndex: 50, offsetX:  55, offsetY: 48, type: 'booster' },
-  { islandIndex: 52, offsetX: -40, offsetY: 52, type: 'jump'    },
-  { islandIndex: 54, offsetX:  35, offsetY: 44, type: 'booster' },
-  { islandIndex: 56, offsetX:   0, offsetY: 64, type: 'heart'   },  // third heart — late-game recovery
-  { islandIndex: 58, offsetX: -30, offsetY: 50, type: 'jump'    },
-  { islandIndex: 60, offsetX:  45, offsetY: 48, type: 'booster' },
-  { islandIndex: 62, offsetX: -20, offsetY: 52, type: 'jump'    },
-  { islandIndex: 64, offsetX:  10, offsetY: 46, type: 'booster' },
-
-  // ── Procedural fallback: extra booster/jump pairs every ~12 islands ───────
-  // These cover islands beyond the static layout (index >= 65).
-  // Handled separately in spawnItemsForIsland() below.
+  { islandIndex: 50, offsetX:  55, offsetY: 48, type: 'rocket' },
+  { islandIndex: 52, offsetX: -40, offsetY: 52, type: 'spring' },
+  { islandIndex: 54, offsetX:  35, offsetY: 44, type: 'rocket' },
+  { islandIndex: 56, offsetX:   0, offsetY: 64, type: 'heart'  },  // third heart — late recovery
+  { islandIndex: 58, offsetX: -30, offsetY: 50, type: 'spring' },
+  { islandIndex: 60, offsetX:  45, offsetY: 48, type: 'rocket' },
+  { islandIndex: 62, offsetX: -20, offsetY: 52, type: 'spring' },
+  { islandIndex: 64, offsetX:  10, offsetY: 46, type: 'rocket' },
 ]
 
 // Colors by item type
 const ITEM_COLORS = {
-  booster: { main: 0xffb300, glow: 0xfff176, ring: 0xff8f00 },
-  jump:    { main: 0x00e5ff, glow: 0xe0f7ff, ring: 0x0091ea },
-  heart:   { main: 0xff1744, glow: 0xff8a80, ring: 0xb71c1c },
+  rocket: { main: 0xff6d00, glow: 0xffe0b2, ring: 0xff3d00 },
+  spring: { main: 0x00e5ff, glow: 0xe0f7ff, ring: 0x0091ea },
+  heart:  { main: 0xff1744, glow: 0xff8a80, ring: 0xb71c1c },
 }
 
 // ─── Mesh builders ───────────────────────────────────────────────────────────
 
-function buildBoosterMesh() {
+function buildRocketMesh() {
   const g = new THREE.Group()
+  const c = ITEM_COLORS.rocket
 
-  // Diamond body
-  const shape = new THREE.Shape()
-  shape.moveTo(0, 14)
-  shape.lineTo(10, 0)
-  shape.lineTo(0, -14)
-  shape.lineTo(-10, 0)
-  shape.closePath()
+  // Body — vertical pill pointing up-right at 45°
+  const bodyShape = new THREE.Shape()
+  bodyShape.moveTo(-5, -11)
+  bodyShape.lineTo( 5, -11)
+  bodyShape.lineTo( 5,   4)
+  bodyShape.quadraticCurveTo(5, 12, 0, 14)
+  bodyShape.quadraticCurveTo(-5, 12, -5, 4)
+  bodyShape.closePath()
   const body = new THREE.Mesh(
-    new THREE.ShapeGeometry(shape),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.booster.main, side: THREE.DoubleSide }),
+    new THREE.ShapeGeometry(bodyShape, 8),
+    new THREE.MeshBasicMaterial({ color: c.main, side: THREE.DoubleSide }),
   )
   body.position.z = 0.12
 
-  // Inner highlight
-  const inner = new THREE.Mesh(
-    new THREE.CircleGeometry(5, 8),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.booster.glow, transparent: true, opacity: 0.85 }),
+  // Nose window highlight
+  const window_ = new THREE.Mesh(
+    new THREE.CircleGeometry(3, 10),
+    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.9 }),
   )
-  inner.position.z = 0.14
+  window_.position.set(0, 6, 0.14)
 
-  // Ring
+  // Left fin
+  const finL = new THREE.Shape()
+  finL.moveTo(-5, -4)
+  finL.lineTo(-11, -11)
+  finL.lineTo(-5, -11)
+  finL.closePath()
+  const finLMesh = new THREE.Mesh(
+    new THREE.ShapeGeometry(finL),
+    new THREE.MeshBasicMaterial({ color: c.ring, side: THREE.DoubleSide }),
+  )
+  finLMesh.position.z = 0.11
+
+  // Right fin
+  const finR = new THREE.Shape()
+  finR.moveTo(5, -4)
+  finR.lineTo(11, -11)
+  finR.lineTo(5, -11)
+  finR.closePath()
+  const finRMesh = new THREE.Mesh(
+    new THREE.ShapeGeometry(finR),
+    new THREE.MeshBasicMaterial({ color: c.ring, side: THREE.DoubleSide }),
+  )
+  finRMesh.position.z = 0.11
+
+  // Outer glow ring
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(12, 15, 16),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.booster.ring, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(14, 17, 20),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
   )
-  ring.position.z = 0.11
+  ring.position.z = 0.10
 
-  g.add(body, inner, ring)
+  // Tilt 45° so it points up-right — matching the thrust direction
+  g.rotation.z = -Math.PI / 4
+  g.add(body, window_, finLMesh, finRMesh, ring)
   return g
 }
 
-function buildJumpMesh() {
+function buildSpringMesh() {
   const g = new THREE.Group()
+  const c = ITEM_COLORS.spring
 
   // Up-arrow body
   const shape = new THREE.Shape()
   shape.moveTo(0, 15)
   shape.lineTo(10, 2)
   shape.lineTo(5, 2)
-  shape.lineTo(5, -12)
-  shape.lineTo(-5, -12)
+  shape.lineTo(5, -8)
+  shape.lineTo(-5, -8)
   shape.lineTo(-5, 2)
   shape.lineTo(-10, 2)
   shape.closePath()
   const body = new THREE.Mesh(
     new THREE.ShapeGeometry(shape),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.jump.main, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: c.main, side: THREE.DoubleSide }),
   )
   body.position.z = 0.12
+
+  // Small coil base — two arc segments suggesting a spring
+  const coilMat = new THREE.LineBasicMaterial({ color: c.ring })
+  const coilPts = []
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12
+    const wave = Math.sin(t * Math.PI * 2) * 3
+    coilPts.push(new THREE.Vector3(-6 + t * 12, -10 + wave, 0.13))
+  }
+  const coil = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(coilPts),
+    coilMat,
+  )
+  g.add(body, coil)
 
   // Ring
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(14, 17, 20),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.jump.ring, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.11
+  g.add(ring)
 
-  g.add(body, ring)
   return g
 }
 
 function buildHeartMesh() {
   const g = new THREE.Group()
+  const c = ITEM_COLORS.heart
 
-  // Pixel heart — SVG-path style via ShapeGeometry
-  const s = 9  // scale unit
+  const s = 9
   const shape = new THREE.Shape()
-  // Two lobes + point
   shape.moveTo(0, -s * 0.1)
   shape.bezierCurveTo(-s * 1.2, s * 1.1, -s * 2.2, -s * 0.3, -s * 1.1, -s * 1.3)
   shape.bezierCurveTo(-s * 0.5, -s * 1.9, 0, -s * 1.4, 0, -s * 1.0)
@@ -177,14 +217,13 @@ function buildHeartMesh() {
 
   const body = new THREE.Mesh(
     new THREE.ShapeGeometry(shape, 12),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.heart.main, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: c.main, side: THREE.DoubleSide }),
   )
   body.position.z = 0.12
 
-  // Glow ring
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(13, 17, 20),
-    new THREE.MeshBasicMaterial({ color: ITEM_COLORS.heart.glow, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.10
 
@@ -195,8 +234,8 @@ function buildHeartMesh() {
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 export function createItem(type, x, y) {
-  const mesh = type === 'booster' ? buildBoosterMesh()
-    : type === 'jump'    ? buildJumpMesh()
+  const mesh = type === 'rocket' ? buildRocketMesh()
+    : type === 'spring' ? buildSpringMesh()
     : buildHeartMesh()
 
   mesh.position.set(x, y, 0)
@@ -212,43 +251,17 @@ export function createItem(type, x, y) {
 }
 
 /**
- * Given the static island layout array, return all item specs derived from
- * ITEM_SPAWN_TABLE (skipping entries whose islandIndex is out of bounds).
- * For each island, the item y is: getTerrainTopY(island, island.bowlCenter + offsetX) + offsetY
- *
- * This is called once after the static islands are built.
- */
-export function buildItemSpecsFromLayout(islands) {
-  const specs = []
-  for (const entry of ITEM_SPAWN_TABLE) {
-    const island = islands[entry.islandIndex]
-    if (!island) continue
-    const wx = island.bowlCenter + entry.offsetX
-    // Import-free inline version of getTerrainTopY for use here:
-    // We just use island.bounds.top as a rough ceiling; the caller uses
-    // getTerrainTopY for exact placement.
-    specs.push({
-      type: entry.type,
-      islandRef: island,
-      offsetX: entry.offsetX,
-      offsetY: entry.offsetY,
-    })
-  }
-  return specs
-}
-
-/**
  * For procedurally generated islands (beyond the static layout),
  * decide whether to spawn an item and what type.
  * Returns null or { type, offsetX, offsetY }.
  */
 export function getProceduralItemSpec(islandIndex) {
-  // Spawn a booster every 10 islands, jump every 14, heart every 28
-  const rel = islandIndex - 65  // offset past static layout
+  // Rocket every 10 islands, spring every 14, heart every 28
+  const rel = islandIndex - 65
   if (rel < 0) return null
-  if (rel % 28 === 0) return { type: 'heart',   offsetX: 0,   offsetY: 56 }
-  if (rel % 14 === 0) return { type: 'jump',    offsetX: -30, offsetY: 50 }
-  if (rel % 10 === 0) return { type: 'booster', offsetX: 40,  offsetY: 46 }
+  if (rel % 28 === 0) return { type: 'heart',  offsetX: 0,   offsetY: 56 }
+  if (rel % 14 === 0) return { type: 'spring', offsetX: -30, offsetY: 50 }
+  if (rel % 10 === 0) return { type: 'rocket', offsetX: 40,  offsetY: 46 }
   return null
 }
 
@@ -260,11 +273,11 @@ export function updateItems(items, dt, time) {
     // Gentle vertical bob
     const bob = Math.sin(time * 2.4 + item.bobOffset) * 5
     item.mesh.position.y = item.y + bob
-    // Slow rotation for booster diamond
-    if (item.type === 'booster') {
-      item.mesh.rotation.z = time * 1.2
+    // Rocket: slow spin to hint at the 45° direction
+    if (item.type === 'rocket') {
+      item.mesh.rotation.z = -Math.PI / 4 + Math.sin(time * 1.4 + item.bobOffset) * 0.18
     }
-    // Pulse scale for heart
+    // Heart: gentle pulse
     if (item.type === 'heart') {
       const pulse = 1 + Math.sin(time * 3.0 + item.bobOffset) * 0.08
       item.mesh.scale.setScalar(pulse)
@@ -274,10 +287,6 @@ export function updateItems(items, dt, time) {
 
 // ─── Collection check ────────────────────────────────────────────────────────
 
-/**
- * Check if armadillo (at ax, ay) is close enough to collect any item.
- * Returns the first uncollected item within ITEM_COLLECT_RADIUS, or null.
- */
 export function checkItemCollection(items, ax, ay) {
   for (const item of items) {
     if (item.collected) continue

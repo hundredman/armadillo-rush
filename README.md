@@ -31,11 +31,11 @@ Three collectible pickups float above terrain islands:
 
 | Item | Icon | Effect |
 | --- | --- | --- |
-| **Booster** | ⚡ Gold diamond | Instant +speed; acceleration rate ×1.6 for 6 seconds |
-| **Jump** | ↑ Cyan arrow | Next jump gets a large extra upward kick (+420 px/s vy); consumed on use |
+| **Rocket** | 🚀 Orange rocket (45° tilt) | Immediately launches the armadillo upward-forward at 45° (~940 px/s) for 2.2 seconds; gravity is ignored during thrust |
+| **Spring** | ↑ Cyan arrow with coil | Instant +speed bonus; next jump gets a large extra upward kick (+420 px/s); consumed on jump |
 | **Heart** | ♥ Red heart | Restore one life (max 3) |
 
-Items are placed near risky sections and recovery paths. Active Booster and Jump effects are shown as colored bars in the HUD top-left.
+Items are placed near risky sections and recovery paths. Active Rocket and Spring effects are shown as colored bars in the HUD top-left.
 
 ## Input Rules
 
@@ -146,7 +146,7 @@ src/
 │   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
 │   │                     #   105-island static layout, procedural continuation,
 │   │                     #   destruction (damageTerrain, isTerrainDamagedAt, getTerrainTopY)
-│   ├── items.js          # Item types (Booster/Jump/Heart), spawn table, mesh builders,
+│   ├── items.js          # Item types (Rocket/Spring/Heart), spawn table, mesh builders,
 │   │                     #   collection check, animation, effect constants
 │   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
 │   ├── physics.js        # Planck.js world wrapper — terrain fixtures, gravity

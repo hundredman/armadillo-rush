@@ -27,13 +27,13 @@ import {
 } from './game/terrain.js'
 import {
   ITEM_SPAWN_TABLE,
-  ITEM_BOOSTER_DURATION,
-  ITEM_JUMP_DURATION,
+  ITEM_ROCKET_DURATION,
+  ITEM_SPRING_DURATION,
   ITEM_COLLECT_RADIUS,
-  BOOSTER_SPEED_BONUS,
-  BOOSTER_ACCEL_MULT,
-  JUMP_VY_BONUS,
-  JUMP_ANGLE_BONUS_DEG,
+  ROCKET_VX,
+  ROCKET_VY,
+  SPRING_VY_BONUS,
+  SPRING_SPEED_BONUS,
   createItem,
   getProceduralItemSpec,
   updateItems,
@@ -195,8 +195,8 @@ class Game {
 
     // Item system
     this.items = []            // all spawned item objects
-    this.activeBooster = null  // { timeLeft } or null
-    this.activeJump = null     // { timeLeft } or null
+    this.activeRocket = null   // { timeLeft } or null — overrides velocity each frame
+    this.activeSpring = null   // { timeLeft } or null — bonus on next jump
 
     // landing ripple effect pool (max 4 simultaneous)
     this.ripples = []
@@ -1695,8 +1695,8 @@ class Game {
     this.lives = 3
     this.doubleJumpUsed = false
     this.preBoostSource = null
-    this.activeBooster = null
-    this.activeJump = null
+    this.activeRocket = null
+    this.activeSpring = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1737,8 +1737,8 @@ class Game {
     this.lives = 3
     this.doubleJumpUsed = false
     this.preBoostSource = null
-    this.activeBooster = null
-    this.activeJump = null
+    this.activeRocket = null
+    this.activeSpring = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1878,10 +1878,10 @@ class Game {
       LAUNCH_SPEED,
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
-    const jumpBonus = this.activeJump ? JUMP_VY_BONUS : 0
+    const springBonus = this.activeSpring ? SPRING_VY_BONUS : 0
+    if (this.activeSpring) this.activeSpring = null  // consume on use
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + jumpBonus
-    if (this.activeJump) this.activeJump = null  // consume on use
+    const vy = Math.sin(launchAngle) * launchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + springBonus
     this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -1912,10 +1912,10 @@ class Game {
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
     const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
     const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
-    const jumpBonus = this.activeJump ? JUMP_VY_BONUS : 0
-    if (this.activeJump) this.activeJump = null
+    const springBonus = this.activeSpring ? SPRING_VY_BONUS : 0
+    if (this.activeSpring) this.activeSpring = null
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.abs(Math.sin(launchAngle) * launchSpeed) + BOOST_RELEASE_VERTICAL_KICK + jumpBonus
+    const vy = Math.abs(Math.sin(launchAngle) * launchSpeed) + BOOST_RELEASE_VERTICAL_KICK + springBonus
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
     this.physics.setArmadilloVelocity(vx, vy)
@@ -1943,9 +1943,9 @@ class Game {
     const launchSpeed   = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
     const vx            = Math.cos(launchAngle) * launchSpeed
     const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
-    const jumpBonus     = this.activeJump ? JUMP_VY_BONUS : 0
-    if (this.activeJump) this.activeJump = null
-    const vy            = Math.abs(Math.sin(launchAngle) * launchSpeed) + crestKick + jumpBonus
+    const springBonus   = this.activeSpring ? SPRING_VY_BONUS : 0
+    if (this.activeSpring) this.activeSpring = null
+    const vy            = Math.abs(Math.sin(launchAngle) * launchSpeed) + crestKick + springBonus
 
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
@@ -2083,6 +2083,35 @@ class Game {
 
     // track peak altitude during flight (for bounce strength)
     this.flightPeakY = Math.max(this.flightPeakY, prevY)
+
+    // Rocket drive — bypass Planck entirely, push at fixed 45° velocity.
+    // Landing detection and sea checks are suppressed while active.
+    if (this.activeRocket) {
+      this.activeRocket.timeLeft -= dt
+      const done = this.activeRocket.timeLeft <= 0
+      if (done) this.activeRocket = null
+
+      // Move at constant rocket velocity (gravity ignored during thrust)
+      this.armadillo.position.x += ROCKET_VX * dt
+      this.armadillo.position.y += ROCKET_VY * dt
+      this.velocity.set(ROCKET_VX, ROCKET_VY)
+      this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+      this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
+      this._syncMotionToArmadillo()
+      this.flightPeakY = Math.max(this.flightPeakY, this.armadillo.position.y)
+      // Emit flame trail behind the armadillo while thrusting
+      this._spawnParticles(
+        this.armadillo.position.x - ROCKET_VX * dt * 0.5,
+        this.armadillo.position.y - ROCKET_VY * dt * 0.5,
+        0xff6d00, 4, 140,
+      )
+      // When thrust ends, hand off to normal physics with forward momentum
+      if (done) {
+        this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
+        this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
+      }
+      return
+    }
 
     // Destruction pass — runs entirely in JS, never touches Planck this frame.
     // Finds all terrain the ball path overlaps, damages all of them, then manually
@@ -2494,14 +2523,13 @@ class Game {
 
     const bounds = this.currentIsland.bounds
     if (this.boostHeld) {
-      const accel = BOOST_ACCEL_PER_SEC * (this.activeBooster ? BOOSTER_ACCEL_MULT : 1)
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (accel - ROLLING_FRICTION_PER_SEC) * dt,
+        this.speedRatio + (BOOST_ACCEL_PER_SEC - ROLLING_FRICTION_PER_SEC) * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
-      this.lastRating = this.activeBooster ? 'BOOST!' : 'HOLD'
-      this._setArmadilloColor(this.activeBooster ? 0xffb300 : 0xffb74d)
+      this.lastRating = 'HOLD'
+      this._setArmadilloColor(0xffb74d)
     } else {
       // no input: friction only
       this.speedRatio = THREE.MathUtils.clamp(
@@ -2778,14 +2806,16 @@ class Game {
   _updateItems(dt) {
     updateItems(this.items, dt, this.time)
 
-    // Tick active effect timers
-    if (this.activeBooster) {
-      this.activeBooster.timeLeft -= dt
-      if (this.activeBooster.timeLeft <= 0) this.activeBooster = null
+    // Tick spring timer
+    if (this.activeSpring) {
+      this.activeSpring.timeLeft -= dt
+      if (this.activeSpring.timeLeft <= 0) this.activeSpring = null
     }
-    if (this.activeJump) {
-      this.activeJump.timeLeft -= dt
-      if (this.activeJump.timeLeft <= 0) this.activeJump = null
+    // Rocket timer is ticked inside _updateFlight so it can drive velocity there.
+    // Here we just decrement if the player somehow isn't in flight (safety fallback).
+    if (this.activeRocket && !this.sm.is(State.FLYING) && !this.sm.is(State.FALLING)) {
+      this.activeRocket.timeLeft -= dt
+      if (this.activeRocket.timeLeft <= 0) this.activeRocket = null
     }
 
     // Collection check — only during active flight/rolling, not while slinging or game over
@@ -2802,16 +2832,27 @@ class Game {
   }
 
   _applyItemEffect(item) {
-    if (item.type === 'booster') {
-      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + BOOSTER_SPEED_BONUS)
-      this.activeBooster = { timeLeft: ITEM_BOOSTER_DURATION }
-      this.lastRating = 'BOOST!'
-      this._setArmadilloColor(0xffb300)
-      this._spawnParticles(item.x, item.y, 0xfff176, 18, 260)
-      this._playTone(660, 0.12, 0.08, 'triangle')
-    } else if (item.type === 'jump') {
-      this.activeJump = { timeLeft: ITEM_JUMP_DURATION }
-      this.lastRating = 'JUMP UP!'
+    if (item.type === 'rocket') {
+      // Transition to FLYING if currently rolling — rocket fires immediately
+      if (this.sm.is(State.ROLLING)) {
+        this.currentIsland = null
+        if (!this.sm.transition(State.FLYING)) return
+      }
+      this.activeRocket = { timeLeft: ITEM_ROCKET_DURATION }
+      // Snap velocity to rocket direction immediately
+      this.velocity.set(ROCKET_VX, ROCKET_VY)
+      this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+      this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
+      this._syncMotionToArmadillo()
+      this.lastRating = 'ROCKET!'
+      this._setArmadilloColor(0xff6d00)
+      this._spawnParticles(item.x, item.y, 0xffe0b2, 22, 300)
+      this._playTone(280, 0.18, 0.10, 'sawtooth')
+      setTimeout(() => this._playTone(420, 0.14, 0.10, 'sawtooth'), 100)
+    } else if (item.type === 'spring') {
+      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + SPRING_SPEED_BONUS)
+      this.activeSpring = { timeLeft: ITEM_SPRING_DURATION }
+      this.lastRating = 'SPRING!'
       this._setArmadilloColor(0x00e5ff)
       this._spawnParticles(item.x, item.y, 0x80deea, 14, 220)
       this._playTone(780, 0.10, 0.07, 'sine')
@@ -3061,21 +3102,21 @@ class Game {
       : ''
 
     // ── Active item effect indicators ─────────────────────────────────────
-    const boosterPct = this.activeBooster
-      ? Math.ceil((this.activeBooster.timeLeft / ITEM_BOOSTER_DURATION) * 100)
+    const rocketPct = this.activeRocket
+      ? Math.ceil((this.activeRocket.timeLeft / ITEM_ROCKET_DURATION) * 100)
       : 0
-    const jumpPct = this.activeJump
-      ? Math.ceil((this.activeJump.timeLeft / ITEM_JUMP_DURATION) * 100)
+    const springPct = this.activeSpring
+      ? Math.ceil((this.activeSpring.timeLeft / ITEM_SPRING_DURATION) * 100)
       : 0
-    const itemEffectsHTML = isGameActive && (this.activeBooster || this.activeJump) ? `
+    const itemEffectsHTML = isGameActive && (this.activeRocket || this.activeSpring) ? `
       <div class="item-effects-hud">
-        ${this.activeBooster ? `<div class="item-effect item-effect-booster">
-          <span class="item-effect-icon">⚡</span>
-          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${boosterPct}%"></div></div>
+        ${this.activeRocket ? `<div class="item-effect item-effect-rocket">
+          <span class="item-effect-icon">🚀</span>
+          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${rocketPct}%"></div></div>
         </div>` : ''}
-        ${this.activeJump ? `<div class="item-effect item-effect-jump">
+        ${this.activeSpring ? `<div class="item-effect item-effect-spring">
           <span class="item-effect-icon">↑</span>
-          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${jumpPct}%"></div></div>
+          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${springPct}%"></div></div>
         </div>` : ''}
       </div>` : ''
 

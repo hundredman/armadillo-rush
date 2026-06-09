@@ -126,8 +126,8 @@ Three collectible item types float above terrain on a gentle bob animation. Item
 
 | Item | Visual | Effect | Duration |
 | --- | --- | --- | --- |
-| Booster ⚡ | Gold spinning diamond | +0.55 speedRatio on collect; BOOST_ACCEL_PER_SEC × 1.6 while active | 6s |
-| Jump ↑ | Cyan arrow | +420 px/s vy on next jump (consumed on use) | 8s |
+| Rocket 🚀 | Orange rocket tilted 45° | Immediately launches armadillo at 45° upward-forward at 940 px/s for 2.2s | 2.2s thrust |
+| Spring ↑ | Cyan arrow with coil base | +420 px/s vy on next jump + +0.30 speedRatio immediately (consumed on jump) | 8s window |
 | Heart ♥ | Red heart | +1 life (max 3) | instant |
 
 ### Collection
@@ -136,16 +136,16 @@ Three collectible item types float above terrain on a gentle bob animation. Item
 
 ### Effect application
 
-**Booster**: Applied immediately on collect; `activeBooster.timeLeft` counts down each frame. While active, `_updateRolling` multiplies `BOOST_ACCEL_PER_SEC` by `BOOSTER_ACCEL_MULT` (1.6). HUD shows a gold bar.
+**Rocket**: Fires immediately on collect. If ROLLING, forces a transition to FLYING first. `activeRocket.timeLeft` is ticked inside `_updateFlight`; while active, Planck physics is bypassed entirely each frame — the armadillo moves at `(ROCKET_VX, ROCKET_VY)` = ~(665, 665) px/s (gravity ignored). Small orange flame particles emit along the path. When thrust ends, `speedRatio += 0.35` and normal physics resumes. HUD shows an orange bar.
 
-**Jump**: `activeJump` is stored until the next jump fires (`_launchFromIsland`, `_launchFromFallingEdge`, or `_launchFromHillCrest`). Each of those adds `JUMP_VY_BONUS` (420 px/s) to vy and clears `activeJump` immediately. HUD shows a cyan bar.
+**Spring**: `activeSpring` is stored with `timeLeft = 8s`; `speedRatio += SPRING_SPEED_BONUS` (0.30) on collect. On the next jump (`_launchFromIsland`, `_launchFromFallingEdge`, or `_launchFromHillCrest`), `SPRING_VY_BONUS` (420 px/s) is added to vy and `activeSpring` is cleared immediately. HUD shows a cyan bar.
 
 **Heart**: `this.lives = Math.min(3, this.lives + 1)`. No timer.
 
 ### Placement philosophy
 
-- Boosters near flat runs, long slopes, and before wide gaps — reward momentum.
-- Jumps near hill crests and right edges — rescue low launches, encourage risk.
+- Rockets near wide gaps and dangerous sections — immediate recovery tool.
+- Springs near hill crests and right edges — enhance the next jump, reward risky positions.
 - Hearts are rare (3 in static layout), placed after hard sections as milestones.
 
 ### HUD indicators
@@ -327,7 +327,7 @@ src/game/particles.js
   Instanced geometry particle system (dirt, burst, flame, splash, rating)
 
 src/game/items.js
-  Item types (booster/jump/heart), ITEM_SPAWN_TABLE, mesh builders,
+  Item types (rocket/spring/heart), ITEM_SPAWN_TABLE, mesh builders,
   createItem, updateItems, checkItemCollection, markCollected,
   getProceduralItemSpec
 
@@ -354,7 +354,7 @@ Implemented:
 - 105-island hand-authored static layout + unlimited procedural continuation
 - Terrain destruction (continuous, bounce-back-free, Planck-bypassing)
 - Sea splash failure with 3-life bounce system
-- Item system: Booster ⚡, Jump ↑, Heart ♥ — collectible pickups with timed effects
+- Item system: Rocket 🚀, Spring ↑, Heart ♥ — collectible pickups with immediate and timed effects
 - Cloud speed bonus and meteor reduced gravity
 - Bottom-center BOOST button with Space feedback
 - Moon-clear state
