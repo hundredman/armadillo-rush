@@ -2149,12 +2149,25 @@ class Game {
         // ball must be penetrating the terrain surface
         if (lower >= topY) continue
         if (y <= island.bounds.bottom) continue
-        // Destruction requires forward (horizontal) momentum, not just falling.
-        // Reject if the trajectory is more downward than sideways — i.e. the
-        // horizontal component is less than 35% of total speed. This prevents a
-        // purely falling armadillo from punching through terrain on a direct-down
-        // impact regardless of how fast it is falling.
-        if (Math.abs(incomingVelocity.x) < speed * 0.35) continue
+
+        // ── Destruction direction gate ────────────────────────────────────
+        // Require meaningful forward (horizontal) momentum OR a fast-enough
+        // spin to act as a drill.  A straight-down fall must never destroy
+        // terrain; the armadillo should land normally instead.
+        //
+        // Angle rule: horizontal component must be ≥ 55 % of total speed.
+        // cos(56°) ≈ 0.56, so this rejects anything steeper than ~56° from
+        // horizontal — covers nearly-vertical drops at any speed.
+        const hasForwardMomentum = Math.abs(incomingVelocity.x) >= speed * 0.55
+
+        // Spin rule: if the ball is spinning fast enough that rim tangential
+        // speed exceeds UNDER_BREAK_SPEED it can punch through terrain even
+        // on a steep approach (like a drill), but only if vx is still forward
+        // (positive) so it won't destroy terrain it's flying away from.
+        const rimSpeed = this.spinAngleVel * (ARMADILLO_SIZE / 2)
+        const hasDrillSpin = rimSpeed >= UNDER_BREAK_SPEED && incomingVelocity.x > 0
+
+        if (!hasForwardMomentum && !hasDrillSpin) continue
 
         const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
