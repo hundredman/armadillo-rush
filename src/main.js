@@ -1333,16 +1333,19 @@ class Game {
       if (action === 'name-confirm') {
         const input = this.ui.querySelector('.name-input')
         this._confirmName(input ? input.value : '')
-        // if called right at game start, begin the sling phase
-        if (this.sm.is(State.TITLE)) {
-          this.sm.transition(State.SLINGING)
-        }
+        // stay on TITLE — player clicks/taps the start screen to play
       }
       if (action === 'name-skip') {
         this._confirmName('Anonymous')
-        if (this.sm.is(State.TITLE)) {
-          this.sm.transition(State.SLINGING)
-        }
+      }
+      if (action === 'name-edit') {
+        this.showingNamePrompt = true
+        this._renderHud()
+        // focus the input on next microtask so the element is in the DOM
+        Promise.resolve().then(() => {
+          const input = this.ui?.querySelector('.name-input')
+          if (input) { input.focus(); input.select() }
+        })
       }
       return true
     }
@@ -1427,7 +1430,7 @@ class Game {
         event.preventDefault()
         const input = this.ui?.querySelector('.name-input')
         this._confirmName(input ? input.value : '')
-        if (this.sm.is(State.TITLE)) this.sm.transition(State.SLINGING)
+        // stay on TITLE; player taps/clicks to start
       }
       if (event.code === 'Escape' && this.showingLeaderboard) {
         event.preventDefault()
@@ -1849,10 +1852,11 @@ class Game {
     const launchAngle = EXIT_LAUNCH_MIN_ANGLE  // conservative upward angle
     const speedBonus = source === 'keyboard' || source === 'pointer' ? BOOST_RELEASE_SPEED_KICK : 0
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
-    const horizontalSpeed = this.speedRatio * MAX_SPEED
+    const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
     const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
     const vx = Math.cos(launchAngle) * launchSpeed
-    const vy = Math.sin(launchAngle) * launchSpeed + BOOST_RELEASE_VERTICAL_KICK
+    // Always positive (upward) — Math.sin of a clamped upward angle + the vertical kick
+    const vy = Math.abs(Math.sin(launchAngle) * launchSpeed) + BOOST_RELEASE_VERTICAL_KICK
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
     this.physics.setArmadilloVelocity(vx, vy)
@@ -2130,10 +2134,12 @@ class Game {
         // ball must be penetrating the terrain surface
         if (lower >= topY) continue
         if (y <= island.bounds.bottom) continue
-        // skip slow near-vertical descents — those should land, not destroy
-        if (incomingVelocity.y < 0
-          && Math.abs(incomingVelocity.y) > Math.abs(incomingVelocity.x) * 2
-          && speed < UNDER_BREAK_SPEED * 1.2) continue
+        // Destruction requires forward (horizontal) momentum, not just falling.
+        // Reject if the trajectory is more downward than sideways — i.e. the
+        // horizontal component is less than 35% of total speed. This prevents a
+        // purely falling armadillo from punching through terrain on a direct-down
+        // impact regardless of how fast it is falling.
+        if (Math.abs(incomingVelocity.x) < speed * 0.35) continue
 
         const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
@@ -2417,15 +2423,21 @@ class Game {
 
   _fallOff() {
     if (!this.currentIsland) return
+    // If input is already held at the moment we fall off the right edge, fire the
+    // edge jump immediately — no grace timer needed and no risk of the downward
+    // velocity from _fallOff overriding the jump.
+    if (this.boostHeld) {
+      const jumpSource = this.boostHoldSource || 'pointer'
+      this.currentIsland = null
+      if (!this.sm.transition(State.FALLING)) return
+      this._launchFromFallingEdge(jumpSource)
+      return
+    }
     if (!this.sm.transition(State.FALLING)) return
     const vx = this.speedRatio * MAX_SPEED
-    // Carry a small downward component so the exit from the edge isn't a jarring
-    // horizontal snap — matches how a rolling ball naturally leaves a surface edge
-    const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
-    const vy = Math.min(0, Math.sin(slopeAngle) * vx * 0.5)
-    this.velocity.set(vx, vy)
+    this.velocity.set(vx, 0)  // pure horizontal exit — no downward vy from slope
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vx, vy)
+    this.physics.setArmadilloVelocity(vx, 0)
     this._syncMotionToArmadillo()
     // grace window: if input is released within 120ms after falling off edge, still jump
     this._edgeFallGraceTimer = 0.12
@@ -2842,13 +2854,14 @@ class Game {
 
       ${slingMeter}
 
-      ${this.sm.is(State.TITLE) ? `
+      ${this.sm.is(State.TITLE) && !this.showingNamePrompt ? `
         <div class="start-layer">
           <div class="start-title">ARMADILLO RUSH</div>
           <div class="start-subtitle">🌊 Sea → Sky → 🌕 Moon</div>
           <div class="start-subtitle">Click to start slinging</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
           <div class="start-tip">💡 ${TIPS[this._tipIndex]}</div>
+          <button type="button" class="clickable name-edit-btn" data-action="name-edit">👤 ${this.playerName || 'Set nickname'}</button>
         </div>
       ` : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
@@ -2901,14 +2914,14 @@ class Game {
       ${this.showingNamePrompt ? `
         <div class="name-layer">
           <div class="name-card">
-            <div class="name-card-title">What's your name?</div>
-            <div class="name-card-sub">Your name will appear on the leaderboard.</div>
+            <div class="name-card-title">Your nickname</div>
+            <div class="name-card-sub">Shown on the leaderboard. Max 16 characters.</div>
             <input class="name-input clickable" type="text" maxlength="16"
               placeholder="Enter nickname…"
-              value="${this.playerName}"
+              value="${this.playerName === 'Anonymous' ? '' : (this.playerName || '')}"
               autocomplete="off" spellcheck="false" />
-            <button type="button" class="clickable primary-button" data-action="name-confirm">Play</button>
-            <button type="button" class="clickable secondary-button" data-action="name-skip">Skip</button>
+            <button type="button" class="clickable primary-button" data-action="name-confirm">Save</button>
+            <button type="button" class="clickable secondary-button" data-action="name-skip">Use Anonymous</button>
           </div>
         </div>
       ` : ''}

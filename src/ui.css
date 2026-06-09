@@ -357,6 +357,26 @@ button {
   line-height: 1.4;
 }
 
+.name-edit-btn {
+  margin-top: 8px;
+  padding: 7px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.65);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+
+.name-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 213, 79, 0.5);
+  color: #ffd54f;
+}
+
 
 .flash-layer {
   z-index: 8;
