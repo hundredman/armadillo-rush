@@ -1532,6 +1532,7 @@ class Game {
     this.boostHoldSource = null
     this.boostCharge = 0
     this.boostPeakRatio = 0
+    this._lastBoostZoneRatio = 0
   }
 
   _handleTap(source = 'pointer') {
@@ -2433,35 +2434,47 @@ class Game {
   }
 
   _doSeaBounce(x = this.armadillo.position.x) {
-    // find the highest island ahead (prefer forward direction) within range
-    let targetIslandTopY = SEA_LEVEL_Y + 300
+    // find nearest landable island ahead (prefer forward, accept slightly behind)
+    let targetIsland = null
+    let bestScore = Infinity
     for (const island of this.islands) {
       if (island.destroyed) continue
-      // prioritise islands ahead; accept up to 600px behind as fallback
-      if (island.bowlCenter < x - 600) continue
-      if (island.bowlCenter > x + 3600) continue
-      targetIslandTopY = Math.max(targetIslandTopY, island.bounds.top)
+      if (island.bowlCenter < x - 400) continue   // too far behind
+      if (island.bowlCenter > x + 4000) continue  // too far ahead
+      // score: prefer closer, prefer lower (easier to land)
+      const dist = Math.abs(island.bowlCenter - x)
+      const score = dist + Math.max(0, island.bounds.top - x) * 0.1
+      if (score < bestScore) {
+        bestScore = score
+        targetIsland = island
+      }
     }
 
-    // target peak = island top + generous clearance so ball crests well above terrain
-    const clearance = 480
-    const targetPeakY = targetIslandTopY + clearance
-    const targetHeight = targetPeakY - SEA_LEVEL_Y
+    // teleport onto terrain surface + a small pop-up so landing feels natural
+    const landX = targetIsland
+      ? THREE.MathUtils.clamp(x, targetIsland.bounds.left + 20, targetIsland.bounds.right - 20)
+      : x
+    const landY = targetIsland
+      ? getTerrainTopY(targetIsland, landX) + ARMADILLO_SIZE / 2 + 4
+      : SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 4
 
-    // use actual gravity at current altitude for accurate vy calculation
-    const gravity = this._getGravityPx()
-    const bounceVy = Math.sqrt(2 * gravity * targetHeight)
-    const bounceVx = this.velocity.x * 0.75
+    // keep horizontal momentum, add upward pop so it doesn't immediately re-land hard
+    const bounceVx = this.velocity.x * 0.80
+    const bounceVy = 380
+
+    // speed bonus on rescue — feel rewarded, not punished
+    this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
 
     this.armadillo.visible = true
-    this.armadillo.position.set(x, SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 2, 0)
+    this.armadillo.position.set(landX, landY, 0)
     this.velocity.set(bounceVx, bounceVy)
-    this.physics.setArmadilloPos(x, SEA_LEVEL_Y + ARMADILLO_SIZE / 2 + 2)
+    this.physics.setArmadilloPos(landX, landY)
     this.physics.setArmadilloVelocity(bounceVx, bounceVy)
-    this.flightPeakY = SEA_LEVEL_Y
-    // _beginSplashGameOver is only called from FLYING/FALLING — state is already correct
+    this.flightPeakY = landY
+    this._cancelBoostHold()
     this._syncMotionToArmadillo()
     this._playTone(320, 0.22, 0.12, 'sine')
+    this._spawnParticles(landX, landY, 0x64b5f6, 16, 200)
   }
 
   _updateSplashGameOver(dt) {
