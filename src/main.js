@@ -2084,32 +2084,38 @@ class Game {
     // track peak altitude during flight (for bounce strength)
     this.flightPeakY = Math.max(this.flightPeakY, prevY)
 
-    // Rocket drive — bypass Planck entirely, push at fixed 45° velocity.
-    // Landing detection and sea checks are suppressed while active.
+    // Rocket drive — bypass Planck entirely for the thrust duration.
+    // Gravity is ignored; velocity is held constant at 45° upward-forward.
+    // Moon/sea boundary checks still run after this block.
     if (this.activeRocket) {
       this.activeRocket.timeLeft -= dt
       const done = this.activeRocket.timeLeft <= 0
       if (done) this.activeRocket = null
 
-      // Move at constant rocket velocity (gravity ignored during thrust)
       this.armadillo.position.x += ROCKET_VX * dt
       this.armadillo.position.y += ROCKET_VY * dt
       this.velocity.set(ROCKET_VX, ROCKET_VY)
       this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
       this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
-      this._syncMotionToArmadillo()
       this.flightPeakY = Math.max(this.flightPeakY, this.armadillo.position.y)
-      // Emit flame trail behind the armadillo while thrusting
+
+      // Flame trail at back of armadillo
       this._spawnParticles(
-        this.armadillo.position.x - ROCKET_VX * dt * 0.5,
-        this.armadillo.position.y - ROCKET_VY * dt * 0.5,
+        this.armadillo.position.x - ROCKET_VX * dt * 0.6,
+        this.armadillo.position.y - ROCKET_VY * dt * 0.6,
         0xff6d00, 4, 140,
       )
-      // When thrust ends, hand off to normal physics with forward momentum
+
       if (done) {
+        // Hand off to normal physics: preserve the rocket's exit velocity so
+        // the armadillo coasts upward-forward naturally under gravity.
         this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
-        this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
+        this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
       }
+
+      // Always check moon/sea even during rocket (player could collect one near the boundary)
+      if (this.armadillo.position.y >= MOON_TARGET_Y) { this._reachMoon(); return }
+      if (this.armadillo.position.y < SEA_LEVEL_Y)    { this._beginSplashGameOver(this.armadillo.position.x); return }
       return
     }
 
@@ -2833,16 +2839,19 @@ class Game {
 
   _applyItemEffect(item) {
     if (item.type === 'rocket') {
-      // Transition to FLYING if currently rolling — rocket fires immediately
+      // From ROLLING: ROLLING→FALLING is the only valid exit from rolling state.
+      // _updateFlight handles both FLYING and FALLING, so FALLING is correct here.
       if (this.sm.is(State.ROLLING)) {
         this.currentIsland = null
-        if (!this.sm.transition(State.FLYING)) return
+        if (!this.sm.transition(State.FALLING)) return
       }
+      // Already FLYING or FALLING — no transition needed, just override velocity.
       this.activeRocket = { timeLeft: ITEM_ROCKET_DURATION }
-      // Snap velocity to rocket direction immediately
       this.velocity.set(ROCKET_VX, ROCKET_VY)
       this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
       this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
+      this.physics.clearContacts()
+      this._spawnGraceTimer = 2  // skip landing detection for 2 frames after launch
       this._syncMotionToArmadillo()
       this.lastRating = 'ROCKET!'
       this._setArmadilloColor(0xff6d00)
