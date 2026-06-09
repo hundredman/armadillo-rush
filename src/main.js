@@ -2130,21 +2130,21 @@ class Game {
         if (y <= island.bounds.bottom) continue
 
         // ── Destruction direction gate ────────────────────────────────────
-        // Destruction only fires when the armadillo is moving primarily
-        // forward (horizontally).  Spin adds power to an already-forward
-        // impact but can never substitute for horizontal movement.
+        // Block only steep downward impacts — where the ball is falling
+        // mostly vertically onto the top surface.  Side, forward, and
+        // upward impacts are always allowed (they cannot reach this code
+        // via a pure side or bottom hit because getTerrainTopY only
+        // models the top surface).
         //
-        // Two hard requirements, BOTH must pass:
+        // Rule: if vy is negative (falling) AND |vy| > |vx| * 1.4
+        // the impact angle from horizontal exceeds atan(1.4) ≈ 54°,
+        // which is steep enough to be "diving from above".  At that
+        // point the ball should land normally, not break terrain.
         //
-        // 1. Forward direction: vx must be positive (moving right).
-        //    A ball moving left or stationary horizontally cannot destroy.
-        //
-        // 2. Shallow angle: horizontal component ≥ 70 % of total speed.
-        //    cos(45.6°) ≈ 0.70, so anything steeper than ~46° from
-        //    horizontal is rejected — including all steep descents and
-        //    near-vertical drops regardless of total speed or spin.
-        if (incomingVelocity.x <= 0) continue
-        if (incomingVelocity.x < speed * 0.70) continue
+        // When vy ≥ 0 (rising after a bounce, or horizontal) this check
+        // is skipped entirely so those impacts always remain valid.
+        if (incomingVelocity.y < 0 &&
+            Math.abs(incomingVelocity.y) > Math.abs(incomingVelocity.x) * 1.4) continue
 
         const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
