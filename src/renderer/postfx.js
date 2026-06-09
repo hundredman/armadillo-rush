@@ -11,8 +11,8 @@ import {
 import { Vector2 } from 'three'
 
 /**
- * Background를 composer 첫 번째 패스로 실행하는 커스텀 패스.
- * RenderPass 이전에 sky 셰이더를 그린 뒤 clear 없이 메인 씬을 합성한다.
+ * Custom pass that renders Background as the first composer pass.
+ * Draws the sky shader before RenderPass, composites main scene without clearing.
  */
 class BackgroundPass extends Pass {
   constructor(bgScene, bgCamera) {
@@ -25,16 +25,16 @@ class BackgroundPass extends Pass {
   render(renderer, inputBuffer, outputBuffer) {
     renderer.setRenderTarget(outputBuffer)
     renderer.autoClear = false
-    renderer.clear()   // color + depth + stencil 전부 클리어
+    renderer.clear()   // clear color + depth + stencil
     renderer.render(this.bgScene, this.bgCamera)
     renderer.autoClear = true
   }
 }
 
 /**
- * Postprocessing 파이프라인.
- * BackgroundPass → RenderPass(메인 씬) → Bloom + ChromaticAberration + Vignette
- * update(trauma, heightRatio, dt) 로 매 프레임 강도 조절.
+ * Postprocessing pipeline.
+ * BackgroundPass → RenderPass(main scene) → Bloom + ChromaticAberration + Vignette
+ * Call update(trauma, heightRatio, dt) every frame to adjust intensity.
  */
 export class PostFX {
   constructor(threeRenderer, scene, camera, bgScene, bgCamera) {
@@ -44,7 +44,7 @@ export class PostFX {
 
     this.renderPass = new RenderPass(scene, camera)
     this.renderPass.clear = false
-    this.renderPass.clearDepth = true  // depth만 클리어해서 배경 위에 게임 오브젝트 정상 렌더
+    this.renderPass.clearDepth = true  // clear depth only — composite game objects over background
 
     this.bloom = new BloomEffect({
       intensity: 1.2,

@@ -1,22 +1,22 @@
 /**
- * 게임 상태 머신 (§4 게임 흐름).
- * 단계: TITLE → AIMING → POWERING → FLYING → ROLLING ⇄ FALLING → GAMEOVER
+ * Game state machine.
+ * Flow: TITLE → SLINGING → FLYING → ROLLING ⇄ FALLING → GAMEOVER
  */
 
 export const State = Object.freeze({
-  TITLE: 'TITLE',         // 타이틀 화면, 베스트 표시
-  SLINGING: 'SLINGING',  // 슬링 드래그로 각도·파워 동시 조준
-  FLYING: 'FLYING',       // 발사 후 첫 섬까지 포물선 비행
-  ROLLING: 'ROLLING',     // 섬 위 구름 (타이밍 판정 발생)
-  FALLING: 'FALLING',     // 갭 추락 중 (아래 섬 탐색)
-  GAMEOVER: 'GAMEOVER',   // 게임 오버, 결과 표시
+  TITLE: 'TITLE',         // title screen, best record display
+  SLINGING: 'SLINGING',  // sling drag — aim angle and power simultaneously
+  FLYING: 'FLYING',       // parabolic flight after launch
+  ROLLING: 'ROLLING',     // rolling on an island (boost timing)
+  FALLING: 'FALLING',     // falling through a gap
+  GAMEOVER: 'GAMEOVER',   // game over, result display
 })
 
-// 허용되는 전환만 명시 — 잘못된 전환은 개발 중 즉시 잡는다.
+// Only allowed transitions are listed — invalid transitions warn immediately in dev.
 const TRANSITIONS = {
   [State.TITLE]:    [State.SLINGING],
   [State.SLINGING]: [State.FLYING, State.TITLE],
-  [State.FLYING]:   [State.ROLLING, State.SLINGING, State.GAMEOVER], // 첫 섬 도달 실패/바다 추락
+  [State.FLYING]:   [State.ROLLING, State.SLINGING, State.GAMEOVER],
   [State.ROLLING]:  [State.FALLING, State.GAMEOVER],
   [State.FALLING]:  [State.ROLLING, State.GAMEOVER],
   [State.GAMEOVER]: [State.SLINGING, State.TITLE],
@@ -38,7 +38,7 @@ export class StateMachine {
 
   transition(to) {
     if (!this.canTransition(to)) {
-      console.warn(`[state] 잘못된 전환: ${this.current} → ${to}`)
+      console.warn(`[state] invalid transition: ${this.current} → ${to}`)
       return false
     }
     const from = this.current

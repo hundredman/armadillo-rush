@@ -49,22 +49,22 @@ function getBiomeStyle(biome) {
   }
 }
 
-// 그릇(bowl) 모양 섬 레이아웃: x=중심, y=그릇 바닥 높이, w=폭, depth=그릇 깊이, rimH=테두리 높이
-// 슬링 위치 y=0 기준. 초반부터 위아래 변화 크게, 충분한 간격으로.
+// Island layout: x=center, y=floor, w=width, depth=height variation, rimH=rim height
+// y=0 is sling position. Early islands vary vertically with sufficient spacing.
 export const DEFAULT_ISLAND_LAYOUT = [
-  // ── 초반: 여러 지형이 화면에 동시에 걸리도록 매우 촘촘하게 ──
-  { x:  220, y: -255, w: 420, depth: 22, rimH: 14, shapeType: 'plateau', softBreak: true },
-  { x:  330, y:    0, w: 520, depth: 28, rimH: 18, shapeType: 'bowl', softBreak: true },
-  { x:  455, y: -210, w: 390, depth: 24, rimH: 15, shapeType: 'wave', softBreak: true },
-  { x:  610, y:   70, w: 480, depth: 25, rimH: 16, shapeType: 'plateau', softBreak: true },
-  { x:  750, y: -275, w: 420, depth: 23, rimH: 15, shapeType: 'dip', softBreak: true },
-  { x:  895, y:  -45, w: 500, depth: 32, rimH: 18, shapeType: 'wave', softBreak: true },
-  { x: 1185, y:  130, w: 470, depth: 30, rimH: 20, shapeType: 'ramp', softBreak: true },
-  { x: 1305, y: -230, w: 405, depth: 26, rimH: 17, shapeType: 'bowl', softBreak: true },
-  { x: 1475, y:   15, w: 490, depth: 34, rimH: 20, shapeType: 'dip', softBreak: true },
-  { x: 1770, y:  225, w: 460, depth: 29, rimH: 18, shapeType: 'crest', softBreak: true },
-  { x: 1905, y: -205, w: 400, depth: 25, rimH: 16, shapeType: 'saddle', softBreak: true },
-  { x: 2070, y:  -15, w: 475, depth: 36, rimH: 21, shapeType: 'double', softBreak: true },
+  // ── Early islands: densely packed so multiple fit on screen ──
+  { x:  220, y:  -80, w: 420, depth: 22, rimH: 14, shapeType: 'plateau', softBreak: true },
+  { x:  330, y:  120, w: 520, depth: 28, rimH: 18, shapeType: 'bowl', softBreak: true },
+  { x:  455, y:  -30, w: 390, depth: 24, rimH: 15, shapeType: 'wave', softBreak: true },
+  { x:  610, y:  200, w: 480, depth: 25, rimH: 16, shapeType: 'plateau', softBreak: true },
+  { x:  750, y:  -60, w: 420, depth: 23, rimH: 15, shapeType: 'dip', softBreak: true },
+  { x:  895, y:  130, w: 500, depth: 32, rimH: 18, shapeType: 'wave', softBreak: true },
+  { x: 1185, y:  280, w: 470, depth: 30, rimH: 20, shapeType: 'ramp', softBreak: true },
+  { x: 1305, y:   50, w: 405, depth: 26, rimH: 17, shapeType: 'bowl', softBreak: true },
+  { x: 1475, y:  200, w: 490, depth: 34, rimH: 20, shapeType: 'dip', softBreak: true },
+  { x: 1770, y:  380, w: 460, depth: 29, rimH: 18, shapeType: 'crest', softBreak: true },
+  { x: 1905, y:   80, w: 400, depth: 25, rimH: 16, shapeType: 'saddle', softBreak: true },
+  { x: 2070, y:  230, w: 475, depth: 36, rimH: 21, shapeType: 'double', softBreak: true },
   { x: 2370, y:  300, w: 450, depth: 31, rimH: 20, shapeType: 'saddle', softBreak: true },
   { x: 2670, y:  105, w: 480, depth: 35, rimH: 22, shapeType: 'bowl', softBreak: true },
   { x: 2975, y:  455, w: 450, depth: 30, rimH: 21, shapeType: 'plateau', softBreak: true },
@@ -85,16 +85,16 @@ export const DEFAULT_ISLAND_LAYOUT = [
 ]
 
 /**
- * 지형 상면 커브 생성.
+ * Generate terrain top curve.
  * shapeType: 'bowl' | 'ramp' | 'wave' | 'plateau' | 'dip' | 'double' | 'crest' | 'saddle'
- * 모든 형태는 매끄러운 CatmullRom 스플라인 — 울퉁불퉁함 없음.
+ * All shapes use smooth CatmullRom splines.
  *
- * @param {number} x      중심 x (월드 좌표)
- * @param {number} y      기준 바닥 y (월드 좌표)
- * @param {number} w      전체 폭 (px)
- * @param {number} depth  높이 변화 폭 (px)
- * @param {number} rimH   가장자리 추가 높이 (px)
- * @param {string} [shapeType='bowl']  지형 상면 형태
+ * @param {number} x      center x (world coords)
+ * @param {number} y      floor y (world coords)
+ * @param {number} w      total width (px)
+ * @param {number} depth  height variation (px)
+ * @param {number} rimH   extra rim height (px)
+ * @param {string} [shapeType='bowl']  terrain surface shape
  */
 export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', softBreak = false, biome = getBiomeForY(y) }) {
   const left  = x - w / 2
@@ -103,7 +103,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
 
   let controls
   if (shapeType === 'ramp') {
-    // 완만한 오르막 경사: 왼쪽 낮고 오른쪽 높음 (삼각/사다리꼴형)
+    // gradual ramp: low left, high right
     const baseY = y
     const topY  = y + depth + rimH
     controls = [
@@ -113,7 +113,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            topY,               0),
     ]
   } else if (shapeType === 'plateau') {
-    // 넓은 완만한 평지: 점프 보너스 없이 안정적으로 굴러가는 구간
+    // wide flat plateau: stable rolling, no jump bonus
     const baseY = y
     controls = [
       new THREE.Vector3(left,             baseY + rimH * 0.9, 0),
@@ -124,7 +124,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            baseY + rimH * 0.8, 0),
     ]
   } else if (shapeType === 'dip') {
-    // 한쪽으로 살짝 파인 홈: 자연스러운 속도 손실/회복 구간
+    // shallow dip: natural speed dip and recovery
     const rimY = y + depth + rimH
     controls = [
       new THREE.Vector3(left,             rimY * 0.96 + y * 0.04, 0),
@@ -134,7 +134,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            y + depth * 0.72, 0),
     ]
   } else if (shapeType === 'double') {
-    // W형 이중 그릇: 한 지형 안에서 두 번 눌렀다 올라오는 흐름
+    // W-shaped double bowl: two dips in one terrain
     const rimY = y + depth + rimH
     controls = [
       new THREE.Vector3(left,             rimY, 0),
@@ -145,7 +145,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            rimY * 0.92 + y * 0.08, 0),
     ]
   } else if (shapeType === 'crest') {
-    // 둥근 언덕: 스페이스 오르막 보너스를 노리기 좋은 형태
+    // round hill: good for uphill boost
     const baseY = y
     controls = [
       new THREE.Vector3(left,             baseY + depth * 0.18, 0),
@@ -155,7 +155,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            baseY + depth * 0.12, 0),
     ]
   } else if (shapeType === 'saddle') {
-    // 비대칭 S자 안장: 오르막/내리막이 섞인 선택지
+    // asymmetric S saddle: mixed uphill/downhill
     const baseY = y
     controls = [
       new THREE.Vector3(left,             baseY + depth * 0.64, 0),
@@ -166,7 +166,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            baseY + depth * 0.42, 0),
     ]
   } else if (shapeType === 'wave') {
-    // S자 파도: 왼쪽 낮 → 중간 낮은 고원 → 오른쪽 높은 끝
+    // S-wave: low left → low plateau → high right
     const baseY = y
     const midY  = y + depth * 0.35
     const topY  = y + depth + rimH
@@ -178,7 +178,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
       new THREE.Vector3(right,            topY,               0),
     ]
   } else {
-    // bowl (기본): 양 끝이 높고 중심이 낮은 U자
+    // bowl (default): high edges, low center — U shape
     const rimY    = y + depth + rimH
     const innerY  = y + depth * 0.18
     const centerY = y
@@ -194,14 +194,14 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
   const curve = new THREE.CatmullRomCurve3(controls, false, 'centripetal', 0.5)
   const topPoints = curve.getPoints(72).map((p) => new THREE.Vector2(p.x, p.y))
 
-  // bowl 계열의 중심 y = 최저점; ramp/wave는 왼쪽 끝이 기준
+  // bowl center y = lowest point; ramp/wave uses left edge
   const centerY = shapeType === 'bowl' ? y : Math.min(...topPoints.map((p) => p.y))
 
   const minY    = Math.min(...topPoints.map((p) => p.y))
   const maxY    = Math.max(...topPoints.map((p) => p.y))
   const bottomY = minY - TERRAIN_THICKNESS * style.bottomScale
 
-  // 토양 메시: 둥근 하단과 깎인 모서리로 떠있는 섬 느낌을 만든다.
+  // soil mesh: rounded bottom + chamfered corners for floating island feel
   const leftTop = topPoints[0]
   const rightTop = topPoints[topPoints.length - 1]
   const cornerR = Math.min(w * 0.16, TERRAIN_THICKNESS * 0.92, 58)
@@ -228,7 +228,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
   )
   soil.position.z = -0.02
 
-  // 잔디 레이어 (상면 안쪽)
+  // grass layer (inner top surface)
   const grassShape = new THREE.Shape()
   grassShape.moveTo(topPoints[0].x, topPoints[0].y)
   for (let i = 1; i < topPoints.length; i++) grassShape.lineTo(topPoints[i].x, topPoints[i].y)
@@ -302,7 +302,7 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     biome,
     visuals: { soil, grass, ridge, boostRibbon, boostLine, boostMarkers },
     visualMeta: { left, right, x, w, bottomY, bottomCurveY, cornerR, sideDrop, leftTop, rightTop },
-    bounds: { left, right, top: maxY, bottom: bottomCurveY },
+    bounds: { left, right, top: maxY, bottom: bottomCurveY, rampLeft: left - LEFT_RAMP_W },
     bowlCenter: x,
     bowlFloor: centerY,
   }
@@ -362,9 +362,14 @@ function createTerrainBodyShapes(terrain) {
   return [shape]
 }
 
+const LEFT_RAMP_W = 60  // px width of the rounded left-entry ramp
+
 function writeTopPath(shape, terrain) {
   const points = terrain.points
-  shape.moveTo(points[0].x, points[0].y)
+  const p0 = points[0]
+  // start below-left and curve up to the first surface point — creates a rounded entry ramp
+  shape.moveTo(p0.x - LEFT_RAMP_W, p0.y - 40)
+  shape.quadraticCurveTo(p0.x - LEFT_RAMP_W * 0.3, p0.y - 4, p0.x, p0.y)
   for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, points[i].y)
 }
 
@@ -624,9 +629,9 @@ function mergeDamageZones(terrain) {
 }
 
 /**
- * 지형 파괴 데미지 적용.
- * 손상 영역을 기반으로 지형 메시를 직접 다시 깎고, 짧게 날아가는 흙 파편만 생성한다.
- * @returns {{ zone, chunks }} zone = 충돌 영역, chunks = 애니메이션 파편 배열
+ * Apply terrain destruction damage.
+ * Cuts the terrain mesh directly and spawns dirt chunk particles.
+ * @returns {{ zone, chunks }} zone = damage region, chunks = animated debris
  */
 export function damageTerrain(terrain, x, radius = BASE_DAMAGE_RADIUS, depth = 1) {
   const clampedX = THREE.MathUtils.clamp(x, terrain.bounds.left, terrain.bounds.right)
@@ -643,7 +648,7 @@ export function damageTerrain(terrain, x, radius = BASE_DAMAGE_RADIUS, depth = 1
 
   const { chunks } = createDamageMark(radius, depth)
 
-  // 파편 초기 위치를 지형 위에 배치 (chunk.x/y는 물리 루프가 사용하는 월드 좌표)
+  // place chunk at terrain surface (chunk.x/y used by physics loop as world coords)
   for (const chunk of chunks) {
     chunk.x = clampedX + chunk.mesh.userData.offsetX
     chunk.y = topY + chunk.mesh.userData.offsetY
@@ -668,8 +673,8 @@ export function isTerrainDamagedAt(terrain, x, margin = 0) {
 }
 
 /**
- * 파편 물리 애니메이션 업데이트.
- * main.js의 _update() 에서 매 프레임 호출.
+ * Update debris physics animation.
+ * Called every frame from main.js _update().
  */
 export function updateTerrainChunks(terrain, dt) {
   if (!terrain.animChunks) return
@@ -695,7 +700,7 @@ export function updateTerrainChunks(terrain, dt) {
     chunk.mesh.rotation.z = chunk.rot
     chunk.mesh.scale.setScalar(lifeRatio * 0.9 + 0.1)
 
-    // 재질 opacity 페이드
+    // material opacity fade
     if (chunk.mesh.material?.opacity !== undefined) {
       chunk.mesh.material.opacity = Math.min(1, lifeRatio * 1.4)
     }
@@ -705,8 +710,8 @@ export function updateTerrainChunks(terrain, dt) {
 }
 
 /**
- * 크레이터 ShaderMaterial uTime 업데이트.
- * 생성 직후 flash 애니메이션 처리.
+ * Update crater ShaderMaterial uTime.
+ * Handles flash animation immediately after creation.
  */
 export function updateTerrainCraters(terrain, dt) {
   for (const mark of terrain.damageMarks) {
@@ -748,7 +753,7 @@ function createDamageMark(radius, depth) {
   shaft.position.set(0, -radius * (0.28 + depth * 0.04), 0.02)
   group.add(shaft)
 
-  // ShaderMaterial 크레이터 (GLSL)
+  // ShaderMaterial crater (GLSL)
   const craterMat = new THREE.ShaderMaterial({
     vertexShader: craterVert,
     fragmentShader: craterFrag,
@@ -783,7 +788,7 @@ function createDamageMark(radius, depth) {
   rim.position.set(0, 0, 0.075)
   group.add(rim)
 
-  // 물리 파편 배열
+  // physics debris array
   const chunks = []
   const chunkCount = 10 + Math.floor(depth * 8)
   for (let i = 0; i < chunkCount; i++) {
@@ -825,7 +830,7 @@ function createDamageMark(radius, depth) {
   return { mark: group, chunks }
 }
 
-// 절차적 섬에서 순환할 모양 패턴
+// shape sequence for procedural islands
 const SHAPE_SEQUENCE = [
   'bowl', 'plateau', 'wave', 'ramp',
   'dip', 'crest', 'double', 'saddle',
@@ -833,24 +838,24 @@ const SHAPE_SEQUENCE = [
 ]
 
 /**
- * 절차적 섬 파라미터 생성.
- * lastIsland 다음 위치에 새 섬 스펙을 반환한다.
- * 모든 형태는 매끄러운 CatmullRom 곡선으로 생성된다.
- * @param {object} lastIsland  이전 섬 객체 (bounds, bowlFloor 포함)
- * @param {number} index       전체 섬 인덱스
+ * Generate procedural island parameters.
+ * Returns a new island spec positioned after lastIsland.
+ * All shapes use smooth CatmullRom curves.
+ * @param {object} lastIsland  previous island (with bounds, bowlFloor)
+ * @param {number} index       global island index
  */
 export function generateNextIslandSpec(lastIsland, index) {
   const progress = Math.min(1, index / 70)
 
-  // 폭 감소 효과는 없애되, 개수를 늘리기 위해 전체 폭은 더 작고 일정하게 유지한다.
+  // Keep width small and consistent to fit more islands.
   const w = Math.round(THREE.MathUtils.lerp(230, 330, Math.random()) + Math.sin(index * 1.37) * 16)
 
-  // 지형별 성격 차이는 유지하되 과도하게 가팔라지지 않게 제한한다.
+  // Preserve per-shape character but cap steepness.
   const depth = Math.round(THREE.MathUtils.lerp(24, 48, Math.random()) + progress * 8)
 
   const rimH = Math.round(THREE.MathUtils.lerp(14, 30, Math.random()) + progress * 5)
 
-  // 화면 좌우 방향 간격: 겹치지 않는 선에서 매우 촘촘하게.
+  // Horizontal gap: as tight as possible without overlapping.
   const minGap = THREE.MathUtils.lerp(10, 14, progress)
   const maxGap = THREE.MathUtils.lerp(22, 38, progress)
   const gap = Math.round(THREE.MathUtils.lerp(minGap, maxGap, Math.random()))
@@ -858,19 +863,23 @@ export function generateNextIslandSpec(lastIsland, index) {
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
-  // 화면 상하 방향 간격: 다양성은 유지하되 한 화면 안에 더 많은 지형이 걸리게 낮춘다.
+  // Vertical gap
   const lowAltitude = lastIsland.bowlFloor < 1400
   const verticalRange = THREE.MathUtils.lerp(
-    VIEWPORT_SAFE_HEIGHT * (lowAltitude ? 0.08 : 0.075),
-    VIEWPORT_SAFE_HEIGHT * 0.12,
+    VIEWPORT_SAFE_HEIGHT * (lowAltitude ? 0.07 : 0.08),
+    VIEWPORT_SAFE_HEIGHT * 0.13,
     progress,
   )
-  const verticalJitter = THREE.MathUtils.lerp(-verticalRange * 0.42, verticalRange, Math.random())
-  const seaShelfDrop = lastIsland.bowlFloor < 700 && index % 7 === 0
-    ? THREE.MathUtils.lerp(70, 150, Math.random())
+  // Reduce downward jitter at low altitude to prevent islands staying low.
+  const downRatio = lowAltitude ? 0.18 : 0.38
+  const verticalJitter = THREE.MathUtils.lerp(-verticalRange * downRatio, verticalRange, Math.random())
+  // No seaShelfDrop at low altitude — already low, dropping more = unescapable.
+  const seaShelfDrop = lastIsland.bowlFloor >= 1200 && index % 9 === 0
+    ? THREE.MathUtils.lerp(50, 100, Math.random())
     : 0
-  const climbBias = THREE.MathUtils.lerp(lowAltitude ? 30 : 44, 72, progress)
-  const newY = Math.max(-330, lastIsland.bowlFloor + verticalJitter + climbBias - seaShelfDrop)
+  // High climbBias at low altitude ensures a clear upward staircase flow.
+  const climbBias = THREE.MathUtils.lerp(lowAltitude ? 100 : 70, 100, progress)
+  const newY = Math.max(-300, lastIsland.bowlFloor + verticalJitter + climbBias - seaShelfDrop)
   const biome = getBiomeForY(newY)
 
   let shapeType = SHAPE_SEQUENCE[(index + Math.floor(Math.random() * 3)) % SHAPE_SEQUENCE.length]
@@ -885,7 +894,17 @@ export function generateNextIslandSpec(lastIsland, index) {
 
 export function getTerrainTopY(terrain, x) {
   const points = terrain.points
-  if (x <= points[0].x) return points[0].y
+  const p0 = points[0]
+  const rampLeft = terrain.bounds.rampLeft ?? p0.x
+
+  // left ramp zone: smoothly lower surface so the ball can ride up onto the edge
+  if (x < p0.x) {
+    if (x < rampLeft) return p0.y - 40  // below ramp — won't land
+    const t = (x - rampLeft) / LEFT_RAMP_W
+    // ease-in curve matching the quadratic visual ramp
+    return THREE.MathUtils.lerp(p0.y - 40, p0.y, t * t)
+  }
+
   if (x >= points[points.length - 1].x) return points[points.length - 1].y
 
   for (let i = 1; i < points.length; i++) {

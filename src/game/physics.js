@@ -1,7 +1,7 @@
 import { World, Vec2, Circle, Chain } from 'planck'
 import { PX_PER_METER } from '../config.js'
 
-// Planck 단위계: 1 planck-unit = PX_PER_METER px
+// Planck unit system: 1 planck-unit = PX_PER_METER px
 // px → m: / PX_PER_METER,   m → px: * PX_PER_METER
 const P = PX_PER_METER
 
@@ -10,11 +10,11 @@ function mToPx(m)  { return m  * P }
 function v2px(v)   { return { x: mToPx(v.x), y: mToPx(v.y) } }
 
 /**
- * Planck.js 기반 물리 월드.
- * - 아르마딜로: dynamic Circle body
- * - 섬 지형:   static ChainShape (폴리라인 지형)
+ * Planck.js physics world.
+ * - armadillo: dynamic Circle body
+ * - island terrain: static ChainShape (polyline)
  *
- * 사용법:
+ * Usage:
  *   const phys = new PhysicsWorld()
  *   phys.addTerrain(island)
  *   phys.setArmadilloPos(x, y)
@@ -27,21 +27,21 @@ export class PhysicsWorld {
     this.world = World({ gravity: Vec2(0, -pxToM(980)) })
     this._terrainBodies = []
 
-    // 아르마딜로 body (반지름 = ARMADILLO_SIZE/2 = 15px → m)
+    // armadillo body (radius = ARMADILLO_SIZE/2 = 15px → m)
     const radius = pxToM(15)
     this.ballBody = this.world.createBody({
       type: 'dynamic',
       position: Vec2(0, 0),
-      bullet: true,          // CCD — 고속 터널링 방지
+      bullet: true,          // CCD — prevents high-speed tunneling
       linearDamping: 0,
     })
     this.ballBody.createFixture(Circle(radius), {
       density:     1.0,
-      friction:    0.55,     // 슬로프 마찰 (0=미끄럼, 1=강한 마찰)
-      restitution: 0.18,     // 탄성 (0=완전 비탄성, 1=완전 탄성)
+      friction:    0.55,     // slope friction (0=slippery, 1=strong)
+      restitution: 0.18,     // restitution (0=inelastic, 1=fully elastic)
     })
 
-    // 충돌 콜백 — 착지·충격 감지용
+    // collision callback — landing / impact detection
     this._contactEvents = []
     this.world.on('begin-contact', (contact) => {
       const fA = contact.getFixtureA()
@@ -64,8 +64,8 @@ export class PhysicsWorld {
   }
 
   /**
-   * terrain 객체(createCurvedTerrain 반환값)를 지형 body로 등록.
-   * 기존 동일 terrain이 있으면 먼저 제거한다.
+   * Register a terrain object (returned by createCurvedTerrain) as a physics body.
+   * Removes any existing body for the same terrain first.
    */
   addTerrain(terrain) {
     this.removeTerrain(terrain)
@@ -136,7 +136,7 @@ export class PhysicsWorld {
     this.ballBody.setAwake(true)
   }
 
-  /** dt: 초 단위 */
+  /** dt: seconds */
   step(dt) {
     this._contactEvents = []
     this.world.step(dt, 8, 3)
@@ -155,10 +155,10 @@ export class PhysicsWorld {
     }
   }
 
-  /** 이번 step에서 발생한 충돌 이벤트 목록 (읽기 전용) */
+  /** Collision events from this step (read-only). */
   get contactEvents() { return this._contactEvents }
 
-  /** 아르마딜로가 지면(정적 body)과 접촉 중인지 */
+  /** Whether the armadillo is touching a static body (grounded). */
   isGrounded() {
     for (let ce = this.ballBody.getContactList(); ce; ce = ce.next) {
       if (ce.contact.isTouching()) return true

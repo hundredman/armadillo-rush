@@ -3,22 +3,22 @@ import vertSrc from '../shaders/sky.vert?raw'
 import fragSrc from '../shaders/sky.frag?raw'
 
 /**
- * 세계관 배경 시스템.
+ * World background system.
  *
- * 레이어 구성:
- *   1. 풀스크린 sky 셰이더 (밝은 하늘 → 구름층 → 우주 → 달 궤도 그라데이션)
- *   2. 바다 메시 (하단 고정, 높이 올라갈수록 사라짐)
- *   3. 배경 구름 레이어 (중간 고도에서 등장)
- *   4. 달 메시 (상단 고정, 높이 올라갈수록 등장 + 커짐)
- *   5. 달 크레이터 데코 (달 표면 무늬)
+ * Layer composition:
+ *   1. fullscreen sky shader (clear sky → clouds → space → moon orbit gradient)
+ *   2. sea mesh (fixed bottom, fades as altitude increases)
+ *   3. background cloud layer (appears at mid altitude)
+ *   4. moon mesh (fixed top, appears and grows with altitude)
+ *   5. moon crater deco (surface markings)
  */
 export class Background {
   constructor(renderer) {
     this.renderer = renderer
     this.scene = new THREE.Scene()
-    this.camera = new THREE.Camera()   // 셰이더가 NDC 직접 출력 → 변환 불필요
+    this.camera = new THREE.Camera()   // shader outputs NDC directly — no transform needed
 
-    // ── 1. 풀스크린 sky 쿼드 ──
+    // ── 1. Fullscreen sky quad ──
     const geom = new THREE.PlaneGeometry(2, 2)
     this.material = new THREE.ShaderMaterial({
       vertexShader: vertSrc,
@@ -46,22 +46,22 @@ export class Background {
     this.lowSkyWash.position.z = -0.02
     this.scene.add(this.lowSkyWash)
 
-    // ── 2. 바다 (하단 고정 띠) ──
-    // 별도 정적 카메라로 NDC 공간에 직접 배치
+    // ── 2. Sea (fixed bottom strip) ──
+    // placed directly in NDC space with a separate static camera
     this._buildSea()
 
-    // ── 3. 고도별 구름 레이어 ──
+    // ── 3. Altitude-based cloud layer ──
     this._buildCloudLayers()
 
-    // ── 4. 달 ──
+    // ── 4. Moon ──
     this._buildMoon()
 
-    // 메인 씬(게임 오브젝트)에 배치할 달 목표 마커
-    this.moonWorldY = null   // main.js에서 설정
+    // moon target marker placed in the main scene (game objects)
+    this.moonWorldY = null   // set by main.js
   }
 
   _buildSea() {
-    // 화면 하단에 명확히 보이는 바다 수면 레이어
+    // clearly visible sea surface layer at screen bottom
     const seaMat = new THREE.MeshBasicMaterial({
       color: 0x1d8fc1,
       transparent: true,
@@ -69,7 +69,7 @@ export class Background {
       depthTest: false,
       depthWrite: false,
     })
-    // NDC 공간 기준 하단 띠: 화면 아래쪽 28% 정도
+    // NDC-space bottom strip: roughly bottom 28% of screen
     const seaGeom = new THREE.PlaneGeometry(2, 0.56)
     this.seaMesh = new THREE.Mesh(seaGeom, seaMat)
     this.seaMesh.position.set(0, -0.74, -0.5)
@@ -162,7 +162,7 @@ export class Background {
   }
 
   _buildMoon() {
-    // 달 본체 (크고 희미하게 — 진행도에 따라 등장)
+    // moon body (large, faint — appears with altitude progress)
     const moonMat = new THREE.MeshBasicMaterial({
       color: 0xdce8f0,
       transparent: true,
@@ -175,7 +175,7 @@ export class Background {
     this.moonMesh.position.set(0.35, 0.72, -0.3)
     this.scene.add(this.moonMesh)
 
-    // 달 글로우 (큰 반투명 원)
+    // moon glow (large translucent circle)
     const glowMat = new THREE.MeshBasicMaterial({
       color: 0x8ab4d4,
       transparent: true,
@@ -188,7 +188,7 @@ export class Background {
     this.moonGlow.position.set(0.35, 0.72, -0.35)
     this.scene.add(this.moonGlow)
 
-    // 달 표면 크레이터 (작은 어두운 원들)
+    // moon surface craters (small dark circles)
     const craterMat = new THREE.MeshBasicMaterial({
       color: 0xb0c8d8,
       transparent: true,
@@ -214,13 +214,13 @@ export class Background {
     }
   }
 
-  /** heightRatio: 0~1 (플레이어 높이 / 기준 최대 높이) */
+  /** heightRatio: 0~1 (player height / max reference height) */
   update(heightRatio, time) {
     this.material.uniforms.uHeightRatio.value = heightRatio
     this.material.uniforms.uTime.value = time
     this.lowSkyWash.material.opacity = (1 - THREE.MathUtils.smoothstep(heightRatio, 0.12, 0.42)) * 0.72
 
-    // ── 바다 가시성 ── 초반에는 강하게, 올라가도 완전히 갑자기 사라지지 않게
+    // ── Sea visibility ── strong early, fades gradually with altitude
     const seaVis = Math.max(0, 1 - heightRatio / 0.26)
     this.seaMesh.material.opacity = seaVis
     this.seaFoam.material.opacity = seaVis * 0.38
@@ -237,7 +237,7 @@ export class Background {
       line.material.opacity = seaVis * (i === 0 ? 0.65 : 0.32)
     }
 
-    // ── 구름층 ── 중간 고도에서 풍성하고, 우주에 가까워지면 사라진다.
+    // ── Cloud layer ── dense at mid altitude, fades near space
     const cloudVis = smoothBell(heightRatio, 0.07, 0.62)
     for (const cloud of this.cloudLayers) {
       const spec = cloud.userData
@@ -250,9 +250,9 @@ export class Background {
       }
     }
 
-    // ── 달 등장 ── 높이 0.7 이상에서 서서히 나타남
+    // ── Moon appearance ── fades in above height 0.7
     const moonVis = Math.max(0, Math.min(1, (heightRatio - 0.70) / 0.20))
-    const moonScale = 1.0 + moonVis * 0.5   // 가까워질수록 커짐
+    const moonScale = 1.0 + moonVis * 0.5   // grows as you approach
     this.moonMesh.material.opacity = moonVis * 0.95
     this.moonGlow.material.opacity = moonVis * 0.18
     this.moonMesh.scale.setScalar(moonScale)

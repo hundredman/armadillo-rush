@@ -15,7 +15,7 @@ export class Renderer {
     })
     this.renderer.setClearColor(0x000011, 1)
 
-    // updateStyle=false: CSS(100%/100%)를 건드리지 않고 drawingBuffer만 설정
+    // updateStyle=false: resize drawingBuffer only, leave CSS (100%/100%) untouched
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setSize(window.innerWidth, window.innerHeight, false)
 
