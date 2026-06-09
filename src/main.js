@@ -2433,17 +2433,24 @@ class Game {
   }
 
   _doSeaBounce(x = this.armadillo.position.x) {
-    // find highest nearby island and bounce 1.2x that height above sea
-    let nearestIslandTopY = SEA_LEVEL_Y + 200
+    // find the highest island ahead (prefer forward direction) within range
+    let targetIslandTopY = SEA_LEVEL_Y + 300
     for (const island of this.islands) {
       if (island.destroyed) continue
-      if (Math.abs(island.bowlCenter - x) > 2400) continue
-      nearestIslandTopY = Math.max(nearestIslandTopY, island.bounds.top)
+      // prioritise islands ahead; accept up to 600px behind as fallback
+      if (island.bowlCenter < x - 600) continue
+      if (island.bowlCenter > x + 3600) continue
+      targetIslandTopY = Math.max(targetIslandTopY, island.bounds.top)
     }
-    // 1.2x the island's height above sea level (not the raw y coordinate)
-    const islandHeightAboveSea = nearestIslandTopY - SEA_LEVEL_Y
-    const targetHeight = Math.max(400, islandHeightAboveSea * 1.2)
-    const bounceVy = Math.sqrt(2 * 980 * targetHeight)
+
+    // target peak = island top + generous clearance so ball crests well above terrain
+    const clearance = 480
+    const targetPeakY = targetIslandTopY + clearance
+    const targetHeight = targetPeakY - SEA_LEVEL_Y
+
+    // use actual gravity at current altitude for accurate vy calculation
+    const gravity = this._getGravityPx()
+    const bounceVy = Math.sqrt(2 * gravity * targetHeight)
     const bounceVx = this.velocity.x * 0.75
 
     this.armadillo.visible = true
