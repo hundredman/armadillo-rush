@@ -161,6 +161,8 @@ class Game {
     this.lives = 3
     this.doubleJumpUsed = false
     this.preBoostSource = null  // input pressed before landing — fires boost immediately on touch
+    this.pointerIsDown = false
+    this.spaceIsDown = false
     this.bestRecord = this._loadBestRecord()
     this.isPaused = false
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
@@ -1330,6 +1332,7 @@ class Game {
       if (handleControlButton(event)) return
       event.preventDefault()
       this._ensureAudio()
+      this.pointerIsDown = true
       this._handlePointerDown(event.clientX, event.clientY)
     }, { passive: false })
 
@@ -1340,6 +1343,7 @@ class Game {
     }, { passive: false })
 
     window.addEventListener('pointerup', (event) => {
+      this.pointerIsDown = false
       if (this.slingDragging) {
         event.preventDefault()
         this._handlePointerRelease()
@@ -1350,6 +1354,7 @@ class Game {
     }, { passive: false })
 
     window.addEventListener('pointercancel', () => {
+      this.pointerIsDown = false
       this.slingDragging = false
       this.slingPull.set(0, 0)
       this._setArmadilloCurled(false)
@@ -1373,6 +1378,7 @@ class Game {
           event.stopImmediatePropagation()
           return
         }
+        this.spaceIsDown = true
         this._ensureAudio()
         this._handleKeyboardPress()
         return
@@ -1387,6 +1393,7 @@ class Game {
     window.addEventListener('keyup', (event) => {
       if (event.code === 'Space') {
         event.preventDefault()
+        this.spaceIsDown = false
         if (this.sm.is(State.TITLE)) {
           event.stopImmediatePropagation()
           return
@@ -2300,27 +2307,39 @@ class Game {
       this.sm.transition(State.ROLLING)
     }
 
-    // fire buffered pre-boost immediately on landing
+    // fire buffered pre-boost only if input is still held at landing
     if (this.preBoostSource) {
       const src = this.preBoostSource
       this.preBoostSource = null
-      this._startBoostHold(src)
+      const stillHeld = src === 'pointer' ? this.pointerIsDown : this.spaceIsDown
+      if (stillHeld) this._startBoostHold(src)
     }
   }
 
   _springFromCloudIsland(island) {
-    const topY = getTerrainTopY(island, this.armadillo.position.x)
-    const vx = this.velocity.x * CLOUD_SPRING_VX_KEEP
-    const vy = CLOUD_SPRING_VY + Math.min(220, Math.abs(this.velocity.y) * 0.18)
-    this.armadillo.position.y = topY + ARMADILLO_SIZE / 2 + 3
-    this.velocity.set(vx, vy)
-    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vx, vy)
-    this._syncMotionToArmadillo()
-    this.lastRating = 'SPRING'
+    // cloud landing: treat like a normal landing but give a speed + launch bonus
+    this.currentIsland = island
+    this._cancelBoostHold()
+    this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.40)
+    const hSpeed = Math.abs(this.velocity.x)
+    const landedSpeedRatio = Math.min(1, hSpeed / MAX_SPEED)
+    this.speedRatio = Math.max(this.speedRatio, landedSpeedRatio)
+    this.velocity.set(0, 0)
+    this.physics.setArmadilloVelocity(0, 0)
+    this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.sm.transition(State.ROLLING)
+    }
+    if (this.preBoostSource) {
+      const src = this.preBoostSource
+      this.preBoostSource = null
+      const stillHeld = src === 'pointer' ? this.pointerIsDown : this.spaceIsDown
+      if (stillHeld) this._startBoostHold(src)
+    }
+    this.lastRating = 'CLOUD'
     this._setArmadilloColor(0xd8f4ff)
-    this._spawnRipple(this.armadillo.position.x, topY, 0xd8f4ff, 120, 0.42)
-    this._spawnParticles(this.armadillo.position.x, topY + 8, 0xffffff, 16, 180)
+    this._spawnRipple(this.armadillo.position.x, this.armadillo.position.y - ARMADILLO_SIZE / 2, 0xd8f4ff, 120, 0.42)
+    this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffffff, 12, 160)
     this._playTone(620, 0.10, 0.05, 'triangle')
   }
 
@@ -2331,22 +2350,17 @@ class Game {
     const slopeAngle = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
     // sin(angle) > 0 = uphill. No auto-accel; uphill resistance only.
     const slopeFactor = Math.sin(slopeAngle)
-    const slopeEffect = slopeFactor > 0 ? -slopeFactor * SLOPE_RESIST_PER_SEC : 0
-    const zoneBoostRatio = this.boostHeld
-      ? this._getBoostAccelerationRatio(this.currentIsland, this.armadillo.position.x, slopeAngle)
-      : 0
-    const boostAccelRatio = this.boostHeld
-      ? Math.max(BOOST_WEAK_RATIO, zoneBoostRatio)
-      : 0
-    const inputBoost = boostAccelRatio * BOOST_ACCEL_PER_SEC
-
-    this.speedRatio = THREE.MathUtils.clamp(
-      this.speedRatio + (inputBoost + slopeEffect - FRICTION_PER_SEC) * dt,
-      0,
-      BOOST_SPEED_LIMIT,
-    )
+    // slope resist only when going uphill — no auto-accel on downhill without input
+    const slopeResist = slopeFactor > 0 ? -slopeFactor * SLOPE_RESIST_PER_SEC : 0
 
     if (this.boostHeld) {
+      const zoneBoostRatio = this._getBoostAccelerationRatio(this.currentIsland, this.armadillo.position.x, slopeAngle)
+      const boostAccelRatio = Math.max(BOOST_WEAK_RATIO, zoneBoostRatio)
+      this.speedRatio = THREE.MathUtils.clamp(
+        this.speedRatio + (boostAccelRatio * BOOST_ACCEL_PER_SEC + slopeResist - FRICTION_PER_SEC) * dt,
+        0,
+        BOOST_SPEED_LIMIT,
+      )
       this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
       this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
       this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
@@ -2360,9 +2374,16 @@ class Game {
         this._releaseBoostHold(this.boostHoldSource ?? 'keyboard')
         return
       }
+      this._lastBoostZoneRatio = zoneBoostRatio
+    } else {
+      // no input: only friction + uphill resist, no boost accel, no downhill accel
+      this.speedRatio = THREE.MathUtils.clamp(
+        this.speedRatio + (slopeResist - FRICTION_PER_SEC * 4) * dt,
+        0,
+        BOOST_SPEED_LIMIT,
+      )
+      this._lastBoostZoneRatio = 0
     }
-
-    this._lastBoostZoneRatio = zoneBoostRatio
 
     const moveX = this.speedRatio * MAX_SPEED * dt
     this.armadillo.position.x += moveX
@@ -2372,7 +2393,8 @@ class Game {
     }
     // snap y to terrain top — follows slope naturally
     this.armadillo.position.y = getTerrainTopY(this.currentIsland, this.armadillo.position.x) + ARMADILLO_SIZE / 2
-    this.armadillo.rotation.z -= moveX / (ARMADILLO_SIZE / 2)
+    // clockwise rotation when rolling right
+    this.armadillo.rotation.z += moveX / (ARMADILLO_SIZE / 2)
 
     this._updateStallState(dt)
 

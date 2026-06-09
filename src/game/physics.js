@@ -71,7 +71,7 @@ export class PhysicsWorld {
     this.removeTerrain(terrain)
     const body = this.world.createBody({ type: 'static' })
     const segments = this._buildTerrainSegments(terrain)
-    const restitution = terrain.biome === 'cloud' ? 0.72 : terrain.biome === 'meteor' ? 0.04 : 0.1
+    const restitution = terrain.biome === 'meteor' ? 0.04 : 0.1
     const friction = terrain.biome === 'cloud' ? 0.38 : terrain.biome === 'meteor' ? 0.68 : 0.55
     for (const segment of segments) {
       body.createFixture(Chain(segment.map(p => Vec2(pxToM(p.x), pxToM(p.y))), false), {
