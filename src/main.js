@@ -160,6 +160,7 @@ class Game {
     this.flightPeakY = 0       // peak altitude during flight (for bounce strength)
     this.lives = 3
     this.doubleJumpUsed = false
+    this.preBoostSource = null  // input pressed before landing — fires boost immediately on touch
     this.bestRecord = this._loadBestRecord()
     this.isPaused = false
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
@@ -1439,6 +1440,10 @@ class Game {
       return
     }
 
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.preBoostSource = 'pointer'
+      return
+    }
   }
 
   _handlePointerMove(clientX, clientY) {
@@ -1533,6 +1538,7 @@ class Game {
     this.boostCharge = 0
     this.boostPeakRatio = 0
     this._lastBoostZoneRatio = 0
+    this.preBoostSource = null
   }
 
   _handleTap(source = 'pointer') {
@@ -1579,6 +1585,10 @@ class Game {
       return
     }
 
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
+      this.preBoostSource = 'keyboard'
+      return
+    }
   }
 
   _syncMotionToArmadillo() {
@@ -1651,6 +1661,7 @@ class Game {
     this.isPaused = false
     this.lives = 3
     this.doubleJumpUsed = false
+    this.preBoostSource = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1692,6 +1703,7 @@ class Game {
     this.isPaused = false
     this.lives = 3
     this.doubleJumpUsed = false
+    this.preBoostSource = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -2287,6 +2299,13 @@ class Game {
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
     }
+
+    // fire buffered pre-boost immediately on landing
+    if (this.preBoostSource) {
+      const src = this.preBoostSource
+      this.preBoostSource = null
+      this._startBoostHold(src)
+    }
   }
 
   _springFromCloudIsland(island) {
@@ -2321,35 +2340,26 @@ class Game {
       : 0
     const inputBoost = boostAccelRatio * BOOST_ACCEL_PER_SEC
 
-    // without input: only friction/slope drag, no movement
-    if (!this.boostHeld) {
-      this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (slopeEffect - FRICTION_PER_SEC) * dt,
-        0,
-        BOOST_SPEED_LIMIT,
-      )
-      this._updateStallState(dt)
-      return
-    }
-
     this.speedRatio = THREE.MathUtils.clamp(
       this.speedRatio + (inputBoost + slopeEffect - FRICTION_PER_SEC) * dt,
       0,
       BOOST_SPEED_LIMIT,
     )
 
-    this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
-    this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
-    this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
-    this._setArmadilloColor(zoneBoostRatio > 0 ? 0xfff176 : 0xffb74d)
+    if (this.boostHeld) {
+      this.boostCharge = Math.min(1, this.boostCharge + boostAccelRatio * dt * 2.4)
+      this.boostPeakRatio = Math.max(this.boostPeakRatio, boostAccelRatio)
+      this.lastRating = zoneBoostRatio > 0 ? 'CHARGE' : 'HOLD'
+      this._setArmadilloColor(zoneBoostRatio > 0 ? 0xfff176 : 0xffb74d)
 
-    // boost zone crest crossed into downhill: launch immediately
-    const wasInBoostZone = this._lastBoostZoneRatio > 0
-    const leftBoostZone = wasInBoostZone && zoneBoostRatio === 0
-    const isDownhill = slopeFactor < -0.05
-    if (leftBoostZone && isDownhill) {
-      this._releaseBoostHold(this.boostHoldSource ?? 'keyboard')
-      return
+      // boost zone crest crossed into downhill: launch immediately
+      const wasInBoostZone = this._lastBoostZoneRatio > 0
+      const leftBoostZone = wasInBoostZone && zoneBoostRatio === 0
+      const isDownhill = slopeFactor < -0.05
+      if (leftBoostZone && isDownhill) {
+        this._releaseBoostHold(this.boostHoldSource ?? 'keyboard')
+        return
+      }
     }
 
     this._lastBoostZoneRatio = zoneBoostRatio
