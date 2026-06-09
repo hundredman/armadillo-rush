@@ -42,38 +42,86 @@ function getBiomeStyle(biome) {
 
 // Island layout: x=center, y=floor, w=width, depth=height variation, rimH=rim height
 // y=0 is sling position. Early islands vary vertically with sufficient spacing.
+// Terrain is grouped into named sections to guide variety. softBreak=true means
+// the island breaks more easily (used in learning and mid-game sections).
 export const DEFAULT_ISLAND_LAYOUT = [
-  // ── Early islands: gentle hills so the player learns the momentum mechanic ──
-  { x:  240, y:  -60, w: 500, depth: 55, rimH: 22, shapeType: 'bowl',   softBreak: true },
-  { x:  440, y:   80, w: 540, depth: 65, rimH: 26, shapeType: 'hill',   softBreak: true },
-  { x:  660, y:  -20, w: 480, depth: 60, rimH: 24, shapeType: 'valley', softBreak: true },
-  { x:  860, y:  160, w: 520, depth: 70, rimH: 28, shapeType: 'slope',  softBreak: true },
-  { x: 1080, y:   40, w: 500, depth: 62, rimH: 25, shapeType: 'bowl',   softBreak: true },
-  { x: 1290, y:  260, w: 540, depth: 75, rimH: 30, shapeType: 'hill',   softBreak: true },
-  { x: 1520, y:  100, w: 510, depth: 68, rimH: 27, shapeType: 'valley', softBreak: true },
-  { x: 1740, y:  360, w: 530, depth: 80, rimH: 32, shapeType: 'slope',  softBreak: true },
-  { x: 1980, y:  180, w: 500, depth: 72, rimH: 28, shapeType: 'hill',   softBreak: true },
-  { x: 2210, y:  460, w: 550, depth: 85, rimH: 34, shapeType: 'bowl',   softBreak: true },
-  { x: 2460, y:  250, w: 520, depth: 78, rimH: 30, shapeType: 'valley', softBreak: true },
-  { x: 2700, y:  540, w: 540, depth: 88, rimH: 35, shapeType: 'hill',   softBreak: true },
-  { x: 2960, y:  340, w: 510, depth: 82, rimH: 32, shapeType: 'slope',  softBreak: true },
-  { x: 3210, y:  640, w: 550, depth: 92, rimH: 36, shapeType: 'bowl',   softBreak: true },
-  { x: 3480, y:  420, w: 530, depth: 86, rimH: 34, shapeType: 'valley', softBreak: true },
-  { x: 3730, y:  760, w: 545, depth: 95, rimH: 38, shapeType: 'hill' },
-  { x: 4000, y:  520, w: 520, depth: 88, rimH: 35, shapeType: 'slope' },
-  { x: 4260, y:  870, w: 550, depth: 98, rimH: 40, shapeType: 'bowl' },
-  { x: 4540, y:  630, w: 530, depth: 92, rimH: 36, shapeType: 'valley' },
-  { x: 4810, y: 1000, w: 545, depth: 102, rimH: 42, shapeType: 'hill' },
-  { x: 5090, y:  760, w: 520, depth: 96, rimH: 38, shapeType: 'slope' },
-  { x: 5360, y: 1160, w: 550, depth: 105, rimH: 44, shapeType: 'bowl' },
-  { x: 5640, y:  920, w: 530, depth: 100, rimH: 40, shapeType: 'valley' },
-  { x: 5920, y: 1320, w: 545, depth: 108, rimH: 44, shapeType: 'hill' },
-  { x: 6200, y: 1060, w: 520, depth: 102, rimH: 42, shapeType: 'slope' },
-  { x: 6480, y: 1490, w: 550, depth: 112, rimH: 46, shapeType: 'bowl' },
-  { x: 6760, y: 1230, w: 530, depth: 106, rimH: 43, shapeType: 'valley' },
-  { x: 7040, y: 1660, w: 545, depth: 115, rimH: 47, shapeType: 'hill' },
-  { x: 7320, y: 1400, w: 520, depth: 110, rimH: 45, shapeType: 'slope' },
-  { x: 7600, y: 1870, w: 550, depth: 118, rimH: 48, shapeType: 'bowl' },
+  // ── Section 1: Learning zone — gentle, forgiving, teaches momentum ──────────
+  { x:  240, y:  -60, w: 520, depth: 55, rimH: 22, shapeType: 'bowl',   softBreak: true },
+  { x:  460, y:   80, w: 560, depth: 65, rimH: 26, shapeType: 'hill',   softBreak: true },
+  { x:  690, y:  -20, w: 500, depth: 60, rimH: 24, shapeType: 'valley', softBreak: true },
+  { x:  910, y:  170, w: 540, depth: 70, rimH: 28, shapeType: 'slope',  softBreak: true },
+  { x: 1140, y:   50, w: 520, depth: 62, rimH: 25, shapeType: 'bowl',   softBreak: true },
+  { x: 1370, y:  280, w: 560, depth: 75, rimH: 30, shapeType: 'hill',   softBreak: true },
+  { x: 1610, y:  110, w: 530, depth: 68, rimH: 27, shapeType: 'valley', softBreak: true },
+  { x: 1850, y:  380, w: 550, depth: 80, rimH: 32, shapeType: 'slope',  softBreak: true },
+
+  // ── Section 2: Building momentum — wider islands, more hills ─────────────────
+  { x: 2100, y:  200, w: 560, depth: 72, rimH: 28, shapeType: 'hill',   softBreak: true },
+  { x: 2350, y:  480, w: 580, depth: 85, rimH: 34, shapeType: 'bowl',   softBreak: true },
+  { x: 2610, y:  280, w: 550, depth: 78, rimH: 30, shapeType: 'valley', softBreak: true },
+  { x: 2870, y:  580, w: 570, depth: 88, rimH: 35, shapeType: 'hill',   softBreak: true },
+  { x: 3140, y:  380, w: 540, depth: 82, rimH: 32, shapeType: 'slope',  softBreak: true },
+  { x: 3400, y:  680, w: 580, depth: 92, rimH: 36, shapeType: 'bowl',   softBreak: true },
+  { x: 3670, y:  460, w: 555, depth: 86, rimH: 34, shapeType: 'valley', softBreak: true },
+  { x: 3940, y:  800, w: 570, depth: 95, rimH: 38, shapeType: 'hill',   softBreak: true },
+
+  // ── Section 3: Speed zone — tighter gaps, reward fast momentum ───────────────
+  { x: 4200, y:  580, w: 545, depth: 88, rimH: 35, shapeType: 'slope' },
+  { x: 4460, y:  920, w: 575, depth: 98, rimH: 40, shapeType: 'bowl' },
+  { x: 4720, y:  680, w: 555, depth: 92, rimH: 36, shapeType: 'hill' },
+  { x: 4980, y: 1060, w: 580, depth: 102, rimH: 42, shapeType: 'valley' },
+  { x: 5240, y:  820, w: 550, depth: 96, rimH: 38, shapeType: 'slope' },
+  { x: 5500, y: 1200, w: 580, depth: 105, rimH: 44, shapeType: 'hill' },
+  { x: 5760, y:  970, w: 555, depth: 100, rimH: 40, shapeType: 'bowl' },
+  { x: 6020, y: 1380, w: 570, depth: 108, rimH: 44, shapeType: 'valley' },
+
+  // ── Section 4: Mid climb — increasing height, more crests to ride ────────────
+  { x: 6290, y: 1130, w: 545, depth: 102, rimH: 42, shapeType: 'hill' },
+  { x: 6550, y: 1560, w: 580, depth: 112, rimH: 46, shapeType: 'slope' },
+  { x: 6820, y: 1320, w: 555, depth: 106, rimH: 43, shapeType: 'bowl' },
+  { x: 7090, y: 1740, w: 570, depth: 115, rimH: 47, shapeType: 'hill' },
+  { x: 7360, y: 1490, w: 550, depth: 110, rimH: 45, shapeType: 'valley' },
+  { x: 7630, y: 1930, w: 580, depth: 118, rimH: 48, shapeType: 'slope' },
+  { x: 7910, y: 1680, w: 555, depth: 114, rimH: 46, shapeType: 'hill' },
+  { x: 8190, y: 2110, w: 580, depth: 122, rimH: 50, shapeType: 'bowl' },
+
+  // ── Section 5: Pre-cloud zone — destructible terrain, big hills ──────────────
+  { x: 8470, y: 1860, w: 560, depth: 118, rimH: 48, shapeType: 'valley', softBreak: true },
+  { x: 8750, y: 2260, w: 590, depth: 125, rimH: 52, shapeType: 'hill',   softBreak: true },
+  { x: 9040, y: 2020, w: 565, depth: 120, rimH: 49, shapeType: 'slope',  softBreak: true },
+  { x: 9330, y: 2420, w: 595, depth: 128, rimH: 54, shapeType: 'bowl',   softBreak: true },
+  { x: 9620, y: 2180, w: 570, depth: 124, rimH: 51, shapeType: 'hill',   softBreak: true },
+  { x: 9920, y: 2580, w: 595, depth: 130, rimH: 55, shapeType: 'valley', softBreak: true },
+  { x:10220, y: 2330, w: 575, depth: 126, rimH: 52, shapeType: 'slope',  softBreak: true },
+  { x:10530, y: 2720, w: 600, depth: 132, rimH: 56, shapeType: 'hill',   softBreak: true },
+
+  // ── Section 6: Cloud zone entry — wider platforms, valley chains ─────────────
+  { x:10840, y: 2820, w: 610, depth: 128, rimH: 54, shapeType: 'bowl' },
+  { x:11150, y: 3060, w: 625, depth: 134, rimH: 57, shapeType: 'hill' },
+  { x:11470, y: 2880, w: 605, depth: 130, rimH: 55, shapeType: 'valley' },
+  { x:11790, y: 3200, w: 630, depth: 136, rimH: 58, shapeType: 'slope' },
+  { x:12120, y: 3010, w: 610, depth: 132, rimH: 56, shapeType: 'bowl' },
+  { x:12450, y: 3360, w: 635, depth: 138, rimH: 59, shapeType: 'hill' },
+  { x:12790, y: 3170, w: 615, depth: 134, rimH: 57, shapeType: 'valley' },
+  { x:13130, y: 3510, w: 640, depth: 140, rimH: 60, shapeType: 'slope' },
+
+  // ── Section 7: High cloud — big gaps, large hills, long runs ─────────────────
+  { x:13480, y: 3320, w: 625, depth: 138, rimH: 59, shapeType: 'hill' },
+  { x:13820, y: 3680, w: 645, depth: 142, rimH: 62, shapeType: 'bowl' },
+  { x:14170, y: 3470, w: 630, depth: 140, rimH: 60, shapeType: 'valley' },
+  { x:14520, y: 3840, w: 650, depth: 145, rimH: 63, shapeType: 'hill' },
+  { x:14880, y: 3640, w: 635, depth: 142, rimH: 61, shapeType: 'slope' },
+  { x:15240, y: 4020, w: 655, depth: 148, rimH: 64, shapeType: 'bowl' },
+  { x:15610, y: 3820, w: 640, depth: 144, rimH: 62, shapeType: 'hill' },
+  { x:15990, y: 4200, w: 660, depth: 150, rimH: 65, shapeType: 'valley' },
+  { x:16380, y: 3990, w: 645, depth: 146, rimH: 63, shapeType: 'slope' },
+  { x:16780, y: 4400, w: 665, depth: 152, rimH: 66, shapeType: 'hill' },
+  { x:17180, y: 4190, w: 650, depth: 148, rimH: 64, shapeType: 'bowl' },
+  { x:17590, y: 4610, w: 670, depth: 155, rimH: 67, shapeType: 'valley' },
+  { x:18010, y: 4400, w: 655, depth: 150, rimH: 65, shapeType: 'hill' },
+  { x:18440, y: 4840, w: 675, depth: 158, rimH: 68, shapeType: 'slope' },
+  { x:18880, y: 4630, w: 660, depth: 154, rimH: 66, shapeType: 'bowl' },
+  { x:19330, y: 5060, w: 680, depth: 160, rimH: 70, shapeType: 'hill' },
 ]
 
 /**
