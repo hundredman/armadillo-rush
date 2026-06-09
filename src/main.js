@@ -149,14 +149,17 @@ class Game {
       renderRot: 0,
     }
     // sling state
-    this.slingDragging = false          // currently dragging
-    this.slingPull = new THREE.Vector2(0, 0)  // pull vector (world coords)
+    this.slingDragging = false
+    this.slingPull = new THREE.Vector2(0, 0)
     this.slingPower = 0                  // power ratio 0~1
     this.slingAngle = Math.PI / 4        // launch angle (radians)
     // Set true when TITLE/GAMEOVER click transitions to SLINGING — the same
     // pointer-up that dismissed the start screen must not trigger any gameplay
     // action (sling drag, hold-release, etc.).  Cleared on next pointerup.
     this._pendingPointerClear = false
+    // Set true when the name-prompt is dismissed via any pointer interaction —
+    // consumes the next pointerup so it cannot bleed into gameplay.
+    this._namePromptJustClosed = false
     this.boostHeld = false
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
@@ -1381,13 +1384,21 @@ class Game {
 
     window.addEventListener('pointerup', (event) => {
       this.pointerIsDown = false
-      // This pointer-up belongs to the click that dismissed the title/gameover
-      // screen — ignore it entirely so it cannot accidentally start a sling drag
-      // or trigger a hold-release on the first frame of SLINGING state.
+      // Consume the pointer-up that dismissed the title/gameover start screen.
       if (this._pendingPointerClear) {
         this._pendingPointerClear = false
         return
       }
+      // Consume the pointer-up that closed the name prompt (button click or
+      // any other interaction inside the overlay).  This prevents the up-event
+      // from bleeding into gameplay (sling hold-release, boost release, etc.).
+      if (this._namePromptJustClosed) {
+        this._namePromptJustClosed = false
+        return
+      }
+      // Also skip gameplay actions if the name prompt is still open — the user
+      // may be lifting their finger after interacting with the input field.
+      if (this.showingNamePrompt) return
       if (this.slingDragging) {
         event.preventDefault()
         this._handlePointerRelease()
@@ -1671,6 +1682,7 @@ class Game {
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
     this._pendingPointerClear = false
+    this._namePromptJustClosed = false
     this._spawnGraceTimer = 0
     this.slingPull.set(0, 0)
     this.slingPower = 0
@@ -2921,9 +2933,19 @@ class Game {
   }
 
   _confirmName(name) {
-    this.playerName = name.trim().slice(0, 16) || 'Anonymous'
+    // Store the real name, or empty string for "skip / anonymous".
+    // Never persist the literal word 'Anonymous' — it's a display fallback only.
+    const trimmed = name.trim().slice(0, 16)
+    this.playerName = (trimmed === 'Anonymous' || trimmed === '') ? '' : trimmed
     savePlayerName(this.playerName)
+    this._closeNamePrompt()
+  }
+
+  _closeNamePrompt() {
     this.showingNamePrompt = false
+    // Consume the next pointerup so the interaction that closed the prompt
+    // cannot bleed into gameplay (e.g. triggering a sling hold-release).
+    this._namePromptJustClosed = true
   }
 
   _ensureAudio() {
@@ -3153,7 +3175,7 @@ class Game {
           <div class="start-subtitle">Click to start slinging</div>
           <div class="start-best">BEST ${this.bestRecord.score}</div>
           <div class="start-tip">💡 ${TIPS[this._tipIndex]}</div>
-          <button type="button" class="clickable name-edit-btn" data-action="name-edit">👤 ${this.playerName || 'Set nickname'}</button>
+          <button type="button" class="clickable name-edit-btn" data-action="name-edit">👤 ${this.playerName || 'No nickname set'}</button>
         </div>
       ` : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
@@ -3210,10 +3232,10 @@ class Game {
             <div class="name-card-sub">Shown on the leaderboard. Max 16 characters.</div>
             <input class="name-input clickable" type="text" maxlength="16"
               placeholder="Enter nickname…"
-              value="${this.playerName === 'Anonymous' ? '' : (this.playerName || '')}"
+              value="${this.playerName || ''}"
               autocomplete="off" spellcheck="false" />
             <button type="button" class="clickable primary-button" data-action="name-confirm">Save</button>
-            <button type="button" class="clickable secondary-button" data-action="name-skip">Use Anonymous</button>
+            <button type="button" class="clickable secondary-button" data-action="name-skip">Play as Anonymous</button>
           </div>
         </div>
       ` : ''}
