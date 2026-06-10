@@ -258,7 +258,10 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
   const bottomCurveY = bottomY - Math.min(22, TERRAIN_THICKNESS * 0.28)
 
   const shape = new THREE.Shape()
-  shape.moveTo(leftTop.x, leftTop.y)
+  // Mirror the left-ramp extension used in createTerrainBodyShapes/writeTopPath
+  // so the initial mesh visually matches the landing-detection rampLeft boundary.
+  shape.moveTo(leftTop.x - LEFT_RAMP_W, leftTop.y - 40)
+  shape.quadraticCurveTo(leftTop.x - LEFT_RAMP_W * 0.3, leftTop.y - 4, leftTop.x, leftTop.y)
   for (let i = 1; i < topPoints.length; i++) shape.lineTo(topPoints[i].x, topPoints[i].y)
   shape.quadraticCurveTo(right, rightTop.y - sideDrop * 0.35, right, rightTop.y - sideDrop)
   shape.quadraticCurveTo(right, bottomY, right - cornerR, bottomY)

@@ -168,6 +168,12 @@ class Game {
     // action (sling drag, hold-release, etc.).  Cleared on next pointerup.
     this._pendingPointerClear = false
     this._namePromptJustClosed = false  // legacy — no longer set; kept for safety
+    // Set true once the first pointerup after entering SLINGING fires — prevents
+    // accidental double-tap from immediately starting a sling drag.
+    this._slingReady = false
+    // Set true once the tutorial screen has been rendered — skip rebuilding the
+    // static TITLE DOM every frame so the button is stable and `:active` shows.
+    this._tutorialRendered = false
     this.boostHeld = false
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
@@ -1396,6 +1402,8 @@ class Game {
       // Consume the pointer-up that dismissed the title/gameover start screen.
       if (this._pendingPointerClear) {
         this._pendingPointerClear = false
+        // The start-screen gesture is now fully consumed — sling drag is open.
+        if (this.sm.is(State.SLINGING)) this._slingReady = true
         return
       }
       // Consume the pointer-up that closed the name prompt (button click or
@@ -1504,8 +1512,12 @@ class Game {
       return
     }
 
-    // SLINGING: begin sling drag
+    // SLINGING: begin sling drag — only after at least one pointerup has fired
+    // since entering SLINGING (_slingReady = true).  This prevents an accidental
+    // double-tap (user presses start button, then immediately taps the sling area
+    // thinking the first press failed) from launching the sling.
     if (this.sm.is(State.SLINGING)) {
+      if (!this._slingReady) return
       this.slingDragging = true
       this._handlePointerMove(clientX, clientY)
       return
@@ -1708,6 +1720,8 @@ class Game {
     // Always consume the next pointerup so any lingering tutorial/UI click
     // cannot bleed into sling drag or boost actions on the first game frame.
     this._pendingPointerClear = true
+    this._slingReady = false
+    this._tutorialRendered = false
     this._namePromptJustClosed = false
     this._spawnGraceTimer = 0
     this._pendingTerrainRebuild.clear()
@@ -1755,6 +1769,8 @@ class Game {
     this.spinAngleVel = 0
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
+    this._slingReady = false
+    this._tutorialRendered = false
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
@@ -2367,8 +2383,9 @@ class Game {
       if (island.destroyed) continue
       const bounds = island.bounds
       const leftEdge = bounds.rampLeft ?? bounds.left
-      // Only land on the top surface — reject anything past the right edge
-      if (x < leftEdge - ARMADILLO_SIZE / 2 || x > bounds.right) continue
+      // Only land on the top surface — reject anything past the right edge.
+      // No extra buffer beyond rampLeft: the visual now extends to that boundary.
+      if (x < leftEdge || x > bounds.right) continue
       if (x >= bounds.left && isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
       const topY = getTerrainTopY(island, x)
       // landed if bottom is near or below topY (proximity: 30px window)
@@ -2388,8 +2405,9 @@ class Game {
     for (const island of this.islands) {
       if (island.destroyed) continue
       const bounds = island.bounds
-      // Only the top surface is valid ground — reject anything past the right edge
-      if (x < bounds.left - ARMADILLO_SIZE || x > bounds.right) continue
+      // Only the top surface is valid ground — reject anything past the right edge.
+      // Use rampLeft so rolling on the ramp extension is valid ground.
+      if (x < (bounds.rampLeft ?? bounds.left) || x > bounds.right) continue
       if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
       const topY = getTerrainTopY(island, x)
       const dist = Math.abs(bottom - topY)
@@ -3291,6 +3309,9 @@ class Game {
 
   _renderHud() {
     if (!this.ui) return
+    // Tutorial screen is completely static — skip rebuilding the DOM every
+    // requestAnimationFrame so the button is stable and CSS :active shows.
+    if (this.sm.is(State.TITLE) && this._tutorialRendered) return
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
     const score = this._getScore()
@@ -3542,6 +3563,8 @@ class Game {
 
       <div class="action-hint ${showBoostButton && !this.isPaused ? 'is-above-boost' : ''}">${action}</div>
     `
+    // Mark tutorial as rendered so subsequent frames skip the rebuild.
+    this._tutorialRendered = this.sm.is(State.TITLE)
   }
 
   loop() {
