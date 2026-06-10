@@ -3444,38 +3444,49 @@ class Game {
   }
 
   // Oval shadow blob beneath the armadillo.
-  // Fades and shrinks as the character rises above terrain (or sea).
+  // Cast only onto valid ground that lies BELOW the character, fading and
+  // shrinking with height.  Terrain whose surface is above the armadillo (e.g.
+  // after it drops into a gap or falls past an island) never receives a shadow.
   _updateArmadilloShadow() {
     if (!this.armadilloShadow) return
     const ax = this.armadillo.position.x
-    const ay = this.armadillo.position.y
+    const ballBottom = this.armadillo.position.y - ARMADILLO_SIZE / 2
 
-    // Find ground below armadillo: check current island first, then all islands
+    // Pick the highest undamaged terrain surface that sits below the ball.
     let groundY = null
-    if (this.currentIsland) {
-      groundY = getTerrainTopY(this.currentIsland, ax)
-    } else {
-      for (const island of this.islands) {
-        if (island.destroyed) continue
-        const b = island.bounds
-        const left = b.rampLeft ?? b.left
-        if (ax < left || ax > b.right) continue
-        const ty = getTerrainTopY(island, ax)
-        if (groundY === null || ty > groundY) groundY = ty
-      }
+    const consider = (island) => {
+      if (!island || island.destroyed) return
+      const b = island.bounds
+      const left = b.rampLeft ?? b.left
+      if (ax < left || ax > b.right) return
+      if (isTerrainDamagedAt(island, ax, ARMADILLO_SIZE / 2)) return
+      const ty = getTerrainTopY(island, ax)
+      if (ty > ballBottom + 2) return                    // surface is above the ball — ignore
+      if (groundY === null || ty > groundY) groundY = ty  // nearest ground beneath
     }
-    if (groundY === null) groundY = -360  // sea level fallback
+    if (this.currentIsland) consider(this.currentIsland)
+    if (groundY === null) {
+      for (const island of this.islands) consider(island)
+    }
 
-    const gap = ay - ARMADILLO_SIZE / 2 - groundY
-    const MAX_GAP = 320  // beyond this, shadow is fully invisible
+    // No valid ground beneath — over open air / fell below terrain → no shadow.
+    if (groundY === null) {
+      this.armadilloShadow.material.opacity = 0
+      return
+    }
+
+    const gap = Math.max(0, ballBottom - groundY)
+    const MAX_GAP = 300  // beyond this height the shadow is fully gone
     const t = 1 - THREE.MathUtils.clamp(gap / MAX_GAP, 0, 1)
 
-    // scale: 28px at ground, shrinks with distance
-    const shadowScale = ARMADILLO_SIZE * (0.55 + t * 0.45)
-    this.armadilloShadow.scale.set(shadowScale, shadowScale * 0.32, 1)
+    // Size tracks the body (slightly wider than the armadillo when grounded) and
+    // shrinks with height; squashed vertically into a soft oval.
+    const radiusX = (ARMADILLO_SIZE / 2) * (0.72 + t * 0.5)
+    this.armadilloShadow.scale.set(radiusX, radiusX * 0.34, 1)
     this.armadilloShadow.position.x = ax
-    this.armadilloShadow.position.y = groundY + 1  // just above terrain
-    this.armadilloShadow.material.opacity = t * 0.36 * (this.armadillo.visible ? 1 : 0)
+    this.armadilloShadow.position.y = groundY + 1
+    // Darker and more present near the ground, fading quadratically with height.
+    this.armadilloShadow.material.opacity = t * t * 0.42 * (this.armadillo.visible ? 1 : 0)
   }
 
   _renderHud() {
@@ -3717,7 +3728,7 @@ class Game {
               </button>
             </div>`}
             <button type="button" class="clickable secondary-button" data-action="leaderboard">${ko ? '🏆 리더보드 보기' : '🏆 Leaderboard'}</button>
-            <button type="button" class="clickable secondary-button restart-btn" data-action="restart">${ko ? '🔄 다시 시작' : '🔄 Retry'}</button>
+            <button type="button" class="clickable secondary-button restart-btn" data-action="restart">${ko ? '다시 시작' : 'Retry'}</button>
           </div>
         </div>`
       })() : ''}
