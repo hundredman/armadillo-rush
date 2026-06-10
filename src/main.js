@@ -53,7 +53,6 @@ import {
   SLOWMO_SCALE,
   SLOWMO_SEC,
   STALL_DANGER_SEC,
-  STALL_GAMEOVER_SEC,
   STALL_SPEED_RATIO,
 } from './config.js'
 
@@ -281,7 +280,7 @@ class Game {
     // ground line, tapering to nothing at the horizontal ends.  This guarantees
     // the shadow only ever appears on terrain.  Painted on top of the terrain
     // (depthTest:false, renderOrder between terrain 0 and the armadillo 20).
-    this._shadowSamples = 24
+    this._shadowSamples = 40   // denser sampling → smoother top edge on steep slopes
     const shadowGeo = new THREE.BufferGeometry()
     shadowGeo.setAttribute(
       'position',
@@ -3555,6 +3554,34 @@ class Game {
       (0.10 + closeness * 0.32) * closeness * overlapRatio * (this.armadillo.visible ? 1 : 0)
   }
 
+  // Build a tiny pixel-art SVG (same grid + outline language as the in-game item
+  // meshes) for the HUD effect bars, so they match the collectible icons instead
+  // of using emoji.
+  _pixelIconSvg(rows, pal, outline, targetH = 18) {
+    const H = rows.length
+    const W = Math.max(...rows.map((r) => r.length))
+    const fill = (ch) => ch !== ' ' && ch !== '.'
+    const at = (i, j) => (rows[j] && rows[j][i]) || ' '
+    let rects = ''
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) {
+        if (fill(at(i, j))) continue
+        if (fill(at(i - 1, j)) || fill(at(i + 1, j)) || fill(at(i, j - 1)) || fill(at(i, j + 1))) {
+          rects += `<rect x="${i}" y="${j}" width="1" height="1" fill="#${outline}"/>`
+        }
+      }
+    }
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) {
+        const ch = at(i, j)
+        if (!fill(ch) || pal[ch] == null) continue
+        rects += `<rect x="${i}" y="${j}" width="1" height="1" fill="#${pal[ch]}"/>`
+      }
+    }
+    const w = Math.round((targetH * W) / H)
+    return `<svg width="${w}" height="${targetH}" viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`
+  }
+
   _renderHud() {
     if (!this.ui) return
     // Never destroy the nickname input while the user is actively typing —
@@ -3603,8 +3630,10 @@ class Game {
 
     const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
     const phaseText = this.isPaused ? 'PAUSED' : this.sm.current
-    const dangerText = this.stallTime >= STALL_DANGER_SEC
-      ? `<div class="hud-danger">DANGER ${Math.max(0, STALL_GAMEOVER_SEC - this.stallTime).toFixed(1)}s</div>`
+    // Low-speed warning: stalling does NOT end the game, so show an actionable
+    // "speed up" prompt (only while rolling) instead of a misleading countdown.
+    const dangerText = this.sm.is(State.ROLLING) && this.stallTime >= STALL_DANGER_SEC
+      ? `<div class="hud-danger">${hintKo ? '속도 부족 — 가속하세요!' : 'Low speed — speed up!'}</div>`
       : ''
 
     // distance remaining to moon
@@ -3657,11 +3686,21 @@ class Game {
     const springPct = this.activeSpring
       ? Math.ceil((this.activeSpring.timeLeft / ITEM_SPRING_DURATION) * 100)
       : 0
+    const rocketIconSvg = this._pixelIconSvg(
+      ['...C...', '..LCS..', '..LCS..', '..LGS..', '..LgS..', '..LCS..', '.NLCSN.', '.NLCSN.', '..LCS..', '..FFF..', '...f...'],
+      { C: 'ff6d00', L: 'ffc266', S: 'c23d00', G: '12303f', g: '9fe3ff', F: 'ffce3a', f: 'fff3b0', N: 'ff3d00' },
+      '2a1200',
+    )
+    const boostIconSvg = this._pixelIconSvg(
+      ['...CC.', '..LCS.', '..LCS.', '.LCCC.', '.CCCS.', '..LCS.', '..LCS.', '.LCS..', '.CC...'],
+      { C: 'ffd600', L: 'fff9c4', S: 'c9a200' },
+      '3a2500',
+    )
     const itemEffectsHTML = isGameActive && (this.activeRocket || this.activeSpring) ? `
       <div class="item-effects-panel">
         ${this.activeRocket ? `
         <div class="item-effect item-effect-rocket">
-          <span class="item-effect-icon">🚀</span>
+          <span class="item-effect-icon">${rocketIconSvg}</span>
           <div class="item-effect-track">
             <div class="item-effect-label">ROCKET</div>
             <div class="item-effect-bar"><div class="item-effect-fill" style="width:${rocketPct}%"></div></div>
@@ -3669,7 +3708,7 @@ class Game {
         </div>` : ''}
         ${this.activeSpring ? `
         <div class="item-effect item-effect-boost">
-          <span class="item-effect-icon">⚡</span>
+          <span class="item-effect-icon">${boostIconSvg}</span>
           <div class="item-effect-track">
             <div class="item-effect-label">BOOST</div>
             <div class="item-effect-bar"><div class="item-effect-fill" style="width:${springPct}%"></div></div>
