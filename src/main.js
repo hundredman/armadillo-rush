@@ -228,6 +228,11 @@ class Game {
     // Item system
     this.items = []            // all spawned item objects
     this.activeRocket = null   // { timeLeft } or null — overrides velocity each frame
+    // True from the moment a rocket's thrust ends until the next landing.  While
+    // coasting AND descending, terrain destruction is suppressed so the high
+    // horizontal exit speed can't bulldoze through terrain — landing/collision
+    // must work normally on the way down.
+    this._rocketCoasting = false
     this.activeBoost = null   // { timeLeft } or null — bonus on next jump
 
     // landing ripple effect pool (max 4 simultaneous)
@@ -1436,6 +1441,7 @@ class Game {
     this.lives = 3
     this.preBoostSource = null
     this.activeRocket = null
+    this._rocketCoasting = false
     this.activeBoost = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
@@ -1480,6 +1486,7 @@ class Game {
     this.lives = 3
     this.preBoostSource = null
     this.activeRocket = null
+    this._rocketCoasting = false
     this.activeBoost = null
     this._respawnWaiting = false
     this._respawnPos = null
@@ -1947,6 +1954,10 @@ class Game {
         // the armadillo coasts upward-forward naturally under gravity.
         this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
         this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
+        // Begin coasting and drop any leftover launch grace so terrain
+        // collision/landing detection is fully active again on the way down.
+        this._rocketCoasting = true
+        this._spawnGraceTimer = 0
       }
 
       // Always check moon/sea even during rocket (player could collect one near the boundary)
@@ -1959,7 +1970,13 @@ class Game {
     // Finds all terrain the ball path overlaps, damages all of them, then manually
     // advances the ball past the last crater.  Planck is bypassed completely so
     // it can never apply restitution against freshly-rebuilt fixtures.
-    if (this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
+    //
+    // Exception: while coasting down from a rocket (descending, vy < 0), skip
+    // destruction so the rocket's high horizontal exit speed can't tunnel the
+    // ball through terrain tops — normal Planck collision + landing must win on
+    // the way down.  Ascending after a rocket still allows upward punch-through.
+    const suppressDestroy = this._rocketCoasting && this.velocity.y < 0
+    if (!suppressDestroy && this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
 
     const baseGravity = this._getGravityPx()
 
@@ -1970,8 +1987,9 @@ class Game {
     // destruction (e.g., destroying island A then B in consecutive frames) works.
     if (this._spawnGraceTimer > 0) {
       this._spawnGraceTimer--
-      // Try chained destruction even during grace window.
-      if (this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
+      // Try chained destruction even during grace window (but not while coasting
+      // down from a rocket — landing must win on descent).
+      if (!suppressDestroy && this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
       this.velocity.y -= baseGravity * dt
       this.armadillo.position.x += this.velocity.x * dt
       this.armadillo.position.y += this.velocity.y * dt
@@ -2370,6 +2388,10 @@ class Game {
   }
 
   _landOnIsland(island) {
+    // Landed — the post-rocket coast (if any) is over; resume normal terrain
+    // destruction behaviour.  Set before the cloud delegation so it clears for
+    // both normal and cloud landings.
+    this._rocketCoasting = false
     if (island.biome === 'cloud') {
       this._springFromCloudIsland(island)
       return
@@ -2716,6 +2738,7 @@ class Game {
     //      Armadillo hovers frozen at this position until the player presses
     //      Space / Click to drop straight down.
     this._cancelBoostHold()
+    this._rocketCoasting = false   // rescue resets any leftover post-rocket coast
     this.spinAngleVel = Math.min(this.spinAngleVel, 12)  // bleed extreme spin
 
     this.armadillo.visible = true
