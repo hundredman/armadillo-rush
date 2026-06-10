@@ -93,10 +93,10 @@ const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
 const UNDER_BREAK_SPEED = 320
 const DAMAGE_SPEED_FULL = 700
-const BOOST_ACCEL_PER_SEC = 2.2       // speedRatio/s gained while holding input
+const BOOST_ACCEL_PER_SEC = 1.7       // speedRatio/s gained while holding input (reduced for smoother feel)
 const BOOST_SPEED_LIMIT = 1.8
-const BOOST_RELEASE_SPEED_KICK = 0.50
-const BOOST_RELEASE_VERTICAL_KICK = 980
+const BOOST_RELEASE_SPEED_KICK = 0.28  // reduced from 0.50 — less abrupt speed spike on release
+const BOOST_RELEASE_VERTICAL_KICK = 820  // reduced from 980 — softer upward launch
 const ROLLING_FRICTION_PER_SEC = 0.28 // speedRatio/s lost to friction when no input
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
@@ -172,6 +172,9 @@ class Game {
     // Set true once the first pointerup after entering SLINGING fires — prevents
     // accidental double-tap from immediately starting a sling drag.
     this._slingReady = false
+    // performance.now() timestamp before which sling drag is blocked.
+    // Absorbs double-click / fast re-click bleed from the title start button.
+    this._slingBlockUntil = 0
     // Set true once the tutorial screen has been rendered — skip rebuilding the
     // static TITLE DOM every frame so the button is stable and `:active` shows.
     // Stores the last-rendered language key ('ko'/'en') so a lang toggle forces a rebuild.
@@ -1529,6 +1532,8 @@ class Game {
     // thinking the first press failed) from launching the sling.
     if (this.sm.is(State.SLINGING)) {
       if (!this._slingReady) return
+      // Time-based dead zone: absorbs double-click bleed from the start button
+      if (performance.now() < this._slingBlockUntil) return
       this.slingDragging = true
       this._handlePointerMove(clientX, clientY)
       return
@@ -1732,6 +1737,8 @@ class Game {
     // cannot bleed into sling drag or boost actions on the first game frame.
     this._pendingPointerClear = true
     this._slingReady = false
+    // Block sling for 300 ms after game start — absorbs double-click from title button
+    this._slingBlockUntil = performance.now() + 300
     this._tutorialRendered = false
     this._lastGameOverKey = null
     this._namePromptJustClosed = false
@@ -3383,8 +3390,8 @@ class Game {
     const moonDistM = Math.max(0, Math.floor((MOON_TARGET_Y - this.armadillo.position.y) / PX_PER_METER))
     const moonDistText = moonDistM > 0 ? `${moonDistM}m` : '🌕 REACHED!'
 
-    // sling power meter (shown while dragging)
-    const slingMeter = this.sm.is(State.SLINGING) ? `
+    // sling power meter (shown only while actively dragging — hidden before pull and after launch)
+    const slingMeter = this.sm.is(State.SLINGING) && this.slingDragging && this.slingPower > 0.05 ? `
       <div class="meter-power">
         <div class="power-fill" style="height:${pullPct}%"></div>
       </div>` : ''
@@ -3437,14 +3444,22 @@ class Game {
       ? Math.ceil((this.activeSpring.timeLeft / ITEM_SPRING_DURATION) * 100)
       : 0
     const itemEffectsHTML = isGameActive && (this.activeRocket || this.activeSpring) ? `
-      <div class="item-effects-hud">
-        ${this.activeRocket ? `<div class="item-effect item-effect-rocket">
+      <div class="item-effects-panel">
+        ${this.activeRocket ? `
+        <div class="item-effect item-effect-rocket">
           <span class="item-effect-icon">🚀</span>
-          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${rocketPct}%"></div></div>
+          <div class="item-effect-track">
+            <div class="item-effect-label">ROCKET</div>
+            <div class="item-effect-bar"><div class="item-effect-fill" style="width:${rocketPct}%"></div></div>
+          </div>
         </div>` : ''}
-        ${this.activeSpring ? `<div class="item-effect item-effect-boost">
+        ${this.activeSpring ? `
+        <div class="item-effect item-effect-boost">
           <span class="item-effect-icon">⚡</span>
-          <div class="item-effect-bar"><div class="item-effect-fill" style="width:${springPct}%"></div></div>
+          <div class="item-effect-track">
+            <div class="item-effect-label">BOOST</div>
+            <div class="item-effect-bar"><div class="item-effect-fill" style="width:${springPct}%"></div></div>
+          </div>
         </div>` : ''}
       </div>` : ''
 
@@ -3460,8 +3475,8 @@ class Game {
         <div><span>ANGLE</span><strong>${slingDeg}°</strong></div>
         <div><span>POWER</span><strong>${slingPowerPct}%</strong></div>
         ${dangerText}
-        ${itemEffectsHTML}
       </div>
+      ${itemEffectsHTML}
 
       ${slingMeter}
 

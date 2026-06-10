@@ -45,47 +45,47 @@ export const SPRING_PASSIVE_SPEED  = 0.22 // speedRatio/s passive gain while rol
 //   - Hearts are rare (3 in static layout) — milestone rewards after hard sections
 export const ITEM_SPAWN_TABLE = [
   // ── Section 1 (learning) — introduce both new types early ────────────────
-  { islandIndex:  1, offsetX:  30, offsetY: 48, type: 'rocket' },
-  { islandIndex:  4, offsetX: -20, offsetY: 52, type: 'boost'  },
+  { islandIndex:  1, offsetX:  30, offsetY: 28, type: 'rocket' },
+  { islandIndex:  4, offsetX: -20, offsetY: 30, type: 'boost'  },
 
   // ── Section 2 (building momentum) ────────────────────────────────────────
-  { islandIndex:  9, offsetX:  40, offsetY: 46, type: 'rocket' },
-  { islandIndex: 12, offsetX: -30, offsetY: 50, type: 'boost'  },
-  { islandIndex: 14, offsetX:  20, offsetY: 44, type: 'rocket' },
+  { islandIndex:  9, offsetX:  40, offsetY: 26, type: 'rocket' },
+  { islandIndex: 12, offsetX: -30, offsetY: 28, type: 'boost'  },
+  { islandIndex: 14, offsetX:  20, offsetY: 24, type: 'rocket' },
 
   // ── Section 3 (speed zone) — rockets before gaps; heart after the crossing
-  { islandIndex: 17, offsetX:  50, offsetY: 48, type: 'rocket' },
-  { islandIndex: 19, offsetX: -40, offsetY: 52, type: 'boost'  },
-  { islandIndex: 21, offsetX:   0, offsetY: 56, type: 'heart'  },  // first heart
-  { islandIndex: 22, offsetX:  35, offsetY: 46, type: 'rocket' },
+  { islandIndex: 17, offsetX:  50, offsetY: 28, type: 'rocket' },
+  { islandIndex: 19, offsetX: -40, offsetY: 30, type: 'boost'  },
+  { islandIndex: 21, offsetX:   0, offsetY: 36, type: 'heart'  },  // first heart
+  { islandIndex: 22, offsetX:  35, offsetY: 26, type: 'rocket' },
 
   // ── Section 4 (mid climb) ─────────────────────────────────────────────────
-  { islandIndex: 25, offsetX: -25, offsetY: 50, type: 'boost'  },
-  { islandIndex: 27, offsetX:  45, offsetY: 44, type: 'rocket' },
-  { islandIndex: 30, offsetX:   0, offsetY: 54, type: 'boost'  },
-  { islandIndex: 31, offsetX: -35, offsetY: 48, type: 'rocket' },
+  { islandIndex: 25, offsetX: -25, offsetY: 28, type: 'boost'  },
+  { islandIndex: 27, offsetX:  45, offsetY: 24, type: 'rocket' },
+  { islandIndex: 30, offsetX:   0, offsetY: 30, type: 'boost'  },
+  { islandIndex: 31, offsetX: -35, offsetY: 28, type: 'rocket' },
 
   // ── Section 5 (pre-cloud, destructible) ───────────────────────────────────
-  { islandIndex: 33, offsetX:  30, offsetY: 52, type: 'boost'  },
-  { islandIndex: 35, offsetX:  50, offsetY: 46, type: 'rocket' },
-  { islandIndex: 37, offsetX: -20, offsetY: 48, type: 'boost'  },
-  { islandIndex: 39, offsetX:   0, offsetY: 60, type: 'heart'  },  // second heart — pre-cloud milestone
+  { islandIndex: 33, offsetX:  30, offsetY: 30, type: 'boost'  },
+  { islandIndex: 35, offsetX:  50, offsetY: 26, type: 'rocket' },
+  { islandIndex: 37, offsetX: -20, offsetY: 28, type: 'boost'  },
+  { islandIndex: 39, offsetX:   0, offsetY: 38, type: 'heart'  },  // second heart — pre-cloud milestone
 
   // ── Section 6 (cloud entry) ───────────────────────────────────────────────
-  { islandIndex: 41, offsetX:  40, offsetY: 50, type: 'rocket' },
-  { islandIndex: 43, offsetX: -30, offsetY: 52, type: 'boost'  },
-  { islandIndex: 45, offsetX:  25, offsetY: 46, type: 'rocket' },
-  { islandIndex: 47, offsetX:   0, offsetY: 54, type: 'boost'  },
+  { islandIndex: 41, offsetX:  40, offsetY: 28, type: 'rocket' },
+  { islandIndex: 43, offsetX: -30, offsetY: 30, type: 'boost'  },
+  { islandIndex: 45, offsetX:  25, offsetY: 26, type: 'rocket' },
+  { islandIndex: 47, offsetX:   0, offsetY: 32, type: 'boost'  },
 
   // ── Section 7 (high cloud) ────────────────────────────────────────────────
-  { islandIndex: 50, offsetX:  55, offsetY: 48, type: 'rocket' },
-  { islandIndex: 52, offsetX: -40, offsetY: 52, type: 'boost'  },
-  { islandIndex: 54, offsetX:  35, offsetY: 44, type: 'rocket' },
-  { islandIndex: 56, offsetX:   0, offsetY: 64, type: 'heart'  },  // third heart — late recovery
-  { islandIndex: 58, offsetX: -30, offsetY: 50, type: 'boost'  },
-  { islandIndex: 60, offsetX:  45, offsetY: 48, type: 'rocket' },
-  { islandIndex: 62, offsetX: -20, offsetY: 52, type: 'boost'  },
-  { islandIndex: 64, offsetX:  10, offsetY: 46, type: 'rocket' },
+  { islandIndex: 50, offsetX:  55, offsetY: 28, type: 'rocket' },
+  { islandIndex: 52, offsetX: -40, offsetY: 30, type: 'boost'  },
+  { islandIndex: 54, offsetX:  35, offsetY: 24, type: 'rocket' },
+  { islandIndex: 56, offsetX:   0, offsetY: 42, type: 'heart'  },  // third heart — late recovery
+  { islandIndex: 58, offsetX: -30, offsetY: 28, type: 'boost'  },
+  { islandIndex: 60, offsetX:  45, offsetY: 26, type: 'rocket' },
+  { islandIndex: 62, offsetX: -20, offsetY: 30, type: 'boost'  },
+  { islandIndex: 64, offsetX:  10, offsetY: 26, type: 'rocket' },
 ]
 
 // Colors by item type
@@ -97,139 +97,122 @@ const ITEM_COLORS = {
 
 // ─── Mesh builders ───────────────────────────────────────────────────────────
 
+/**
+ * Add a pixel-art rectangle block to a THREE.Group.
+ * @param {THREE.Group} g
+ * @param {number} x   left edge (world units)
+ * @param {number} y   bottom edge (world units)
+ * @param {number} w   width (world units)
+ * @param {number} h   height (world units)
+ * @param {number} color  hex color
+ * @param {number} z   z-depth (default 0.12)
+ */
+function pixRect(g, x, y, w, h, color, z = 0.12) {
+  const shape = new THREE.Shape()
+  shape.moveTo(x, y)
+  shape.lineTo(x + w, y)
+  shape.lineTo(x + w, y + h)
+  shape.lineTo(x, y + h)
+  shape.closePath()
+  const mesh = new THREE.Mesh(
+    new THREE.ShapeGeometry(shape),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }),
+  )
+  mesh.position.z = z
+  g.add(mesh)
+}
+
 function buildRocketMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.rocket
+  const P = 3  // 1 pixel = 3 world units
 
-  // Body — vertical pill pointing up-right at new angle
-  const bodyShape = new THREE.Shape()
-  bodyShape.moveTo(-5, -11)
-  bodyShape.lineTo( 5, -11)
-  bodyShape.lineTo( 5,   4)
-  bodyShape.quadraticCurveTo(5, 12, 0, 14)
-  bodyShape.quadraticCurveTo(-5, 12, -5, 4)
-  bodyShape.closePath()
-  const body = new THREE.Mesh(
-    new THREE.ShapeGeometry(bodyShape, 8),
-    new THREE.MeshBasicMaterial({ color: c.main, side: THREE.DoubleSide }),
-  )
-  body.position.z = 0.12
+  // ── Body (main orange) ──────────────────────────────────────────
+  // Nose tip (2px wide × 1px tall)
+  pixRect(g, -P,     7*P,  2*P,   P, c.main)
+  // Nose mid (4px wide)
+  pixRect(g, -2*P,   6*P,  4*P,   P, c.main)
+  // Main body (6px wide × 9px tall — covers nose base through lower body)
+  pixRect(g, -3*P,  -3*P,  6*P, 9*P, c.main)
 
-  // Nose window highlight
-  const window_ = new THREE.Mesh(
-    new THREE.CircleGeometry(3, 10),
-    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.9 }),
-  )
-  window_.position.set(0, 6, 0.14)
+  // ── Window highlight ─────────────────────────────────────────────
+  pixRect(g, -P,     P,    3*P, 3*P, c.glow, 0.13)
 
-  // Left fin
-  const finL = new THREE.Shape()
-  finL.moveTo(-5, -4)
-  finL.lineTo(-11, -11)
-  finL.lineTo(-5, -11)
-  finL.closePath()
-  const finLMesh = new THREE.Mesh(
-    new THREE.ShapeGeometry(finL),
-    new THREE.MeshBasicMaterial({ color: c.ring, side: THREE.DoubleSide }),
-  )
-  finLMesh.position.z = 0.11
+  // ── Fins (ring/red) ──────────────────────────────────────────────
+  pixRect(g, -5*P,  -3*P,  2*P, 4*P, c.ring)   // left
+  pixRect(g,  3*P,  -3*P,  2*P, 4*P, c.ring)   // right
 
-  // Right fin
-  const finR = new THREE.Shape()
-  finR.moveTo(5, -4)
-  finR.lineTo(11, -11)
-  finR.lineTo(5, -11)
-  finR.closePath()
-  const finRMesh = new THREE.Mesh(
-    new THREE.ShapeGeometry(finR),
-    new THREE.MeshBasicMaterial({ color: c.ring, side: THREE.DoubleSide }),
-  )
-  finRMesh.position.z = 0.11
+  // ── Exhaust flame (bright yellow-orange) ─────────────────────────
+  pixRect(g, -2*P,  -5*P,  4*P, 2*P, 0xffcc00)
 
-  // Outer glow ring
+  // ── Ring ─────────────────────────────────────────────────────────
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(14, 17, 20),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(20, 24, 12),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.40, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.10
+  g.add(ring)
 
-  // Tilt to match new 40° thrust direction
   g.rotation.z = -ROCKET_ANGLE
-  g.add(body, window_, finLMesh, finRMesh, ring)
   return g
 }
 
 function buildBoostMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.boost
+  const P = 3
 
-  // Lightning bolt body — signals speed burst
-  const shape = new THREE.Shape()
-  shape.moveTo(3, 15)
-  shape.lineTo(10, 2)
-  shape.lineTo(4, 2)
-  shape.lineTo(8, -10)
-  shape.lineTo(-3, 4)
-  shape.lineTo(3, 4)
-  shape.closePath()
-  const body = new THREE.Mesh(
-    new THREE.ShapeGeometry(shape),
-    new THREE.MeshBasicMaterial({ color: c.main, side: THREE.DoubleSide }),
-  )
-  body.position.z = 0.12
+  // ── Pixel-art lightning bolt — 4 connected rectangles ────────────
+  // Reading the bolt top-right → upper-left → lower-right → bottom-left
+  pixRect(g,  0,    5*P,  3*P, 2*P, c.main)        // top arm (right)
+  pixRect(g, -2*P,  2*P,  4*P, 3*P, c.main)        // upper body (left)
+  pixRect(g,  0,   -P,    4*P, 3*P, c.main)         // lower body (right)
+  pixRect(g, -2*P, -4*P,  3*P, 3*P, c.main)        // bottom tip (left)
 
-  // Inner highlight
-  const innerShape = new THREE.Shape()
-  innerShape.moveTo(2, 12)
-  innerShape.lineTo(7, 2)
-  innerShape.lineTo(3, 2)
-  innerShape.lineTo(6, -6)
-  innerShape.lineTo(-1, 4)
-  innerShape.lineTo(2, 4)
-  innerShape.closePath()
-  const inner = new THREE.Mesh(
-    new THREE.ShapeGeometry(innerShape),
-    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.7, side: THREE.DoubleSide }),
-  )
-  inner.position.z = 0.13
+  // ── Inner highlight ───────────────────────────────────────────────
+  pixRect(g,  P,    5*P,  P,   2*P, c.glow, 0.13)
+  pixRect(g, -P,    2*P,  2*P, 3*P, c.glow, 0.13)
+  pixRect(g,  P,   -P,    2*P, 3*P, c.glow, 0.13)
+  pixRect(g, -P,   -4*P,  2*P, 3*P, c.glow, 0.13)
 
-  // Ring
+  // ── Ring ──────────────────────────────────────────────────────────
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(14, 17, 20),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(18, 22, 12),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.50, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.11
-  g.add(body, inner, ring)
-
+  g.add(ring)
   return g
 }
 
 function buildHeartMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.heart
+  const col = c.main
+  const P = 2  // 1 pixel = 2 world units
 
-  const s = 9
-  const shape = new THREE.Shape()
-  shape.moveTo(0, -s * 0.1)
-  shape.bezierCurveTo(-s * 1.2, s * 1.1, -s * 2.2, -s * 0.3, -s * 1.1, -s * 1.3)
-  shape.bezierCurveTo(-s * 0.5, -s * 1.9, 0, -s * 1.4, 0, -s * 1.0)
-  shape.bezierCurveTo(0, -s * 1.4, s * 0.5, -s * 1.9, s * 1.1, -s * 1.3)
-  shape.bezierCurveTo(s * 2.2, -s * 0.3, s * 1.2, s * 1.1, 0, -s * 0.1)
-  shape.closePath()
+  // ── Pixel-art heart (7 × 6 grid, 2px/pixel) ──────────────────────
+  // Top bumps (gap of 1 pixel between them)
+  pixRect(g, -4*P,  4*P,  3*P, 2*P, col)  // left bump
+  pixRect(g,   P,   4*P,  3*P, 2*P, col)  // right bump
+  // Full-width body rows
+  pixRect(g, -4*P,  2*P,  8*P, 2*P, col)  // row connecting bumps
+  pixRect(g, -4*P,  0,    8*P, 2*P, col)  // middle row
+  // Narrowing toward tip
+  pixRect(g, -3*P, -2*P,  6*P, 2*P, col)
+  pixRect(g, -2*P, -4*P,  4*P, 2*P, col)
+  pixRect(g,  -P,  -6*P,  2*P, 2*P, col)  // tip
 
-  const body = new THREE.Mesh(
-    new THREE.ShapeGeometry(shape, 12),
-    new THREE.MeshBasicMaterial({ color: c.main, side: THREE.DoubleSide }),
-  )
-  body.position.z = 0.12
+  // ── Inner highlight ───────────────────────────────────────────────
+  pixRect(g, -3*P,  2*P,  6*P, 2*P, c.glow, 0.13)
 
+  // ── Ring ──────────────────────────────────────────────────────────
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(13, 17, 20),
+    new THREE.RingGeometry(16, 20, 16),
     new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.10
-
-  g.add(body, ring)
+  g.add(ring)
   return g
 }
 
@@ -261,9 +244,9 @@ export function getProceduralItemSpec(islandIndex) {
   // Rocket every 10 islands, boost every 14, heart every 28
   const rel = islandIndex - 65
   if (rel < 0) return null
-  if (rel % 28 === 0) return { type: 'heart', offsetX: 0,   offsetY: 56 }
-  if (rel % 14 === 0) return { type: 'boost', offsetX: -30, offsetY: 50 }
-  if (rel % 10 === 0) return { type: 'rocket', offsetX: 40, offsetY: 46 }
+  if (rel % 28 === 0) return { type: 'heart', offsetX: 0,   offsetY: 34 }
+  if (rel % 14 === 0) return { type: 'boost', offsetX: -30, offsetY: 28 }
+  if (rel % 10 === 0) return { type: 'rocket', offsetX: 40, offsetY: 26 }
   return null
 }
 
