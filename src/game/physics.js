@@ -90,10 +90,14 @@ export class PhysicsWorld {
 
     const isDamagedEdge = (a, b) => {
       if (!terrain.damageZones?.length) return false
-      const midX = (a.x + b.x) / 2
-      return terrain.damageZones.some((zone) => (
-        midX >= zone.left && midX <= zone.right
-      ))
+      const edgeLeft  = Math.min(a.x, b.x)
+      const edgeRight = Math.max(a.x, b.x)
+      // Range overlap: exclude the edge if ANY part of it touches a damage zone.
+      // Midpoint checks miss narrow zones that straddle a terrain point —
+      // using full overlap prevents phantom chain segments over visual holes.
+      return terrain.damageZones.some((zone) =>
+        edgeLeft < zone.right && edgeRight > zone.left
+      )
     }
 
     for (let i = 0; i < terrain.points.length - 1; i++) {

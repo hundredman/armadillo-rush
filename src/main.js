@@ -2605,6 +2605,8 @@ class Game {
     for (const island of touched) {
       this.physics.removeTerrain(island)
       this._pendingTerrainRebuild.add(island)
+      // Safety: if rolling state somehow still references a destroyed island, clear it.
+      if (this.currentIsland === island) this.currentIsland = null
     }
 
     // Determine if this is an upward punch-through (ball moving up into terrain
@@ -3633,17 +3635,25 @@ class Game {
             </div>
             `}
 
-            <div class="tutorial-best">
-              <span class="tutorial-best-label">BEST</span>
-              ${this.bestRecord.score.toLocaleString()}
-            </div>
-
             <button type="button" class="clickable tutorial-start-btn" data-action="start-game">
               ${ko ? '시작하기' : 'Start Game'}
             </button>
           </div>
         </div>
         `
+      })() : ''}
+      ${this.sm.is(State.TITLE) && this.bestRecord.score > 0 ? (() => {
+        const ko = this._tutorialLang === 'ko'
+        const name = this.playerName || (ko ? '익명' : 'Anonymous')
+        return `
+        <div class="best-badge">
+          <div class="best-badge-label">${ko ? '최고 기록' : 'BEST'}</div>
+          <div class="best-badge-score">${this.bestRecord.score.toLocaleString()}</div>
+          <div class="best-badge-meta">
+            <span class="best-badge-name">${name}</span>
+            <span class="best-badge-stats">${this.bestRecord.heightM ?? 0}m · ${this.bestRecord.distanceM ?? 0}m</span>
+          </div>
+        </div>`
       })() : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
       ${this.sm.is(State.GAMEOVER) ? (() => {

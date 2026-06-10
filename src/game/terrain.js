@@ -67,33 +67,33 @@ export const DEFAULT_ISLAND_LAYOUT = [
 
   // ── Section 3: Speed zone — tighter gaps, reward fast momentum ───────────────
   { x: 4200, y:  580, w: 545, depth: 88, rimH: 35, shapeType: 'slope' },
-  { x: 4460, y:  920, w: 575, depth: 98, rimH: 40, shapeType: 'bowl' },
+  { x: 4460, y:  840, w: 575, depth: 98, rimH: 40, shapeType: 'bowl' },   // was 920  (Δ+340→+260)
   { x: 4720, y:  680, w: 555, depth: 92, rimH: 36, shapeType: 'hill' },
-  { x: 4980, y: 1060, w: 580, depth: 102, rimH: 42, shapeType: 'valley' },
+  { x: 4980, y:  940, w: 580, depth: 102, rimH: 42, shapeType: 'valley' }, // was 1060 (Δ+380→+260)
   { x: 5240, y:  820, w: 550, depth: 96, rimH: 38, shapeType: 'slope' },
-  { x: 5500, y: 1200, w: 580, depth: 105, rimH: 44, shapeType: 'hill' },
+  { x: 5500, y: 1080, w: 580, depth: 105, rimH: 44, shapeType: 'hill' },   // was 1200 (Δ+380→+260)
   { x: 5760, y:  970, w: 555, depth: 100, rimH: 40, shapeType: 'bowl' },
-  { x: 6020, y: 1380, w: 570, depth: 108, rimH: 44, shapeType: 'valley' },
+  { x: 6020, y: 1230, w: 570, depth: 108, rimH: 44, shapeType: 'valley' }, // was 1380 (Δ+410→+260)
 
   // ── Section 4: Mid climb — increasing height, more crests to ride ────────────
   { x: 6290, y: 1130, w: 545, depth: 102, rimH: 42, shapeType: 'hill' },
-  { x: 6550, y: 1560, w: 580, depth: 112, rimH: 46, shapeType: 'slope' },
+  { x: 6550, y: 1390, w: 580, depth: 112, rimH: 46, shapeType: 'slope' },  // was 1560 (Δ+430→+260)
   { x: 6820, y: 1320, w: 555, depth: 106, rimH: 43, shapeType: 'bowl' },
-  { x: 7090, y: 1740, w: 570, depth: 115, rimH: 47, shapeType: 'hill' },
+  { x: 7090, y: 1580, w: 570, depth: 115, rimH: 47, shapeType: 'hill' },   // was 1740 (Δ+420→+260)
   { x: 7360, y: 1490, w: 550, depth: 110, rimH: 45, shapeType: 'valley' },
-  { x: 7630, y: 1930, w: 580, depth: 118, rimH: 48, shapeType: 'slope' },
+  { x: 7630, y: 1750, w: 580, depth: 118, rimH: 48, shapeType: 'slope' },  // was 1930 (Δ+440→+260)
   { x: 7910, y: 1680, w: 555, depth: 114, rimH: 46, shapeType: 'hill' },
-  { x: 8190, y: 2110, w: 580, depth: 122, rimH: 50, shapeType: 'bowl' },
+  { x: 8190, y: 1940, w: 580, depth: 122, rimH: 50, shapeType: 'bowl' },   // was 2110 (Δ+430→+260)
 
   // ── Section 5: Pre-cloud zone — destructible terrain, big hills ──────────────
   { x: 8470, y: 1860, w: 560, depth: 118, rimH: 48, shapeType: 'valley', softBreak: true },
-  { x: 8750, y: 2260, w: 590, depth: 125, rimH: 52, shapeType: 'hill',   softBreak: true },
+  { x: 8750, y: 2130, w: 590, depth: 125, rimH: 52, shapeType: 'hill',   softBreak: true }, // was 2260 (Δ+400→+270)
   { x: 9040, y: 2020, w: 565, depth: 120, rimH: 49, shapeType: 'slope',  softBreak: true },
-  { x: 9330, y: 2420, w: 595, depth: 128, rimH: 54, shapeType: 'bowl',   softBreak: true },
+  { x: 9330, y: 2290, w: 595, depth: 128, rimH: 54, shapeType: 'bowl',   softBreak: true }, // was 2420 (Δ+400→+270)
   { x: 9620, y: 2180, w: 570, depth: 124, rimH: 51, shapeType: 'hill',   softBreak: true },
-  { x: 9920, y: 2580, w: 595, depth: 130, rimH: 55, shapeType: 'valley', softBreak: true },
+  { x: 9920, y: 2450, w: 595, depth: 130, rimH: 55, shapeType: 'valley', softBreak: true }, // was 2580 (Δ+400→+270)
   { x:10220, y: 2330, w: 575, depth: 126, rimH: 52, shapeType: 'slope',  softBreak: true },
-  { x:10530, y: 2720, w: 600, depth: 132, rimH: 56, shapeType: 'hill',   softBreak: true },
+  { x:10530, y: 2610, w: 600, depth: 132, rimH: 56, shapeType: 'hill',   softBreak: true }, // was 2720 (Δ+390→+280)
 
   // ── Section 6: Cloud zone entry — wider platforms, valley chains ─────────────
   { x:10840, y: 2820, w: 610, depth: 128, rimH: 54, shapeType: 'bowl' },
