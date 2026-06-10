@@ -3486,19 +3486,54 @@ class Game {
     const MAX_GAP = 280  // beyond this height the shadow is gone
     const closeness = THREE.MathUtils.smoothstep(1 - gap / MAX_GAP, 0, 1)
 
-    // Size: clearly shrinks with height (down to a small smudge) and the oval
-    // gets a touch rounder as it nears the ground.
-    const radiusX = (ARMADILLO_SIZE / 2) * (0.42 + closeness * 0.72)
-    const squash = 0.28 + closeness * 0.08
-    this.armadilloShadow.scale.set(radiusX, radiusX * squash, 1)
-    this.armadilloShadow.position.x = ax
-    this.armadilloShadow.position.y = groundY + 1.5
+    // Desired footprint half-width (shrinks with height).
+    const rx0 = (ARMADILLO_SIZE / 2) * (0.42 + closeness * 0.72)
+
+    // ── Clip the oval to the terrain it overlaps ──────────────────────────────
+    // The shadow is a 2D blob, so any part hanging past an island edge or over a
+    // crater/gap reads as floating in the sky.  Walk outward from the character
+    // (only across the footprint) to find the continuous valid surface span, then
+    // keep only the part of the footprint that overlaps that span.
+    const leftBound = groundIsland.bounds.rampLeft ?? groundIsland.bounds.left
+    const rightBound = groundIsland.bounds.right
+    const STEP = 4
+    let spanL = ax
+    let spanR = ax
+    while (spanL - STEP >= leftBound && ax - (spanL - STEP) <= rx0 + STEP
+      && !isTerrainDamagedAt(groundIsland, spanL - STEP, 0)) spanL -= STEP
+    while (spanR + STEP <= rightBound && (spanR + STEP) - ax <= rx0 + STEP
+      && !isTerrainDamagedAt(groundIsland, spanR + STEP, 0)) spanR += STEP
+    spanL = Math.max(spanL, leftBound)
+    spanR = Math.min(spanR, rightBound)
+
+    const visL = Math.max(ax - rx0, spanL)
+    const visR = Math.min(ax + rx0, spanR)
+    const visW = visR - visL
+
+    // No meaningful overlap with terrain → hide (don't float over sky/gaps).
+    if (visW < 5) {
+      this.armadilloShadow.material.opacity = 0
+      return
+    }
+
+    // Centre and width follow the overlapping region only; the vertical thinness
+    // stays based on the full footprint so the blob keeps its soft-oval look.
+    const cx = (visL + visR) / 2
+    const rx = visW / 2
+    const ry = Math.min(rx, rx0 * (0.28 + closeness * 0.08))
+    const surfY = getTerrainTopY(groundIsland, cx)
+    this.armadilloShadow.scale.set(rx, ry, 1)
+    this.armadilloShadow.position.x = cx
+    this.armadilloShadow.position.y = surfY + 1.5
     // Lay the oval along the local ground slope so it rests on the surface
     // instead of looking like a flat disc pasted on top (clamped on steep faces).
-    const slope = groundIsland ? getTerrainSlopeAngle(groundIsland, ax) : 0
+    const slope = getTerrainSlopeAngle(groundIsland, cx)
     this.armadilloShadow.rotation.z = THREE.MathUtils.clamp(slope, -0.5, 0.5)
-    // Opacity: present but soft near the ground, fading smoothly with height.
-    this.armadilloShadow.material.opacity = (0.08 + closeness * 0.30) * closeness * (this.armadillo.visible ? 1 : 0)
+    // Opacity fades with height and with how little of the footprint lands on
+    // terrain, so partial (edge) overlaps look naturally trimmed rather than cut.
+    const overlapRatio = THREE.MathUtils.clamp(visW / (rx0 * 2), 0, 1)
+    this.armadilloShadow.material.opacity =
+      (0.08 + closeness * 0.30) * closeness * overlapRatio * (this.armadillo.visible ? 1 : 0)
   }
 
   _renderHud() {
