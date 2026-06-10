@@ -3454,6 +3454,7 @@ class Game {
 
     // Pick the highest undamaged terrain surface that sits below the ball.
     let groundY = null
+    let groundIsland = null
     const consider = (island) => {
       if (!island || island.destroyed) return
       const b = island.bounds
@@ -3462,7 +3463,7 @@ class Game {
       if (isTerrainDamagedAt(island, ax, ARMADILLO_SIZE / 2)) return
       const ty = getTerrainTopY(island, ax)
       if (ty > ballBottom + 2) return                    // surface is above the ball — ignore
-      if (groundY === null || ty > groundY) groundY = ty  // nearest ground beneath
+      if (groundY === null || ty > groundY) { groundY = ty; groundIsland = island }  // nearest ground beneath
     }
     if (this.currentIsland) consider(this.currentIsland)
     if (groundY === null) {
@@ -3475,18 +3476,25 @@ class Game {
       return
     }
 
+    // Height-based closeness, eased so the shadow grows/fades smoothly instead of
+    // linearly (no sudden pop, no fixed-disc feel).  1 at the surface → 0 far up.
     const gap = Math.max(0, ballBottom - groundY)
-    const MAX_GAP = 300  // beyond this height the shadow is fully gone
-    const t = 1 - THREE.MathUtils.clamp(gap / MAX_GAP, 0, 1)
+    const MAX_GAP = 280  // beyond this height the shadow is gone
+    const closeness = THREE.MathUtils.smoothstep(1 - gap / MAX_GAP, 0, 1)
 
-    // Size tracks the body (slightly wider than the armadillo when grounded) and
-    // shrinks with height; squashed vertically into a soft oval.
-    const radiusX = (ARMADILLO_SIZE / 2) * (0.72 + t * 0.5)
-    this.armadilloShadow.scale.set(radiusX, radiusX * 0.34, 1)
+    // Size: clearly shrinks with height (down to a small smudge) and the oval
+    // gets a touch rounder as it nears the ground.
+    const radiusX = (ARMADILLO_SIZE / 2) * (0.42 + closeness * 0.72)
+    const squash = 0.28 + closeness * 0.08
+    this.armadilloShadow.scale.set(radiusX, radiusX * squash, 1)
     this.armadilloShadow.position.x = ax
-    this.armadilloShadow.position.y = groundY + 1
-    // Darker and more present near the ground, fading quadratically with height.
-    this.armadilloShadow.material.opacity = t * t * 0.42 * (this.armadillo.visible ? 1 : 0)
+    this.armadilloShadow.position.y = groundY + 1.5
+    // Lay the oval along the local ground slope so it rests on the surface
+    // instead of looking like a flat disc pasted on top (clamped on steep faces).
+    const slope = groundIsland ? getTerrainSlopeAngle(groundIsland, ax) : 0
+    this.armadilloShadow.rotation.z = THREE.MathUtils.clamp(slope, -0.5, 0.5)
+    // Opacity: present but soft near the ground, fading smoothly with height.
+    this.armadilloShadow.material.opacity = (0.08 + closeness * 0.30) * closeness * (this.armadillo.visible ? 1 : 0)
   }
 
   _renderHud() {
