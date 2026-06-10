@@ -10,7 +10,7 @@ The core skill is hold-and-release timing: hold input to accelerate on terrain, 
 
 ## Player Loop
 
-1. Read the bilingual tutorial screen (Korean + English); click **시작하기 / Start Game**.
+1. Read the tutorial screen (default Korean); click **한국어 / English** toggle to switch language. Click **시작하기 / Start Game**.
 2. Drag the slingshot pouch — a vertical power bar shows pull strength.
 3. Release the pouch to launch.
 4. Fly and land on terrain.
@@ -69,7 +69,7 @@ If `boostHeld` is true at the moment of landing, acceleration starts immediately
 
 Clicks inside `#ui-overlay` (HUD, buttons, tutorial card, game-over card) never reach the gameplay input system. Pointer events are blocked by a `closest('#ui-overlay')` guard in the `pointerdown` handler.
 
-On transition from the tutorial screen to gameplay (`start-game` action), all input state is hard-reset: `pointerIsDown`, `spaceIsDown`, `boostHeld`, `slingDragging`. `_pendingPointerClear` is set to `true` so the `pointerup` event from clicking the start button is consumed before gameplay begins.
+On transition from the tutorial screen to gameplay (`start-game` action), all input state is hard-reset: `pointerIsDown`, `spaceIsDown`, `boostHeld`, `slingDragging`. `_pendingPointerClear` is set to `true` so the `pointerup` event from clicking the start button is consumed before gameplay begins. `_slingBlockUntil` is set to `performance.now() + 300` — sling drag is ignored for the first 300 ms after game start, preventing a double-click on the start button from immediately triggering a sling drag.
 
 The game-over name input is rendered in the HUD; `_renderHud()` is skipped while the `<input>` element is focused — this keeps the DOM stable so the player can type without focus being stolen.
 
@@ -143,30 +143,38 @@ Three collectible item types float above terrain on a gentle bob animation. Item
 
 | Item | Visual | Effect | Duration |
 | --- | --- | --- | --- |
-| Rocket | Orange rocket tilted 45° | Immediately launches at 45° upward-forward at 940 px/s for 2.2 s | 2.2 s thrust |
-| Spring | Cyan arrow with coil base | +0.30 speedRatio on collect; +420 px/s vy on next jump (consumed) | 8 s window |
-| Heart | Red heart | +1 life (max 3) | instant |
+| Rocket | Orange pixel-art rocket tilted 40° | Immediately launches at 40° upward-forward at 860 px/s for 2.0 s | 2.0 s thrust |
+| Boost | Yellow pixel-art lightning bolt | +0.28 speedRatio on collect; passive +0.22 speedRatio/s while rolling; +320 px/s vy per jump (not consumed — repeats for full duration) | 10 s window |
+| Heart | Red pixel-art heart | +1 life (max 3) | instant |
 
 ### Collection
 
 `checkItemCollection` compares armadillo center against each uncollected item with a 38 px radius. Active during FLYING, FALLING, and ROLLING only.
 
+### Item icons
+
+All icons are pixel-art meshes built from rectangular blocks (`pixRect` helper, `ShapeGeometry`) with 1 pixel = P world units (P=3 for Rocket/Boost, P=2 for Heart). Each icon has a semi-transparent ring glow behind it and a gentle bob/pulse animation.
+
+### Item positions
+
+Items float 24–42 px above terrain top (`offsetY` in `ITEM_SPAWN_TABLE`). Procedural items: Heart 34 px, Boost 28 px, Rocket 26 px above terrain.
+
 ### Rocket effect
 
-Fires immediately on collect. If ROLLING, transitions to FALLING first. While active, Planck physics is bypassed every frame — the armadillo moves at constant (ROCKET_VX, ROCKET_VY) ≈ (665, 665) px/s; gravity is ignored. Orange flame particles trail behind. On expiry, `speedRatio += 0.35` and normal physics resumes.
+Fires immediately on collect. If ROLLING, transitions to FALLING first. While active, Planck physics is bypassed every frame — the armadillo moves at constant (ROCKET_VX, ROCKET_VY) ≈ (659, 553) px/s at 40°; gravity is ignored. Orange flame particles trail behind. On expiry, `speedRatio += 0.35` and normal physics resumes.
 
-### Spring effect
+### Boost effect
 
-`speedRatio += 0.30` on collect. On the next jump (`_launchFromIsland`, `_launchFromFallingEdge`, or `_launchFromHillCrest`), `SPRING_VY_BONUS` (420 px/s) is added to vy and `activeSpring` is cleared.
+`speedRatio += SPRING_SPEED_BONUS` (0.28) immediately on collect. While `activeSpring` is live and the armadillo is ROLLING, `speedRatio += SPRING_PASSIVE_SPEED × dt` (0.22/s) passively each frame. On every jump (`_launchFromIsland`, `_launchFromFallingEdge`, `_launchFromHillCrest`), `SPRING_VY_BONUS` (320 px/s) is added to vy — the effect is **not consumed**; it repeats on every jump until the 10 s timer expires.
 
 ### HUD indicators
 
-Active Rocket and Spring bars appear at the bottom of the stats panel, separated by a thin divider. Each bar has an icon and a duration-fill indicator that updates every frame. No separate fixed-position overlay — bars live inside the existing panel so nothing overlaps.
+Active Rocket and Boost bars appear in a standalone `.item-effects-panel` fixed div (`top: 220px; left: 16px`), separate from the stats panel. Each bar shows a type-colored icon (18 px), a label, and a horizontal duration gauge (10 px tall) with a type-specific gradient fill. The panel is hidden when no effects are active.
 
 ### Placement philosophy
 
 - Rockets near wide gaps and dangerous sections — immediate escape.
-- Springs near hill crests and right edges — reward risky positions.
+- Boosts near hill crests and right edges — enhance speed and multiple jumps.
 - Hearts rare (3 in static layout) — milestone rewards after hard sections.
 
 ## Terrain Destruction
@@ -289,15 +297,18 @@ Accumulated through the run:
 
 Full-screen overlay with a centered card shown before the first run. Contains:
 - Game title: **ARMADILLO RUSH**
-- Bilingual subtitle: 🌊 바다 → ☁️ 하늘 → 🌕 달 | Sea → Sky → Moon
-- Three sections (한국어 / English): 목표/Objective, 조작법/Controls, 팁/Tips
-- **시작하기 / Start Game** button
+- Language toggle buttons: **한국어** / **English** (pill buttons; active language highlighted in gold). Defaults to Korean. Clicking either button re-renders the card in that language only.
+- Three sections: 목표/Objective, 조작법/Controls, 팁/Tips (shown in the selected language only — not bilingual simultaneously)
+- **시작하기** (Korean) or **Start Game** (English) button
 
 ### HUD panel (top-left)
 
 Fixed position, semi-transparent dark background. Contains:
 - Stats grid: STATE, SCORE, HEIGHT, DIST, TO MOON, SPEED, ANGLE, POWER
-- Item effect bars (Rocket / Spring) at the bottom of the panel, below a thin divider
+
+### Item effects panel (below HUD)
+
+Separate `.item-effects-panel` div, fixed at `top: 220px; left: 16px`. Shows active Rocket and Boost effect bars (icon + label + horizontal gauge). Hidden when no effects are active. Not inside the stats panel.
 
 ### Lives (top-center)
 
@@ -305,7 +316,7 @@ Three pixel-art hearts. Filled = alive; empty = lost.
 
 ### Power gauge (left edge, during SLINGING)
 
-Vertical pill bar (`12 × 130 px`), bottom-anchored, fills upward (orange → gold). Disappears when not slinging.
+Vertical pill bar (`22 × 168 px`), bottom-anchored, fills upward (orange → gold). **Shown only while actively dragging** (hidden before drag begins and after launch). Disappears immediately on release.
 
 ### Controls (top-right)
 
@@ -322,7 +333,7 @@ Centered pulsing overlay shown while `_respawnWaiting` is true: **부활 준비 
 ### Game-over card
 
 Displays final score, distance, and height. Contains:
-- Nickname input and **점수 등록 / Register** button to save score to the local leaderboard.
+- Nickname input and **점수 등록 / Register** button to save score to the local leaderboard. After registering, the form is replaced by a **✓ 등록 완료 / Registered #N** indicator showing the achieved rank — duplicate registration is not possible.
 - **리더보드 보기 / Leaderboard** button.
 - **다시 시작 / Retry** button.
 
@@ -331,10 +342,10 @@ Displays final score, distance, and height. Contains:
 | Constant | Value | Role |
 | --- | --- | --- |
 | MAX_SPEED | 1400 px/s | Rolling velocity ceiling |
-| BOOST_ACCEL_PER_SEC | 2.2 (ratio/s) | Hold acceleration rate |
+| BOOST_ACCEL_PER_SEC | 1.7 (ratio/s) | Hold acceleration rate |
 | BOOST_SPEED_LIMIT | 1.8 | speedRatio ceiling |
-| BOOST_RELEASE_SPEED_KICK | 0.50 | Jump speed bonus |
-| BOOST_RELEASE_VERTICAL_KICK | 980 px/s | Extra vy on jump |
+| BOOST_RELEASE_SPEED_KICK | 0.28 | Jump speed bonus |
+| BOOST_RELEASE_VERTICAL_KICK | 820 px/s | Extra vy on jump |
 | ROLLING_FRICTION_PER_SEC | 0.28 (ratio/s) | Deceleration without hold |
 | EXIT_LAUNCH_MIN_ANGLE | 40° | Jump angle floor |
 | EXIT_LAUNCH_MAX_ANGLE | 58° | Jump angle ceiling |
@@ -378,7 +389,8 @@ src/game/particles.js
   Instanced geometry particle system (dirt, burst, flame, splash, ripple, rating)
 
 src/game/items.js
-  Item types (rocket/spring/heart), ITEM_SPAWN_TABLE, mesh builders,
+  Item types (rocket/boost/heart), ITEM_SPAWN_TABLE, pixel-art mesh builders
+  (pixRect helper, ShapeGeometry blocks, P=3 for rocket/boost, P=2 for heart),
   createItem, updateItems, checkItemCollection, markCollected,
   getProceduralItemSpec
 
@@ -390,9 +402,11 @@ src/renderer/
   WebGL scene, sky/background, post effects
 
 src/ui.css
-  HUD panel, tutorial screen (bilingual), game-over modal + score register,
+  HUD panel, tutorial screen (single-language with KO/EN toggle buttons),
+  game-over modal + score register + 완료 indicator,
   pause menu, spacebar SPACE button, pixel heart lives, leaderboard overlay,
-  respawn hint overlay, item effect bars (in-panel), vertical power gauge
+  respawn hint overlay, item effects panel (standalone fixed div, separate from HUD),
+  vertical power gauge (22 × 168 px, shown only during active drag)
 ```
 
 ## Current Status
@@ -406,12 +420,16 @@ Implemented:
 - Terrain destruction: momentum-preserving, push-out-free (2-frame Planck bypass grace window, flushContacts)
 - Sea splash failure with 3-life bounce system + hover-wait respawn (straight-down drop on Space/Click)
 - Right-edge escape: upward kick + clearContacts prevents wall-sliding
-- Item system: Rocket, Spring, Heart — collectible pickups with immediate and timed effects
+- Item system: Rocket, Boost, Heart — pixel-art collectible pickups with immediate and timed effects
+  - Rocket: 40°, 860 px/s, 2.0 s thrust
+  - Boost: 10 s passive speed gain (+0.22/s rolling), repeating jump bonus (+320 vy), not consumed on jump
+  - Item icons redesigned as pixel-art meshes (rectangular block segments)
+  - Item positions lowered ~20 px (offsetY 24–42 px above terrain)
 - Cloud speed bonus and meteor reduced gravity
 - Open-air fall acceleration (cloud/space layers, terrain-aware suppression)
-- Bilingual tutorial screen (Korean + English) with start button
+- Tutorial screen: Korean by default, KO/EN toggle button, single language displayed at a time
 - Bottom-center spacebar SPACE button
-- Post-game nickname entry and local-only leaderboard
+- Post-game nickname entry and local-only leaderboard; 완료 indicator after score registration (no duplicate)
 - Moon-clear state
 - Unified spin system — persists across all transitions
 - Edge-fall grace jump (120 ms window after falling off right edge)
@@ -419,5 +437,8 @@ Implemented:
 - Jump angle clamped to 40–58°
 - Top-surface-only collision
 - Atomic boostHeld reconstruction at landing
-- Input isolation: UI clicks never bleed into gameplay; start-game button consumes its own pointerup
+- Input isolation: UI clicks never bleed into gameplay; start-game button consumes its own pointerup; 300 ms `_slingBlockUntil` dead zone prevents double-click from triggering sling drag
+- Item effects panel: standalone fixed div below stats, 10 px horizontal gauge bars, 18 px icons
+- Power gauge: 22 × 168 px, shown only while actively dragging sling
+- Terrain left-entry ramp: grass mesh extended over ramp area for continuous visual (rampLeft = left − 60)
 - GitHub Pages deployment at https://hundredman.github.io/armadillo-rush/

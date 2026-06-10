@@ -1513,6 +1513,20 @@ class Game {
     )
   }
 
+  // World coordinates → CSS pixel position on screen (used for HUD elements that track world objects)
+  _worldToScreen(wx, wy) {
+    const canvas = this.renderer.renderer.domElement
+    const W = canvas.clientWidth
+    const H = canvas.clientHeight
+    const cam = this.renderer.camera
+    const halfW = (cam.right - cam.left) / 2
+    const halfH = (cam.top   - cam.bottom) / 2
+    return {
+      x: (wx - this.camPos.x) / halfW * (W / 2) + W / 2,
+      y: -(wy - this.camPos.y) / halfH * (H / 2) + H / 2,
+    }
+  }
+
   _handlePointerDown(clientX, clientY) {
     if (this.isPaused) return
 
@@ -2345,8 +2359,9 @@ class Game {
         }
       }
 
-      // ② downward landing — proximity check
-      if (this.velocity.y <= 30) {
+      // ② downward landing — proximity snap (only when boost is held)
+      // Without boost, Planck physics handles contact naturally (no forced snap).
+      if (this.boostHeld && this.velocity.y <= 30) {
         const landedIsland = this._findLandingIsland(prevBottom, nextBottom)
         if (landedIsland) {
           this._landOnIsland(landedIsland)
@@ -2408,10 +2423,10 @@ class Game {
       if (x < leftEdge || x > bounds.right) continue
       if (x >= bounds.left && isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
       const topY = getTerrainTopY(island, x)
-      // landed if bottom is near or below topY (proximity: 30px window)
-      if (bottom <= topY + 15 && bottom >= topY - 30) return island
+      // landed if bottom is near or below topY (tightened window: 16px — reduces snap feel)
+      if (bottom <= topY + 10 && bottom >= topY - 16) return island
       // also catch the cross-through case
-      if (prevBottom >= topY - 5 && nextBottom <= topY + 5) return island
+      if (prevBottom >= topY - 4 && nextBottom <= topY + 4) return island
     }
     return null
   }
@@ -2431,7 +2446,7 @@ class Game {
       if (isTerrainDamagedAt(island, x, ARMADILLO_SIZE / 2)) continue
       const topY = getTerrainTopY(island, x)
       const dist = Math.abs(bottom - topY)
-      if (dist < bestDist && dist <= 36) {
+      if (dist < bestDist && dist <= 24) {
         best = island
         bestDist = dist
       }
@@ -2804,9 +2819,13 @@ class Game {
       this.lastRating = 'HOLD'
       this._setArmadilloColor(0xffb74d)
     } else {
-      // no input: friction only
+      // no input: friction + slope gravity — downhill accelerates, uphill decelerates
+      const slope = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+      // sin(+slope) > 0 → uphill → decelerate; sin(−slope) < 0 → downhill → accelerate
+      const SLOPE_GRAVITY_SCALE = 1.4   // speedRatio/s per unit sin
+      const slopeEffect = -Math.sin(slope) * SLOPE_GRAVITY_SCALE
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio - ROLLING_FRICTION_PER_SEC * dt,
+        this.speedRatio + (slopeEffect - ROLLING_FRICTION_PER_SEC) * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
@@ -3011,7 +3030,7 @@ class Game {
     const terrainTop = targetIsland
       ? getTerrainTopY(targetIsland, landX)
       : SEA_LEVEL_Y
-    const landY = terrainTop + ARMADILLO_SIZE / 2 + 40   // 40 px gap — no touching
+    const landY = terrainTop + ARMADILLO_SIZE / 2 + 120   // 120 px gap — spawn clearly above terrain
 
     // ── 4. Modest speed bonus on rescue ───────────────────────────────────────
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
@@ -3403,7 +3422,7 @@ class Game {
     const isGameActive = !this.sm.is(State.TITLE)
     const heartsHTML = [1,2,3].map(i => {
       const full = i <= this.lives
-      return `<svg class="heart-pixel ${full ? 'heart-full' : 'heart-empty'}" width="20" height="20" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+      return `<svg class="heart-pixel ${full ? 'heart-full' : 'heart-empty'}" width="28" height="28" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
         <rect x="1" y="2" width="3" height="1"/><rect x="6" y="2" width="3" height="1"/>
         <rect x="0" y="3" width="4" height="1"/><rect x="5" y="3" width="4" height="1"/>
         <rect x="0" y="4" width="9" height="1"/>
@@ -3572,12 +3591,17 @@ class Game {
         </div>
       ` : ''}
 
-      ${this._respawnWaiting ? `
-        <div class="respawn-hint">
+      ${this._respawnWaiting ? (() => {
+        // Position hint directly above the armadillo in screen space
+        const sc = this._worldToScreen(
+          this.armadillo.position.x,
+          this.armadillo.position.y + ARMADILLO_SIZE + 24,
+        )
+        return `<div class="respawn-hint" style="left:${sc.x.toFixed(1)}px;top:${sc.y.toFixed(1)}px">
           부활 준비 완료!<br>
           <span style="font-size:13px;opacity:0.8">Space 또는 클릭으로 낙하 / Press Space or Click to drop</span>
-        </div>
-      ` : ''}
+        </div>`
+      })() : ''}
 
       ${this.isPaused ? `
         <div class="pause-layer">

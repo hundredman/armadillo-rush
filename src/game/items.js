@@ -19,11 +19,11 @@ export const ITEM_ROCKET_DURATION  = 2.0  // seconds of sustained rocket thrust 
 export const ITEM_SPRING_DURATION  = 10.0 // seconds the boost is active
 export const ITEM_COLLECT_RADIUS   = 38   // px — collection trigger distance
 
-// Rocket: thrust velocity (px/s) applied every frame while active, at 40° (slightly flatter than before)
-export const ROCKET_SPEED          = 860  // px/s — total speed magnitude (reduced from 940)
-export const ROCKET_ANGLE          = Math.PI / 180 * 40  // 40° (was 45°)
-export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 659 px/s
-export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 553 px/s
+// Rocket: thrust velocity (px/s) applied every frame while active, at 25° (flatter — more forward)
+export const ROCKET_SPEED          = 860  // px/s — total speed magnitude
+export const ROCKET_ANGLE          = Math.PI / 180 * 25  // 25° — flatter, more forward (was 40°)
+export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 779 px/s
+export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 364 px/s
 
 // Boost: applied on every jump while active (not consumed on use — lasts full duration)
 export const SPRING_VY_BONUS       = 320  // per-jump vertical bonus (repeating; was 680 one-time)
@@ -153,7 +153,7 @@ function buildRocketMesh() {
   ring.position.z = 0.10
   g.add(ring)
 
-  g.rotation.z = -ROCKET_ANGLE
+  g.rotation.z = -ROCKET_ANGLE  // visually matches the 25° launch angle
   return g
 }
 
