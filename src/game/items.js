@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 
 /**
- * Item system — Rocket, Spring, Heart
+ * Item system — Rocket, Boost, Heart
  *
  * Each item is a world-space object with:
- *   type:       'rocket' | 'spring' | 'heart'
+ *   type:       'rocket' | 'boost' | 'heart'
  *   x, y:       world position (center)
  *   mesh:       THREE.Group added to the scene
  *   collected:  boolean
@@ -12,88 +12,86 @@ import * as THREE from 'three'
  *
  * Active effect state stored on the Game instance:
  *   game.activeRocket  { timeLeft }  — rocket thrust active; velocity overridden each frame
- *   game.activeSpring  { timeLeft }  — next-jump enhancer active
+ *   game.activeSpring  { timeLeft }  — boost effect active (speed + jump enhanced for duration)
  */
 
-export const ITEM_ROCKET_DURATION  = 2.2  // seconds of sustained rocket thrust
-export const ITEM_SPRING_DURATION  = 8.0  // seconds the spring bonus is held ready
+export const ITEM_ROCKET_DURATION  = 2.0  // seconds of sustained rocket thrust (reduced from 2.2)
+export const ITEM_SPRING_DURATION  = 10.0 // seconds the boost is active
 export const ITEM_COLLECT_RADIUS   = 38   // px — collection trigger distance
 
-// Rocket: thrust velocity (px/s) applied every frame while active, at 45°
-export const ROCKET_SPEED          = 940  // px/s — total speed magnitude during thrust
-export const ROCKET_ANGLE          = Math.PI / 4  // 45° upward-forward
-export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 665 px/s
-export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 665 px/s
+// Rocket: thrust velocity (px/s) applied every frame while active, at 40° (slightly flatter than before)
+export const ROCKET_SPEED          = 860  // px/s — total speed magnitude (reduced from 940)
+export const ROCKET_ANGLE          = Math.PI / 180 * 40  // 40° (was 45°)
+export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 659 px/s
+export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 553 px/s
 
-// Spring: extra vertical kick (px/s) applied at next jump
-export const SPRING_VY_BONUS       = 680
-// Spring: vx multiplier applied at next jump (forward boost)
-export const SPRING_VX_MULT        = 1.22
-// Spring: minimum launch angle (rad) enforced when spring fires
-export const SPRING_MIN_ANGLE      = Math.PI / 180 * 50   // 50° — always arcs high
-// Spring: speedRatio added immediately on collect (momentum recovery)
-export const SPRING_SPEED_BONUS    = 0.45
+// Boost: applied on every jump while active (not consumed on use — lasts full duration)
+export const SPRING_VY_BONUS       = 320  // per-jump vertical bonus (repeating; was 680 one-time)
+export const SPRING_VX_MULT        = 1.15 // per-jump forward multiplier (was 1.22)
+export const SPRING_MIN_ANGLE      = Math.PI / 180 * 40  // 40° min launch arc (was 50°)
+export const SPRING_SPEED_BONUS    = 0.28 // immediate speedRatio on collect (was 0.45)
+export const SPRING_PASSIVE_SPEED  = 0.22 // speedRatio/s passive gain while rolling with boost
 
 // ─── Item spawn table ────────────────────────────────────────────────────────
 // Each entry: { islandIndex, offsetX, offsetY, type }
 //   islandIndex: which island in DEFAULT_ISLAND_LAYOUT (0-based) to attach near
 //   offsetX: x offset from island center (px)
 //   offsetY: y offset above terrain top (px)
-//   type: 'rocket' | 'spring' | 'heart'
+//   type: 'rocket' | 'boost' | 'heart'
 //
 // Placement philosophy:
 //   - Rockets near wide gaps and dangerous sections — immediate escape tool
-//   - Springs near hill crests and right edges — enhance the next jump
+//   - Boosts near hill crests and right edges — enhance speed + multiple jumps
 //   - Hearts are rare (3 in static layout) — milestone rewards after hard sections
 export const ITEM_SPAWN_TABLE = [
   // ── Section 1 (learning) — introduce both new types early ────────────────
   { islandIndex:  1, offsetX:  30, offsetY: 48, type: 'rocket' },
-  { islandIndex:  4, offsetX: -20, offsetY: 52, type: 'spring' },
+  { islandIndex:  4, offsetX: -20, offsetY: 52, type: 'boost'  },
 
   // ── Section 2 (building momentum) ────────────────────────────────────────
   { islandIndex:  9, offsetX:  40, offsetY: 46, type: 'rocket' },
-  { islandIndex: 12, offsetX: -30, offsetY: 50, type: 'spring' },
+  { islandIndex: 12, offsetX: -30, offsetY: 50, type: 'boost'  },
   { islandIndex: 14, offsetX:  20, offsetY: 44, type: 'rocket' },
 
   // ── Section 3 (speed zone) — rockets before gaps; heart after the crossing
   { islandIndex: 17, offsetX:  50, offsetY: 48, type: 'rocket' },
-  { islandIndex: 19, offsetX: -40, offsetY: 52, type: 'spring' },
+  { islandIndex: 19, offsetX: -40, offsetY: 52, type: 'boost'  },
   { islandIndex: 21, offsetX:   0, offsetY: 56, type: 'heart'  },  // first heart
   { islandIndex: 22, offsetX:  35, offsetY: 46, type: 'rocket' },
 
   // ── Section 4 (mid climb) ─────────────────────────────────────────────────
-  { islandIndex: 25, offsetX: -25, offsetY: 50, type: 'spring' },
+  { islandIndex: 25, offsetX: -25, offsetY: 50, type: 'boost'  },
   { islandIndex: 27, offsetX:  45, offsetY: 44, type: 'rocket' },
-  { islandIndex: 30, offsetX:   0, offsetY: 54, type: 'spring' },
+  { islandIndex: 30, offsetX:   0, offsetY: 54, type: 'boost'  },
   { islandIndex: 31, offsetX: -35, offsetY: 48, type: 'rocket' },
 
   // ── Section 5 (pre-cloud, destructible) ───────────────────────────────────
-  { islandIndex: 33, offsetX:  30, offsetY: 52, type: 'spring' },
+  { islandIndex: 33, offsetX:  30, offsetY: 52, type: 'boost'  },
   { islandIndex: 35, offsetX:  50, offsetY: 46, type: 'rocket' },
-  { islandIndex: 37, offsetX: -20, offsetY: 48, type: 'spring' },
+  { islandIndex: 37, offsetX: -20, offsetY: 48, type: 'boost'  },
   { islandIndex: 39, offsetX:   0, offsetY: 60, type: 'heart'  },  // second heart — pre-cloud milestone
 
   // ── Section 6 (cloud entry) ───────────────────────────────────────────────
   { islandIndex: 41, offsetX:  40, offsetY: 50, type: 'rocket' },
-  { islandIndex: 43, offsetX: -30, offsetY: 52, type: 'spring' },
+  { islandIndex: 43, offsetX: -30, offsetY: 52, type: 'boost'  },
   { islandIndex: 45, offsetX:  25, offsetY: 46, type: 'rocket' },
-  { islandIndex: 47, offsetX:   0, offsetY: 54, type: 'spring' },
+  { islandIndex: 47, offsetX:   0, offsetY: 54, type: 'boost'  },
 
   // ── Section 7 (high cloud) ────────────────────────────────────────────────
   { islandIndex: 50, offsetX:  55, offsetY: 48, type: 'rocket' },
-  { islandIndex: 52, offsetX: -40, offsetY: 52, type: 'spring' },
+  { islandIndex: 52, offsetX: -40, offsetY: 52, type: 'boost'  },
   { islandIndex: 54, offsetX:  35, offsetY: 44, type: 'rocket' },
   { islandIndex: 56, offsetX:   0, offsetY: 64, type: 'heart'  },  // third heart — late recovery
-  { islandIndex: 58, offsetX: -30, offsetY: 50, type: 'spring' },
+  { islandIndex: 58, offsetX: -30, offsetY: 50, type: 'boost'  },
   { islandIndex: 60, offsetX:  45, offsetY: 48, type: 'rocket' },
-  { islandIndex: 62, offsetX: -20, offsetY: 52, type: 'spring' },
+  { islandIndex: 62, offsetX: -20, offsetY: 52, type: 'boost'  },
   { islandIndex: 64, offsetX:  10, offsetY: 46, type: 'rocket' },
 ]
 
 // Colors by item type
 const ITEM_COLORS = {
   rocket: { main: 0xff6d00, glow: 0xffe0b2, ring: 0xff3d00 },
-  spring: { main: 0x00e5ff, glow: 0xe0f7ff, ring: 0x0091ea },
+  boost:  { main: 0xffd600, glow: 0xfff9c4, ring: 0xf9a825 },
   heart:  { main: 0xff1744, glow: 0xff8a80, ring: 0xb71c1c },
 }
 
@@ -103,7 +101,7 @@ function buildRocketMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.rocket
 
-  // Body — vertical pill pointing up-right at 45°
+  // Body — vertical pill pointing up-right at new angle
   const bodyShape = new THREE.Shape()
   bodyShape.moveTo(-5, -11)
   bodyShape.lineTo( 5, -11)
@@ -155,25 +153,24 @@ function buildRocketMesh() {
   )
   ring.position.z = 0.10
 
-  // Tilt 45° so it points up-right — matching the thrust direction
-  g.rotation.z = -Math.PI / 4
+  // Tilt to match new 40° thrust direction
+  g.rotation.z = -ROCKET_ANGLE
   g.add(body, window_, finLMesh, finRMesh, ring)
   return g
 }
 
-function buildSpringMesh() {
+function buildBoostMesh() {
   const g = new THREE.Group()
-  const c = ITEM_COLORS.spring
+  const c = ITEM_COLORS.boost
 
-  // Up-arrow body
+  // Lightning bolt body — signals speed burst
   const shape = new THREE.Shape()
-  shape.moveTo(0, 15)
+  shape.moveTo(3, 15)
   shape.lineTo(10, 2)
-  shape.lineTo(5, 2)
-  shape.lineTo(5, -8)
-  shape.lineTo(-5, -8)
-  shape.lineTo(-5, 2)
-  shape.lineTo(-10, 2)
+  shape.lineTo(4, 2)
+  shape.lineTo(8, -10)
+  shape.lineTo(-3, 4)
+  shape.lineTo(3, 4)
   shape.closePath()
   const body = new THREE.Mesh(
     new THREE.ShapeGeometry(shape),
@@ -181,27 +178,28 @@ function buildSpringMesh() {
   )
   body.position.z = 0.12
 
-  // Small coil base — two arc segments suggesting a spring
-  const coilMat = new THREE.LineBasicMaterial({ color: c.ring })
-  const coilPts = []
-  for (let i = 0; i <= 12; i++) {
-    const t = i / 12
-    const wave = Math.sin(t * Math.PI * 2) * 3
-    coilPts.push(new THREE.Vector3(-6 + t * 12, -10 + wave, 0.13))
-  }
-  const coil = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(coilPts),
-    coilMat,
+  // Inner highlight
+  const innerShape = new THREE.Shape()
+  innerShape.moveTo(2, 12)
+  innerShape.lineTo(7, 2)
+  innerShape.lineTo(3, 2)
+  innerShape.lineTo(6, -6)
+  innerShape.lineTo(-1, 4)
+  innerShape.lineTo(2, 4)
+  innerShape.closePath()
+  const inner = new THREE.Mesh(
+    new THREE.ShapeGeometry(innerShape),
+    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.7, side: THREE.DoubleSide }),
   )
-  g.add(body, coil)
+  inner.position.z = 0.13
 
   // Ring
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(14, 17, 20),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.11
-  g.add(ring)
+  g.add(body, inner, ring)
 
   return g
 }
@@ -239,7 +237,7 @@ function buildHeartMesh() {
 
 export function createItem(type, x, y) {
   const mesh = type === 'rocket' ? buildRocketMesh()
-    : type === 'spring' ? buildSpringMesh()
+    : type === 'boost' ? buildBoostMesh()
     : buildHeartMesh()
 
   mesh.position.set(x, y, 0)
@@ -260,12 +258,12 @@ export function createItem(type, x, y) {
  * Returns null or { type, offsetX, offsetY }.
  */
 export function getProceduralItemSpec(islandIndex) {
-  // Rocket every 10 islands, spring every 14, heart every 28
+  // Rocket every 10 islands, boost every 14, heart every 28
   const rel = islandIndex - 65
   if (rel < 0) return null
-  if (rel % 28 === 0) return { type: 'heart',  offsetX: 0,   offsetY: 56 }
-  if (rel % 14 === 0) return { type: 'spring', offsetX: -30, offsetY: 50 }
-  if (rel % 10 === 0) return { type: 'rocket', offsetX: 40,  offsetY: 46 }
+  if (rel % 28 === 0) return { type: 'heart', offsetX: 0,   offsetY: 56 }
+  if (rel % 14 === 0) return { type: 'boost', offsetX: -30, offsetY: 50 }
+  if (rel % 10 === 0) return { type: 'rocket', offsetX: 40, offsetY: 46 }
   return null
 }
 
@@ -277,9 +275,14 @@ export function updateItems(items, dt, time) {
     // Gentle vertical bob
     const bob = Math.sin(time * 2.4 + item.bobOffset) * 5
     item.mesh.position.y = item.y + bob
-    // Rocket: slow spin to hint at the 45° direction
+    // Rocket: slow spin to hint at the thrust direction
     if (item.type === 'rocket') {
-      item.mesh.rotation.z = -Math.PI / 4 + Math.sin(time * 1.4 + item.bobOffset) * 0.18
+      item.mesh.rotation.z = -ROCKET_ANGLE + Math.sin(time * 1.4 + item.bobOffset) * 0.18
+    }
+    // Boost: slight pulse/shimmer
+    if (item.type === 'boost') {
+      const pulse = 1 + Math.sin(time * 3.5 + item.bobOffset) * 0.10
+      item.mesh.scale.setScalar(pulse)
     }
     // Heart: gentle pulse
     if (item.type === 'heart') {

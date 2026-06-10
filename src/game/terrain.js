@@ -270,8 +270,10 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     x - w * 0.28, bottomCurveY,
     left + cornerR, bottomY,
   )
-  shape.quadraticCurveTo(left, bottomY, left, leftTop.y - sideDrop)
-  shape.quadraticCurveTo(left, leftTop.y - sideDrop * 0.35, leftTop.x, leftTop.y)
+  // Curve bottom-left directly to the ramp base — no separate vertical left edge.
+  // closePath() then draws a zero-length line back to moveTo, eliminating the
+  // diagonal seam that made the ramp look like a detached wedge.
+  shape.quadraticCurveTo(left - LEFT_RAMP_W * 0.4, bottomY, leftTop.x - LEFT_RAMP_W, leftTop.y - 40)
   shape.closePath()
 
   const soil = new THREE.Mesh(
@@ -363,8 +365,8 @@ function createTerrainBodyShapes(terrain) {
     x - w * 0.28, bottomCurveY,
     left + cornerR, bottomY,
   )
-  shape.quadraticCurveTo(left, bottomY, left, leftTop.y - sideDrop)
-  shape.quadraticCurveTo(left, leftTop.y - sideDrop * 0.35, leftTop.x, leftTop.y)
+  // Curve bottom-left directly to the ramp base — matches createCurvedTerrain.
+  shape.quadraticCurveTo(left - LEFT_RAMP_W * 0.4, bottomY, leftTop.x - LEFT_RAMP_W, leftTop.y - 40)
   shape.closePath()
   return [shape]
 }

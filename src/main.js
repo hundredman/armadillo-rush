@@ -36,6 +36,7 @@ import {
   SPRING_VX_MULT,
   SPRING_MIN_ANGLE,
   SPRING_SPEED_BONUS,
+  SPRING_PASSIVE_SPEED,
   createItem,
   getProceduralItemSpec,
   updateItems,
@@ -174,6 +175,10 @@ class Game {
     // Set true once the tutorial screen has been rendered — skip rebuilding the
     // static TITLE DOM every frame so the button is stable and `:active` shows.
     this._tutorialRendered = false
+    // Cached key for GAMEOVER HUD — only rebuilds when content actually changes
+    // (pendingScoreEntry rank, showingLeaderboard, isPaused).  Prevents
+    // per-frame innerHTML replacement from destroying the nickname text input.
+    this._lastGameOverKey = null
     this.boostHeld = false
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
@@ -1722,6 +1727,7 @@ class Game {
     this._pendingPointerClear = true
     this._slingReady = false
     this._tutorialRendered = false
+    this._lastGameOverKey = null
     this._namePromptJustClosed = false
     this._spawnGraceTimer = 0
     this._pendingTerrainRebuild.clear()
@@ -1771,6 +1777,7 @@ class Game {
     this.slingDragging = false
     this._slingReady = false
     this._tutorialRendered = false
+    this._lastGameOverKey = null
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
@@ -1861,7 +1868,7 @@ class Game {
       // Hearts are never swapped — they're fixed milestone rewards.
       let type = entry.type
       if (type !== 'heart' && Math.random() < 0.30) {
-        type = type === 'rocket' ? 'spring' : 'rocket'
+        type = type === 'rocket' ? 'boost' : 'rocket'
       }
 
       // Small y-offset jitter so items aren't all at identical heights
@@ -1887,7 +1894,7 @@ class Game {
     const clampedOffsetX = THREE.MathUtils.clamp(spec.offsetX + xJitter, -islandHalfW, islandHalfW)
     let type = spec.type
     if (type !== 'heart' && Math.random() < 0.25) {
-      type = type === 'rocket' ? 'spring' : 'rocket'
+      type = type === 'rocket' ? 'boost' : 'rocket'
     }
     const wx = island.bowlCenter + clampedOffsetX
     const terrainY = getTerrainTopY(island, wx)
@@ -1962,8 +1969,8 @@ class Game {
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
     const hasSpring = !!this.activeSpring
-    if (hasSpring) this.activeSpring = null  // consume on use
-    // Spring: force a high arc angle and boost both axes
+    // Boost stays active for its full duration — NOT consumed on use
+    // Boost: enhance arc angle and both velocity axes on every jump while active
     const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
     const effectiveLaunchSpeed = hasSpring
       ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
@@ -1988,9 +1995,9 @@ class Game {
     const isEdgeJump = edgeRatio > 0.5
     const strongBoost = inputStrength >= 0.45
     if (hasSpring) {
-      this.lastRating = 'SPRING!'
-      this._setArmadilloColor(0x00e5ff)
-      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0x00e5ff, 24, 380)
+      this.lastRating = 'BOOST!'
+      this._setArmadilloColor(0xffd600)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
       this._playTone(1040, 0.10, 0.08, 'triangle')
     } else {
       this.lastRating = isEdgeJump ? 'EDGE!' : strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
@@ -2014,7 +2021,7 @@ class Game {
     const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
     const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
     const hasSpring = !!this.activeSpring
-    if (hasSpring) this.activeSpring = null
+    // Boost stays active — NOT consumed on use
     const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
     const effectiveLaunchSpeed = hasSpring
       ? Math.min(LAUNCH_SPEED, Math.max(this.speedRatio * MAX_SPEED, 200) / Math.max(Math.cos(effectiveAngle), 0.35))
@@ -2027,9 +2034,9 @@ class Game {
     this.physics.setArmadilloVelocity(vx, vy)
     this._edgeFallGraceTimer = 0
     if (hasSpring) {
-      this.lastRating = 'SPRING!'
-      this._setArmadilloColor(0x00e5ff)
-      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0x00e5ff, 24, 380)
+      this.lastRating = 'BOOST!'
+      this._setArmadilloColor(0xffd600)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
       this._playTone(1040, 0.10, 0.08, 'triangle')
     } else {
       this.lastRating = 'EDGE!'
@@ -2057,7 +2064,7 @@ class Game {
     const vx            = Math.cos(launchAngle) * launchSpeed
     const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
     const hasSpring     = !!this.activeSpring
-    if (hasSpring) this.activeSpring = null
+    // Boost stays active — NOT consumed on use
     const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
     const effectiveLaunchSpeed = hasSpring
       ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
@@ -2073,9 +2080,9 @@ class Game {
 
     const isHeld        = this.boostHeld
     if (hasSpring) {
-      this.lastRating = 'SPRING!'
-      this._setArmadilloColor(0x00e5ff)
-      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0x00e5ff, 24, 380)
+      this.lastRating = 'BOOST!'
+      this._setArmadilloColor(0xffd600)
+      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
       this._playTone(1040, 0.10, 0.08, 'triangle')
     } else {
       this.lastRating     = isHeld ? 'CREST!' : 'CREST'
@@ -3070,10 +3077,16 @@ class Game {
   _updateItems(dt) {
     updateItems(this.items, dt, this.time)
 
-    // Tick spring timer
+    // Tick boost timer
     if (this.activeSpring) {
       this.activeSpring.timeLeft -= dt
-      if (this.activeSpring.timeLeft <= 0) this.activeSpring = null
+      if (this.activeSpring.timeLeft <= 0) {
+        this.activeSpring = null
+      } else if (this.sm.is(State.ROLLING)) {
+        // Passive speed acceleration while rolling with boost active —
+        // the armadillo visibly picks up speed, making the next jump stronger.
+        this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + SPRING_PASSIVE_SPEED * dt)
+      }
     }
     // Rocket timer is ticked inside _updateFlight so it can drive velocity there.
     // Here we just decrement if the player somehow isn't in flight (safety fallback).
@@ -3116,13 +3129,15 @@ class Game {
       this._spawnParticles(item.x, item.y, 0xffe0b2, 22, 300)
       this._playTone(280, 0.18, 0.10, 'sawtooth')
       setTimeout(() => this._playTone(420, 0.14, 0.10, 'sawtooth'), 100)
-    } else if (item.type === 'spring') {
+    } else if (item.type === 'boost') {
       this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + SPRING_SPEED_BONUS)
       this.activeSpring = { timeLeft: ITEM_SPRING_DURATION }
-      this.lastRating = 'SPRING!'
-      this._setArmadilloColor(0x00e5ff)
-      this._spawnParticles(item.x, item.y, 0x80deea, 14, 220)
-      this._playTone(780, 0.10, 0.07, 'sine')
+      this.lastRating = 'BOOST!'
+      this._setArmadilloColor(0xffd600)
+      this._spawnParticles(item.x, item.y, 0xffd600, 22, 280)
+      this._spawnParticles(item.x, item.y, 0xfff9c4, 12, 200)
+      this._playTone(880, 0.12, 0.08, 'sine')
+      setTimeout(() => this._playTone(1100, 0.09, 0.07, 'sine'), 80)
     } else if (item.type === 'heart') {
       this.lives = Math.min(3, this.lives + 1)
       this.lastRating = 'HEART!'
@@ -3309,9 +3324,19 @@ class Game {
 
   _renderHud() {
     if (!this.ui) return
+    // Never destroy the nickname input while the user is actively typing —
+    // innerHTML rebuild would immediately defocus the field and lose keystrokes.
+    if (document.activeElement?.classList.contains('name-input')) return
     // Tutorial screen is completely static — skip rebuilding the DOM every
     // requestAnimationFrame so the button is stable and CSS :active shows.
     if (this.sm.is(State.TITLE) && this._tutorialRendered) return
+    // GAMEOVER screen: only rebuild when visible content actually changes.
+    // This keeps the nickname input stable and buttons clickable.
+    if (this.sm.is(State.GAMEOVER)) {
+      const k = `${this.pendingScoreEntry?.rank ?? ''}:${this.showingLeaderboard}:${this.isPaused}`
+      if (k === this._lastGameOverKey) return
+      this._lastGameOverKey = k
+    }
     const heightM = Math.max(0, Math.floor(this.bestHeightPx / PX_PER_METER))
     const distanceM = Math.max(0, Math.floor(this.bestDistancePx / PX_PER_METER))
     const score = this._getScore()
@@ -3411,8 +3436,8 @@ class Game {
           <span class="item-effect-icon">🚀</span>
           <div class="item-effect-bar"><div class="item-effect-fill" style="width:${rocketPct}%"></div></div>
         </div>` : ''}
-        ${this.activeSpring ? `<div class="item-effect item-effect-spring">
-          <span class="item-effect-icon">↑</span>
+        ${this.activeSpring ? `<div class="item-effect item-effect-boost">
+          <span class="item-effect-icon">⚡</span>
           <div class="item-effect-bar"><div class="item-effect-fill" style="width:${springPct}%"></div></div>
         </div>` : ''}
       </div>` : ''
