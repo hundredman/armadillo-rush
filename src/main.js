@@ -2850,6 +2850,7 @@ class Game {
       }
       // Already FLYING or FALLING — no transition needed, just override velocity.
       this.activeRocket = { timeLeft: ITEM_ROCKET_DURATION }
+      this._rocketCoasting = false   // thrusting now, not coasting (set true again at handoff)
       this.velocity.set(ROCKET_VX, ROCKET_VY)
       this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
       this.physics.setArmadilloVelocity(ROCKET_VX, ROCKET_VY)
