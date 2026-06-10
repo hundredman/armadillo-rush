@@ -552,6 +552,26 @@ export function isTerrainDamagedAt(terrain, x, margin = 0) {
 }
 
 /**
+ * True when (almost) the entire top surface of an island has been cratered.
+ * Such an island has no meaningful collision left, so the caller should drop it
+ * completely — removing its physics body, ridge/ramp correction lines and mesh —
+ * rather than rebuilding a sliver that produces phantom bounces.
+ */
+export function isTerrainFullyDestroyed(terrain) {
+  const { left, right } = terrain.bounds
+  const width = right - left
+  if (width <= 0) return false
+  const zones = mergeDamageZones(terrain)
+  let covered = 0
+  for (const zone of zones) {
+    const l = Math.max(left, zone.left)
+    const r = Math.min(right, zone.right)
+    if (r > l) covered += r - l
+  }
+  return covered >= width * 0.9
+}
+
+/**
  * Update debris physics animation.
  * Called every frame from main.js _update().
  */

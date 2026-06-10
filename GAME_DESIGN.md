@@ -143,7 +143,7 @@ Three collectible item types float above terrain on a gentle bob animation. Item
 
 | Item | Visual | Effect | Duration |
 | --- | --- | --- | --- |
-| Rocket | Orange pixel-art rocket tilted 40° | Immediately launches at 40° upward-forward at 860 px/s for 2.0 s | 2.0 s thrust |
+| Rocket | Orange pixel-art rocket tilted 25° | Immediately launches at 25° upward-forward at 860 px/s for 2.0 s | 2.0 s thrust |
 | Boost | Yellow pixel-art lightning bolt | +0.28 speedRatio on collect; passive +0.22 speedRatio/s while rolling; +320 px/s vy per jump (not consumed — repeats for full duration) | 10 s window |
 | Heart | Red pixel-art heart | +1 life (max 3) | instant |
 
@@ -161,7 +161,7 @@ Items float 24–42 px above terrain top (`offsetY` in `ITEM_SPAWN_TABLE`). Proc
 
 ### Rocket effect
 
-Fires immediately on collect. If ROLLING, transitions to FALLING first. While active, Planck physics is bypassed every frame — the armadillo moves at constant (ROCKET_VX, ROCKET_VY) ≈ (659, 553) px/s at 40°; gravity is ignored. Orange flame particles trail behind. On expiry, `speedRatio += 0.35` and normal physics resumes.
+Fires immediately on collect. If ROLLING, transitions to FALLING first. While active, Planck physics is bypassed every frame — the armadillo moves at constant (ROCKET_VX, ROCKET_VY) ≈ (779, 364) px/s at 25°; gravity is ignored. Orange flame particles trail behind. On expiry, `speedRatio += 0.35` and normal physics resumes.
 
 ### Boost effect
 
@@ -421,7 +421,7 @@ Implemented:
 - Sea splash failure with 3-life bounce system + hover-wait respawn (straight-down drop on Space/Click)
 - Right-edge escape: upward kick + clearContacts prevents wall-sliding
 - Item system: Rocket, Boost, Heart — pixel-art collectible pickups with immediate and timed effects
-  - Rocket: 40°, 860 px/s, 2.0 s thrust
+  - Rocket: 25°, 860 px/s, 2.0 s thrust
   - Boost: 10 s passive speed gain (+0.22/s rolling), repeating jump bonus (+320 vy), not consumed on jump
   - Item icons redesigned as pixel-art meshes (rectangular block segments)
   - Item positions lowered ~20 px (offsetY 24–42 px above terrain)

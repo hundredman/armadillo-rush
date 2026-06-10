@@ -122,130 +122,121 @@ function pixRect(g, x, y, w, h, color, z = 0.12) {
   g.add(mesh)
 }
 
-function buildRocketMesh() {
+/**
+ * Build a pixel-art icon from a small character grid, automatically wrapping the
+ * whole silhouette in a clean 1px outline.  This guarantees every icon shares the
+ * same crisp-outline + light/core/shadow shading language, so the three item
+ * types read as one consistent set rather than ad-hoc sprites.
+ *
+ * @param {string[]} rows   grid rows ('.'/' ' = empty, other chars = palette key)
+ * @param {Object}   pal    char → hex color
+ * @param {number}   outline outline hex color
+ * @param {number}   P       pixel size in world units
+ * @param {Object}   [zByChar] optional char → z override (for inset details)
+ */
+function buildPixelIcon(rows, pal, outline, P, zByChar = {}) {
   const g = new THREE.Group()
-  const c = ITEM_COLORS.rocket
-  const P = 3  // 1 pixel = 3 world units
-  const DARK = 0x3d1a00   // outline/shadow color
+  const H = rows.length
+  const W = Math.max(...rows.map((r) => r.length))
+  const charAt = (i, j) => (rows[j] && rows[j][i]) || ' '
+  const isFill = (ch) => ch !== ' ' && ch !== '.'
+  const xOf = (i) => (i - W / 2) * P
+  const yOf = (j) => ((H - 1 - j) - H / 2) * P
 
-  // ── Dark outline pass (drawn first, slightly larger) ──────────────
-  pixRect(g, -2*P,   6*P,  4*P,   P, DARK, 0.09)           // nose outline top
-  pixRect(g, -3*P,  -3*P,  6*P, 10*P, DARK, 0.09)          // body outline
-  pixRect(g, -6*P,  -4*P,  3*P,  5*P, DARK, 0.09)          // left fin outline
-  pixRect(g,  3*P,  -4*P,  3*P,  5*P, DARK, 0.09)          // right fin outline
-  pixRect(g, -2*P,  -6*P,  4*P,  3*P, 0x664400, 0.09)      // flame outline
+  // Outline pass — any empty cell orthogonally touching a filled cell.
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      if (isFill(charAt(i, j))) continue
+      const touches = isFill(charAt(i - 1, j)) || isFill(charAt(i + 1, j))
+        || isFill(charAt(i, j - 1)) || isFill(charAt(i, j + 1))
+      if (touches) pixRect(g, xOf(i), yOf(j), P, P, outline, 0.085)
+    }
+  }
+  // Fill pass.
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      const ch = charAt(i, j)
+      if (!isFill(ch)) continue
+      const color = pal[ch]
+      if (color == null) continue
+      pixRect(g, xOf(i), yOf(j), P, P, color, zByChar[ch] ?? 0.12)
+    }
+  }
+  return g
+}
 
-  // ── Body (main orange) ──────────────────────────────────────────
-  pixRect(g, -P,     7*P,  2*P,   P, c.main)  // nose tip
-  pixRect(g, -2*P,   6*P,  4*P,   P, c.main)  // nose mid
-  pixRect(g, -3*P,  -3*P,  6*P, 9*P, c.main)  // body
-
-  // ── Window (viewport) ────────────────────────────────────────────
-  pixRect(g, -P,     3*P,  2*P, 2*P, 0x001a33, 0.13)   // dark glass
-  pixRect(g, -P,     4*P,  P,   P,   0x66ccff, 0.14)   // highlight glint
-
-  // ── Side stripe ──────────────────────────────────────────────────
-  pixRect(g, -3*P,   0,    P,   3*P, 0xff3d00, 0.13)   // left stripe
-  pixRect(g,  2*P,   0,    P,   3*P, 0xff3d00, 0.13)   // right stripe
-
-  // ── Fins ─────────────────────────────────────────────────────────
-  pixRect(g, -5*P,  -3*P,  2*P, 4*P, c.ring)
-  pixRect(g,  3*P,  -3*P,  2*P, 4*P, c.ring)
-
-  // ── Exhaust flame ────────────────────────────────────────────────
-  pixRect(g, -2*P,  -5*P,  4*P, 2*P, 0xffcc00)
-  pixRect(g, -P,    -6*P,  2*P,  P,  0xffffff, 0.13)  // inner core
-
-  // ── Ring ─────────────────────────────────────────────────────────
+/** Add a soft glow ring behind an icon. */
+function addGlowRing(g, color, inner, outer, opacity) {
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(22, 26, 12),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(inner, outer, 28),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide }),
   )
-  ring.position.z = 0.10
+  ring.position.z = 0.06
   g.add(ring)
+}
 
+function buildRocketMesh() {
+  const c = ITEM_COLORS.rocket
+  // C core, L highlight (left), S shade (right), G glass, g glint, F flame, f flame-core, N fin
+  const rows = [
+    '...C...',
+    '..LCS..',
+    '..LCS..',
+    '..LGS..',
+    '..LgS..',
+    '..LCS..',
+    '.NLCSN.',
+    '.NLCSN.',
+    '..LCS..',
+    '..FFF..',
+    '...f...',
+  ]
+  const pal = {
+    C: c.main, L: 0xffc266, S: 0xc23d00,
+    G: 0x12303f, g: 0x9fe3ff,
+    F: 0xffce3a, f: 0xfff3b0, N: c.ring,
+  }
+  const g = buildPixelIcon(rows, pal, 0x2a1200, 3, { g: 0.13, G: 0.13 })
+  addGlowRing(g, c.ring, 22, 26, 0.42)
   g.rotation.z = -ROCKET_ANGLE
   return g
 }
 
 function buildBoostMesh() {
-  const g = new THREE.Group()
   const c = ITEM_COLORS.boost
-  const P = 3
-  const DARK = 0x3d2800  // outline color
-
-  // ── Dark outline (1px border all around the bolt) ─────────────────
-  pixRect(g,  -P,    5*P,  5*P, 3*P, DARK, 0.09)   // top outline
-  pixRect(g, -3*P,   P,   6*P, 5*P, DARK, 0.09)   // mid outline
-  pixRect(g,  -P,   -2*P,  6*P, 4*P, DARK, 0.09)  // lower outline
-  pixRect(g, -3*P,  -5*P,  5*P, 4*P, DARK, 0.09)  // bottom outline
-
-  // ── Main bolt body ───────────────────────────────────────────────
-  pixRect(g,  0,    5*P,  3*P, 2*P, c.main)   // top arm
-  pixRect(g, -2*P,  2*P,  4*P, 3*P, c.main)   // upper body
-  pixRect(g,  0,   -P,    4*P, 3*P, c.main)   // lower body
-  pixRect(g, -2*P, -4*P,  3*P, 3*P, c.main)   // bottom tip
-
-  // ── Inner highlight (bright left edge of bolt) ────────────────────
-  pixRect(g,  P,    5*P,  P,   2*P, c.glow, 0.13)
-  pixRect(g, -P,    2*P,  2*P, 3*P, c.glow, 0.13)
-  pixRect(g,  P,   -P,    2*P, 2*P, c.glow, 0.13)
-  pixRect(g, -P,   -4*P,  2*P, 2*P, c.glow, 0.13)
-
-  // ── Shadow/depth right side ───────────────────────────────────────
-  pixRect(g,  2*P,  2*P,  P,   3*P, c.ring, 0.11)   // upper shadow
-  pixRect(g,  3*P,  -P,   P,   2*P, c.ring, 0.11)   // lower shadow
-
-  // ── Ring ──────────────────────────────────────────────────────────
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(20, 24, 12),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
-  )
-  ring.position.z = 0.11
-  g.add(ring)
+  // Lightning bolt: upper diagonal → flare → lower diagonal, L highlight / S shade
+  const rows = [
+    '...CC.',
+    '..LCS.',
+    '..LCS.',
+    '.LCCC.',
+    '.CCCS.',
+    '..LCS.',
+    '..LCS.',
+    '.LCS..',
+    '.CC...',
+  ]
+  const pal = { C: c.main, L: c.glow, S: 0xc9a200 }
+  const g = buildPixelIcon(rows, pal, 0x3a2500, 3, { L: 0.13 })
+  addGlowRing(g, c.ring, 20, 24, 0.52)
   return g
 }
 
 function buildHeartMesh() {
-  const g = new THREE.Group()
   const c = ITEM_COLORS.heart
-  const col = c.main
-  const P = 3  // increased from 2 — larger, more readable
-  const DARK = 0x4d0010  // dark outline
-
-  // ── Dark outline (1px border) ────────────────────────────────────
-  pixRect(g, -5*P,  4*P,  4*P, 3*P, DARK, 0.09)  // left bump outline
-  pixRect(g,   P,   4*P,  4*P, 3*P, DARK, 0.09)  // right bump outline
-  pixRect(g, -5*P,  -P,  10*P, 6*P, DARK, 0.09)  // body outline
-  pixRect(g, -4*P, -3*P,  8*P, 3*P, DARK, 0.09)  // lower outline
-  pixRect(g, -3*P, -5*P,  6*P, 3*P, DARK, 0.09)
-  pixRect(g, -2*P, -7*P,  4*P, 3*P, DARK, 0.09)
-  pixRect(g,  -P,  -8*P,  2*P, 2*P, DARK, 0.09)  // tip outline
-
-  // ── Main heart shape ─────────────────────────────────────────────
-  pixRect(g, -4*P,  4*P,  3*P, 2*P, col)  // left bump
-  pixRect(g,   P,   4*P,  3*P, 2*P, col)  // right bump
-  pixRect(g, -4*P,  2*P,  8*P, 2*P, col)  // top body
-  pixRect(g, -4*P,  0,    8*P, 2*P, col)  // mid body
-  pixRect(g, -3*P, -2*P,  6*P, 2*P, col)  // narrowing
-  pixRect(g, -2*P, -4*P,  4*P, 2*P, col)
-  pixRect(g,  -P,  -6*P,  2*P, 2*P, col)  // tip
-
-  // ── Inner highlight ───────────────────────────────────────────────
-  pixRect(g, -3*P,  2*P,  3*P, 2*P, c.glow, 0.13)  // top-left sheen
-  pixRect(g, -2*P,  0,    2*P, P,   c.glow, 0.13)
-
-  // ── Shadow (right + bottom edge) ─────────────────────────────────
-  pixRect(g,  2*P,  0,    2*P, 2*P, c.ring, 0.11)
-  pixRect(g, -2*P, -2*P,  2*P, 2*P, c.ring, 0.11)
-
-  // ── Ring ──────────────────────────────────────────────────────────
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(20, 24, 16),
-    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.50, side: THREE.DoubleSide }),
-  )
-  ring.position.z = 0.10
-  g.add(ring)
+  // Two bumps + tapering body; L sheen top-left, S shade bottom-right
+  const rows = [
+    '.LCC.CCS.',
+    'LLCCCCCSS',
+    'LCCCCCCCS',
+    '.LCCCCCS.',
+    '..LCCCS..',
+    '...LCS...',
+    '....C....',
+  ]
+  const pal = { C: c.main, L: 0xff8a9a, S: 0xb3122f }
+  const g = buildPixelIcon(rows, pal, 0x4d0010, 3, { L: 0.13 })
+  addGlowRing(g, c.glow, 20, 24, 0.48)
   return g
 }
 

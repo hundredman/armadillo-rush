@@ -24,6 +24,7 @@ import {
   getTerrainSlopeAngle,
   getTerrainTopY,
   isTerrainDamagedAt,
+  isTerrainFullyDestroyed,
 } from './game/terrain.js'
 import {
   ITEM_SPAWN_TABLE,
@@ -88,6 +89,10 @@ const SLING_POWER_MAX = 1.0     // power ratio at maximum pull
 const ISLAND_SPAWN_LOOKAHEAD = 22000
 const INITIAL_PROCEDURAL_ISLANDS = 120
 const ISLANDS_PER_SPAWN_TICK = 36
+// Distance behind the camera beyond which passed islands/items are culled.
+// Far larger than the viewport half-width and the respawn look-back (~400px),
+// so culling can never remove anything still relevant to gameplay.
+const CULL_BEHIND_PX = 2800
 
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
@@ -109,8 +114,6 @@ const FALL_ACCEL_CLOUD_START  = 0.30   // heightRatio where effect begins (top o
 const FALL_ACCEL_MAX_MULT     = 1.8    // peak extra-gravity multiplier (fraction of current gravity)
 const FALL_ACCEL_PROBE_PX     = 320    // downward scan distance: if terrain found within this, skip
 const FALL_ACCEL_RAMP_PX      = 400    // fall distance (from peak) over which mult ramps 0→max
-const CLOUD_SPRING_VY = 760
-const CLOUD_SPRING_VX_KEEP = 0.94
 const TERRAIN_MIN_GAP = 12
 const SKY_CLEAR_LOW = new THREE.Color(0x8edcff)
 const SKY_CLEAR_MID = new THREE.Color(0x4f91dc)
@@ -168,7 +171,6 @@ class Game {
     // pointer-up that dismissed the start screen must not trigger any gameplay
     // action (sling drag, hold-release, etc.).  Cleared on next pointerup.
     this._pendingPointerClear = false
-    this._namePromptJustClosed = false  // legacy — no longer set; kept for safety
     // Set true once the first pointerup after entering SLINGING fires — prevents
     // accidental double-tap from immediately starting a sling drag.
     this._slingReady = false
@@ -206,7 +208,6 @@ class Game {
     this.splashStarted = false
     this.flightPeakY = 0       // peak altitude during flight (for bounce strength)
     this.lives = 3
-    this.doubleJumpUsed = false
     this.preBoostSource = null  // input pressed before landing — fires boost immediately on touch
     this.pointerIsDown = false
     this.spaceIsDown = false
@@ -241,6 +242,8 @@ class Game {
     this.flameTrailCooldown = 0
     // rolling dust spawn cooldown
     this._dustTimer = 0
+    // throttle for off-screen island/item culling (seconds)
+    this._cullTimer = 0
 
     // camera follow target
     this.camTarget = new THREE.Vector2(SLING_POS.x, SLING_POS.y)
@@ -265,7 +268,6 @@ class Game {
     this._buildSceneSkyPlane()
     this._buildWorldSea()
     this._buildScenery()
-    this.staticIslands = []
     this.islands = []
     this._buildSling()
 
@@ -290,8 +292,6 @@ class Game {
 
     this._resetRun()
     this._syncMotionToArmadillo()
-
-    this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
   }
 
   /** Procedurally spawn additional islands. */
@@ -304,8 +304,54 @@ class Game {
     this.renderer.add(island.mesh)
     this.islands.push(island)
     this.physics.addTerrain(island)
-    this.maxHeightPx = Math.max(this.maxHeightPx, island.bounds.top + 240)
     if (this.items) this._trySpawnItemForIsland(island, idx)
+  }
+
+  /**
+   * Remove islands and items that the camera has scrolled far past.  Their
+   * physics bodies and meshes are freed so a long run does not accumulate
+   * unbounded arrays / GPU memory.  Always keeps a generous buffer behind the
+   * camera (respawn only ever looks ~400px back) and never culls the island the
+   * armadillo is currently rolling on.
+   */
+  _cullBehind() {
+    const cutoff = this.camPos.x - CULL_BEHIND_PX
+    // The cutoff sits well behind the viewport, so islands ahead of the camera
+    // are always retained — this can never empty the array or remove the
+    // newest island used to drive procedural spawning.
+    const kept = []
+    for (const island of this.islands) {
+      if (island !== this.currentIsland && island.bounds.right < cutoff) {
+        this.physics.removeTerrain(island)
+        this.renderer.remove(island.mesh)
+        this._pendingTerrainRebuild.delete(island)
+        this._disposeObject(island.mesh)
+        continue
+      }
+      kept.push(island)
+    }
+    this.islands = kept
+
+    const keptItems = []
+    for (const item of this.items) {
+      if (item.x < cutoff) {
+        this.renderer.remove(item.mesh)
+        this._disposeObject(item.mesh)
+        continue
+      }
+      keptItems.push(item)
+    }
+    this.items = keptItems
+  }
+
+  /** Recursively dispose geometries and materials of a mesh/group tree. */
+  _disposeObject(obj) {
+    obj.traverse((node) => {
+      if (node.geometry) node.geometry.dispose()
+      const mat = node.material
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose?.())
+      else if (mat) mat.dispose?.()
+    })
   }
 
   _avoidTerrainOverlap(spec, previousIsland) {
@@ -1439,13 +1485,6 @@ class Game {
         if (this.sm.is(State.SLINGING)) this._slingReady = true
         return
       }
-      // Consume the pointer-up that closed the name prompt (button click or
-      // any other interaction inside the overlay).  This prevents the up-event
-      // from bleeding into gameplay (sling hold-release, boost release, etc.).
-      if (this._namePromptJustClosed) {
-        this._namePromptJustClosed = false
-        return
-      }
       // Skip gameplay actions if any text input has focus (e.g. nickname entry
       // in the game-over card) — the user may be lifting their finger after
       // interacting with the input field.
@@ -1774,7 +1813,6 @@ class Game {
     this._slingBlockUntil = performance.now() + 300
     this._tutorialRendered = false
     this._lastGameOverKey = null
-    this._namePromptJustClosed = false
     this._spawnGraceTimer = 0
     this._pendingTerrainRebuild.clear()
     this._respawnWaiting = false
@@ -1800,7 +1838,6 @@ class Game {
     this.flightPeakY = 0
     this.isPaused = false
     this.lives = 3
-    this.doubleJumpUsed = false
     this.preBoostSource = null
     this.activeRocket = null
     this.activeSpring = null
@@ -1845,7 +1882,6 @@ class Game {
     this.flightPeakY = 0
     this.isPaused = false
     this.lives = 3
-    this.doubleJumpUsed = false
     this.preBoostSource = null
     this.activeRocket = null
     this.activeSpring = null
@@ -1869,7 +1905,6 @@ class Game {
       this.renderer.remove(island.mesh)
     }
 
-    this.staticIslands = []
     this.islands = []
     this.islandIndex = DEFAULT_ISLAND_LAYOUT.length
 
@@ -1880,7 +1915,6 @@ class Game {
       const island = createCurvedTerrain(spec)
       this.renderer.add(island.mesh)
       this.islands.push(island)
-      this.staticIslands.push(island)
       this.physics.addTerrain(island)
       previousIsland = island
     }
@@ -1888,8 +1922,6 @@ class Game {
     for (let i = 0; i < INITIAL_PROCEDURAL_ISLANDS; i++) {
       this._spawnNextIsland()
     }
-
-    this.maxHeightPx = this.islands[this.islands.length - 1].bounds.top + 240
 
     this._buildItems()
   }
@@ -2233,6 +2265,14 @@ class Game {
         this._spawnNextIsland()
         spawnCount++
       }
+
+      // Cull islands/items that the camera has long passed so the active arrays
+      // (and their physics bodies / meshes) stay bounded over a long run.
+      this._cullTimer -= dt
+      if (this._cullTimer <= 0) {
+        this._cullTimer = 0.5
+        this._cullBehind()
+      }
     }
 
     // TITLE/SLINGING: use sling center as camera target;
@@ -2286,7 +2326,7 @@ class Game {
     this.flightPeakY = Math.max(this.flightPeakY, prevY)
 
     // Rocket drive — bypass Planck entirely for the thrust duration.
-    // Gravity is ignored; velocity is held constant at 45° upward-forward.
+    // Gravity is ignored; velocity is held constant at ROCKET_ANGLE (25°) upward-forward.
     // Moon/sea boundary checks still run after this block.
     if (this.activeRocket) {
       this.activeRocket.timeLeft -= dt
@@ -2352,7 +2392,10 @@ class Game {
       // This means the *next* grace frame will have correct geometry in Planck
       // but no physics.step() yet — the frame after that is the first real step.
       if (this._spawnGraceTimer === 1 && this._pendingTerrainRebuild.size > 0) {
-        for (const island of this._pendingTerrainRebuild) this.physics.addTerrain(island)
+        for (const island of this._pendingTerrainRebuild) {
+          if (island.destroyed) continue   // fully cratered — never rebuild collision
+          this.physics.addTerrain(island)
+        }
         this._pendingTerrainRebuild.clear()
         this.physics.flushContacts()
       }
@@ -2558,23 +2601,26 @@ class Game {
         if (lower >= topY) continue
         if (y <= island.bounds.bottom) continue
 
-        // ── Destruction direction gate ────────────────────────────────────
-        // Only allow terrain destruction for predominantly forward/horizontal
-        // impacts.  Pure vertical falls and near-vertical descents should land
-        // normally without craters.
-        //
-        // Two conditions both block destruction (either alone is sufficient):
-        //   1. Falling (vy < 0) AND the angle from horizontal exceeds ~31°
-        //      i.e. |vy| > |vx| * 0.6  →  blocked as "landing from above"
-        //   2. Horizontal speed is below 40% of UNDER_BREAK_SPEED (160 px/s)
-        //      regardless of angle — the ball simply isn't moving forward fast
-        //      enough to punch through terrain.
-        //
-        // Upward hits (vy ≥ 0, bouncing up through terrain) are always allowed.
-        if (incomingVelocity.y < 0 && (
-            Math.abs(incomingVelocity.y) > Math.abs(incomingVelocity.x) * 0.6 ||
-            Math.abs(incomingVelocity.x) < UNDER_BREAK_SPEED * 0.4
-        )) continue
+        // ── Landing-vs-smash discrimination ───────────────────────────────
+        // The key separator for "do not crater on landing": if the ball's
+        // underside started this frame at or above the top surface, it is
+        // descending ONTO the surface — i.e. landing — and must never break it.
+        // Only when the ball started already inside/below the surface (entering
+        // the terrain body from the side) is it a genuine smash-through.
+        const prevLower = prevY - ARMADILLO_SIZE / 2
+        if (incomingVelocity.y < 0 && prevLower >= topY - 2) continue
+
+        // ── Destruction motion gate ────────────────────────────────────────
+        // Destruction only happens while riding/smashing forward through
+        // terrain, or punching upward through it from below.  Plain falls and
+        // steep descents (|vy| ≥ |vx|) are excluded so they land normally.
+        const vMagX = Math.abs(incomingVelocity.x)
+        const vMagY = Math.abs(incomingVelocity.y)
+        const forwardSmash = incomingVelocity.x > 0
+          && vMagX > vMagY
+          && vMagX >= UNDER_BREAK_SPEED * 0.45
+        const upwardPunch = incomingVelocity.y > 0 && vMagY >= UNDER_BREAK_SPEED * 0.45
+        if (!forwardSmash && !upwardPunch) continue
 
         const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
@@ -2607,6 +2653,19 @@ class Game {
       this._pendingTerrainRebuild.add(island)
       // Safety: if rolling state somehow still references a destroyed island, clear it.
       if (this.currentIsland === island) this.currentIsland = null
+    }
+
+    // Fully cratered islands are dropped entirely: no physics body is rebuilt,
+    // the mesh (soil/grass/ridge + left-ramp correction) is hidden, and the
+    // island is flagged destroyed so every collision/grounding/landing probe
+    // skips it.  This removes any leftover collision or correction data that
+    // would otherwise bounce the ball off invisible terrain.
+    for (const island of touched) {
+      if (isTerrainFullyDestroyed(island)) {
+        island.destroyed = true
+        if (island.mesh) island.mesh.visible = false
+        this._pendingTerrainRebuild.delete(island)
+      }
     }
 
     // Determine if this is an upward punch-through (ball moving up into terrain
@@ -2659,25 +2718,6 @@ class Game {
     this._setArmadilloColor(0xffd54f)
     this._triggerDestructionImpact(0.35, 0x6d4c41, exitX, exitY)
     return true
-  }
-
-  _breakTerrainAt(terrain, x = this.armadillo.position.x, y = this.armadillo.position.y, impactVelocity = this.velocity, refreshPhysics = true) {
-    const impactSpeed = impactVelocity.length()
-    const damage = terrain.softBreak || impactSpeed < UNDER_BREAK_SPEED
-      ? this._getSoftTerrainDamageProfile(impactSpeed)
-      : this._getTerrainDamageProfile(impactSpeed)
-    damageTerrain(terrain, x, damage.radius, damage.depth)
-    if (refreshPhysics) {
-      this.physics.addTerrain(terrain)
-      this.physics.setArmadilloVelocity(impactVelocity.x, impactVelocity.y)
-      this.physics.flushContacts()
-      this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 4)
-    }
-    // when called from _breakTerrainHits (refreshPhysics=false), velocity is set
-    // there after all hits are processed — do not touch it here
-    this.particleSystem.spawnDirt(x, y, 32 + Math.floor(damage.force * 24))
-    this._setArmadilloColor(0xffd54f)
-    this._triggerDestructionImpact(0.35 + damage.depth * 0.1, 0x6d4c41, x, y)
   }
 
   _getTerrainDamageProfile(speed) {
@@ -2741,7 +2781,6 @@ class Game {
     }
 
     this.currentIsland = island
-    this.doubleJumpUsed = false
     const hSpeed = Math.abs(this.velocity.x)
     const impactSpeed = this.velocity.length()
     // Landing speed: take the best of horizontal velocity and spin-implied speed,
@@ -2845,20 +2884,26 @@ class Game {
       this.lastRating = 'HOLD'
       this._setArmadilloColor(0xffb74d)
     } else {
-      // no input: slope gravity + directional friction
-      // Uphill (slope>0) decelerates forward and accelerates backward;
-      // downhill (slope<0) accelerates forward and decelerates backward.
-      // When speed reaches 0 on an uphill the character rolls backward naturally.
+      // No input: the armadillo coasts under gravity + rolling friction only —
+      // it is never pushed forward.  The slope force is the real gravity vector
+      // projected along the surface, so behaviour matches true physics:
+      //   • Uphill (slope>0): decelerates; once it stops it rolls back down.
+      //   • Downhill (slope<0): accelerates naturally with the grade.
+      //   • Flat: friction alone bleeds speed to rest.
+      // Using actual gravity (not a fixed constant) means low-gravity space
+      // slopes feel correctly floatier instead of dragging the ball along.
       const slope = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
+      const gravityRatio = this._getGravityPx() / GRAVITY   // 1.0 at ground, <1 in space
       const SLOPE_GRAVITY_SCALE = 1.4
-      const slopeEffect = -Math.sin(slope) * SLOPE_GRAVITY_SCALE
-      // Friction opposes motion direction — zero when stopped
+      const slopeEffect = -Math.sin(slope) * SLOPE_GRAVITY_SCALE * gravityRatio
+      // Friction opposes motion direction — zero when stopped (no forced creep)
       const frictionSign = this.speedRatio > 0 ? -1 : this.speedRatio < 0 ? 1 : 0
-      const newSpeed = this.speedRatio + (slopeEffect + frictionSign * ROLLING_FRICTION_PER_SEC) * dt
+      const friction = frictionSign * ROLLING_FRICTION_PER_SEC * gravityRatio
+      const newSpeed = this.speedRatio + (slopeEffect + friction) * dt
       // Allow backward rolling up to 50% of max forward speed
       this.speedRatio = THREE.MathUtils.clamp(newSpeed, -BOOST_SPEED_LIMIT * 0.5, BOOST_SPEED_LIMIT)
-      // Snap micro-oscillations to rest
-      if (Math.abs(this.speedRatio) < 0.008) this.speedRatio = 0
+      // Snap micro-oscillations to rest so it settles instead of jittering
+      if (Math.abs(this.speedRatio) < 0.01 && Math.abs(slope) < 0.04) this.speedRatio = 0
     }
 
     // Sample slope before moving so we can detect crest crossing.
@@ -2992,19 +3037,6 @@ class Game {
     this.particleSystem.spawnBurst(x, y, color, maxCount, baseSpeed)
   }
 
-  _tryDoubleJump() {
-    if (this.doubleJumpUsed) return
-    this.doubleJumpUsed = true
-
-    // kick upward — preserve horizontal velocity, add vertical impulse
-    const jumpVy = Math.max(this.velocity.y, 0) + 620
-    this.velocity.set(this.velocity.x, jumpVy)
-    this.physics.setArmadilloVelocity(this.velocity.x, jumpVy)
-    this._syncMotionToArmadillo()
-    this._playTone(480, 0.14, 0.08, 'sine')
-    this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd54f, 8, 160)
-  }
-
   _triggerSplashEffect(x = this.armadillo.position.x) {
     const y = SEA_LEVEL_Y + 4
     this._spawnRipple(x, y, 0xd9fbff, 190, 0.72)
@@ -3027,7 +3059,6 @@ class Game {
       // still have lives — bounce back up automatically
       this._doSeaBounce(x)
       this.splashStarted = false  // allow future splashes
-      this.doubleJumpUsed = false  // reset double-jump on sea bounce
     } else {
       this.splashGameOverTimer = SPLASH_GAMEOVER_DELAY
       this.lastRating = 'SPLASH'

@@ -2,6 +2,22 @@
   box-sizing: border-box;
 }
 
+/* Shared theme palette — echoes the wooden slingshot + warm earth terrain so the
+   menus read as part of the game world rather than generic dark-glass panels. */
+:root {
+  --gold: #ffd54f;
+  --gold-soft: #ffe082;
+  --wood-light: #7b4f34;
+  --wood-mid: #5a3724;
+  --wood-dark: #3a2820;
+  --wood-darker: #271a13;
+  --wood-edge: #6d4c41;
+  --wood-edge-hi: rgba(214, 162, 110, 0.45);
+  --panel-inset: rgba(0, 0, 0, 0.24);
+  --panel-inset-edge: rgba(214, 162, 110, 0.14);
+  --cream: #ffe9c8;
+}
+
 html,
 body {
   width: 100%;
@@ -86,14 +102,6 @@ button {
   color: #ff7043;
 }
 
-.hud-aim {
-  position: fixed;
-  left: 16px;
-  top: 178px;
-  width: 180px;
-  height: 130px;
-}
-
 .meter-power {
   position: fixed;
   left: 18px;
@@ -143,11 +151,17 @@ button {
 }
 
 .primary-button {
-  background: linear-gradient(to bottom, #ffe082, #ffd54f);
+  background: linear-gradient(to bottom, var(--gold-soft), var(--gold));
+  box-shadow: 0 5px 0 #b8860b, 0 8px 18px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
+/* Wooden plank — matches the slingshot body so secondary actions feel in-world */
 .secondary-button {
-  background: rgba(255, 255, 255, 0.90);
+  background: linear-gradient(180deg, var(--wood-light) 0%, var(--wood-mid) 100%);
+  color: var(--cream);
+  border: 1px solid var(--wood-edge);
+  box-shadow: 0 5px 0 var(--wood-darker), 0 8px 18px rgba(0, 0, 0, 0.3), inset 0 1px 0 var(--wood-edge-hi);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
 }
 
 .primary-button:hover {
@@ -516,18 +530,21 @@ button {
 .result-card {
   width: min(360px, calc(100vw - 40px));
   padding: 26px 24px 20px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 14px;
-  background: rgba(5, 7, 19, 0.94);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  border: 1px solid var(--wood-edge);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(214, 162, 110, 0.10), rgba(0, 0, 0, 0) 22%),
+    linear-gradient(180deg, var(--wood-dark) 0%, var(--wood-darker) 100%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 var(--wood-edge-hi);
 }
 
 .result-title {
   margin-bottom: 16px;
-  color: #ffd54f;
+  color: var(--gold);
   font-size: 28px;
   font-weight: 1000;
   letter-spacing: 0.01em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
 }
 
 .result-grid {
@@ -537,8 +554,8 @@ button {
   margin-bottom: 18px;
   padding: 14px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--panel-inset);
+  border: 1px solid var(--panel-inset-edge);
 }
 
 .result-grid > div {
@@ -574,9 +591,10 @@ button {
 }
 
 .result-card .restart-btn {
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #4a3225 0%, #33221a 100%);
+  color: var(--cream);
+  border: 1px solid var(--wood-edge);
+  box-shadow: 0 5px 0 var(--wood-darker), 0 8px 18px rgba(0, 0, 0, 0.3), inset 0 1px 0 var(--wood-edge-hi);
 }
 
 /* moon reached clear */
@@ -599,9 +617,9 @@ button {
   gap: 8px;
   margin-bottom: 8px;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid var(--panel-inset-edge);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--panel-inset);
 }
 
 .score-register-label {
@@ -638,23 +656,24 @@ button {
 .name-input {
   width: 100%;
   padding: 11px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid var(--wood-edge);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
+  background: rgba(0, 0, 0, 0.30);
+  color: var(--cream);
   font: inherit;
   font-size: 15px;
   font-weight: 700;
   text-align: center;
   outline: none;
-  transition: border-color 120ms;
+  transition: border-color 120ms, box-shadow 120ms;
   -webkit-user-select: text;
   user-select: text;
   touch-action: auto;
 }
 
 .name-input:focus {
-  border-color: #ffd54f;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(255, 213, 79, 0.25);
 }
 
 .name-input::placeholder {
@@ -678,10 +697,12 @@ button {
   width: min(400px, calc(100vw - 40px));
   max-height: min(560px, calc(100vh - 40px));
   padding: 22px 20px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: rgba(5, 7, 19, 0.96);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--wood-edge);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(214, 162, 110, 0.10), rgba(0, 0, 0, 0) 18%),
+    linear-gradient(180deg, var(--wood-dark) 0%, var(--wood-darker) 100%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55), inset 0 1px 0 var(--wood-edge-hi);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -710,14 +731,15 @@ button {
   gap: 10px;
   padding: 8px 10px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--panel-inset);
+  border: 1px solid var(--panel-inset-edge);
   font-size: 13px;
   font-weight: 800;
 }
 
 .lb-row.lb-self {
-  background: rgba(255, 213, 79, 0.14);
-  border: 1px solid rgba(255, 213, 79, 0.3);
+  background: rgba(255, 213, 79, 0.16);
+  border: 1px solid rgba(255, 213, 79, 0.4);
 }
 
 .lb-rank {
