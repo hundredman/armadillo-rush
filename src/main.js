@@ -3588,17 +3588,18 @@ class Game {
     const boostButtonActive = this.boostHeld
     const boostButtonReady = this.sm.is(State.ROLLING)
 
+    const hintKo = this._tutorialLang === 'ko'
     const action = this.splashGameOverTimer > 0
-      ? 'Sinking...'
+      ? (hintKo ? '가라앉는 중...' : 'Sinking...')
       : this.sm.is(State.TITLE)
-      ? 'Click to sling'
+      ? (hintKo ? '클릭하여 시작' : 'Click to start')
       : this.sm.is(State.SLINGING)
-        ? this.slingDragging ? 'Release to launch!' : 'Drag to aim'
+        ? (this.slingDragging ? (hintKo ? '놓아서 발사!' : 'Release to launch!') : (hintKo ? '드래그하여 조준' : 'Drag to aim'))
       : this.sm.is(State.ROLLING)
-        ? 'Button / Space: boost on yellow slopes or end zone'
+        ? (hintKo ? 'Space: 가속 · 떼면 점프' : 'Space: accelerate · release to jump')
       : this.sm.is(State.GAMEOVER)
-        ? 'Click / Space → restart'
-        : 'In flight...'
+        ? (hintKo ? '클릭 / Space → 다시 시작' : 'Click / Space → restart')
+        : (hintKo ? '비행 중...' : 'In flight...')
 
     const pauseLabel = this.isPaused ? 'Resume' : 'Pause'
     const phaseText = this.isPaused ? 'PAUSED' : this.sm.current

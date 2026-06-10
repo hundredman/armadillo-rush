@@ -436,11 +436,13 @@ button {
   flex-direction: column;
   gap: 3px;
   padding: 10px 14px 10px 13px;
-  border: 1px solid rgba(255, 213, 79, 0.38);
+  border: 1px solid rgba(255, 213, 79, 0.42);
   border-radius: 10px;
-  background: rgba(5, 7, 19, 0.82);
+  background:
+    linear-gradient(180deg, rgba(214, 162, 110, 0.12), rgba(0, 0, 0, 0) 40%),
+    linear-gradient(180deg, var(--wood-dark) 0%, var(--wood-darker) 100%);
   backdrop-filter: blur(6px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 213, 79, 0.10) inset;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.40), inset 0 1px 0 var(--wood-edge-hi);
   transform: rotate(2deg);
   transform-origin: top right;
   pointer-events: none;
