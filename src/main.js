@@ -167,9 +167,7 @@ class Game {
     // pointer-up that dismissed the start screen must not trigger any gameplay
     // action (sling drag, hold-release, etc.).  Cleared on next pointerup.
     this._pendingPointerClear = false
-    // Set true when the name-prompt is dismissed via any pointer interaction —
-    // consumes the next pointerup so it cannot bleed into gameplay.
-    this._namePromptJustClosed = false
+    this._namePromptJustClosed = false  // legacy — no longer set; kept for safety
     this.boostHeld = false
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
@@ -200,10 +198,13 @@ class Game {
 
     // Scoreboard state
     this.playerName = getSavedPlayerName() || ''
-    this.showingNamePrompt = !this.playerName   // ask on first ever launch
     this.showingLeaderboard = false
     this.leaderboardEntries = []   // cached from last fetchLeaderboard() call
     this.pendingScoreEntry = null  // set after game over, cleared after submission
+
+    // Respawn state — armadillo hovers at spawn position until player inputs
+    this._respawnWaiting = false
+    this._respawnPos = null
     this._tipIndex = Math.floor(Math.random() * TIPS.length)
     this.audio = null
 
@@ -237,16 +238,7 @@ class Game {
       this.sm.onChange((from, to) => console.log(`[state] ${from} -> ${to}`))
     }
 
-    // Render the HUD once immediately so the name-prompt overlay is visible on
-    // first launch even before the first rAF fires (and before the loop guard
-    // would otherwise skip it while showingNamePrompt is true).
     this._renderHud()
-    if (this.showingNamePrompt) {
-      Promise.resolve().then(() => {
-        const input = this.ui?.querySelector('.name-input')
-        if (input) { input.focus(); input.select() }
-      })
-    }
   }
 
   // ── World build: sling + islands + armadillo ──
@@ -1368,22 +1360,15 @@ class Game {
       if (action === 'boost') this._startBoostHold('pointer')
       if (action === 'leaderboard') this._openLeaderboard()
       if (action === 'leaderboard-close') this._closeLeaderboard()
-      if (action === 'name-confirm') {
+      if (action === 'start-game') {
+        this._resetRun()
+        this.sm.transition(State.SLINGING)
+        // Consume the matching pointerup so it cannot bleed into sling drag
+        this._pendingPointerClear = true
+      }
+      if (action === 'score-save') {
         const input = this.ui.querySelector('.name-input')
-        this._confirmName(input ? input.value : '')
-        // stay on TITLE — player clicks/taps the start screen to play
-      }
-      if (action === 'name-skip') {
-        this._confirmName('Anonymous')
-      }
-      if (action === 'name-edit') {
-        this.showingNamePrompt = true
-        this._renderHud()
-        // focus the input on next microtask so the element is in the DOM
-        Promise.resolve().then(() => {
-          const input = this.ui?.querySelector('.name-input')
-          if (input) { input.focus(); input.select() }
-        })
+        this._saveScoreWithName(input ? input.value : '')
       }
       return true
     }
@@ -1391,7 +1376,7 @@ class Game {
     // ── Sling drag (mouse + touch) ──
     window.addEventListener('pointerdown', (event) => {
       if (handleControlButton(event)) return
-      if (this.showingNamePrompt || this.showingLeaderboard) return
+      if (this.showingLeaderboard) return
       // Any click inside the UI overlay (but not the canvas) stays in UI land.
       if (event.target instanceof Element && event.target.closest('#ui-overlay')) return
       event.preventDefault()
@@ -1420,9 +1405,10 @@ class Game {
         this._namePromptJustClosed = false
         return
       }
-      // Also skip gameplay actions if the name prompt is still open — the user
-      // may be lifting their finger after interacting with the input field.
-      if (this.showingNamePrompt) return
+      // Skip gameplay actions if any text input has focus (e.g. nickname entry
+      // in the game-over card) — the user may be lifting their finger after
+      // interacting with the input field.
+      if (document.activeElement && document.activeElement.classList.contains('name-input')) return
       if (this.slingDragging) {
         event.preventDefault()
         this._handlePointerRelease()
@@ -1453,9 +1439,10 @@ class Game {
       // Never intercept keyboard input while a text field has focus —
       // the player must be able to type freely in the nickname input.
       if (event.target instanceof HTMLInputElement) {
-        if (event.code === 'Enter' && this.showingNamePrompt) {
+        if (event.code === 'Enter') {
+          // Enter in game-over name input saves the score
           event.preventDefault()
-          this._confirmName(event.target.value)
+          this._saveScoreWithName(event.target.value)
         }
         return
       }
@@ -1470,7 +1457,6 @@ class Game {
         return
       }
       if (event.code === 'Escape') {
-        if (this.showingNamePrompt) { this._closeNamePrompt(); this._renderHud(); return }
         if (this.showingLeaderboard) { this._closeLeaderboard(); return }
         event.preventDefault()
         this._togglePause()
@@ -1528,6 +1514,12 @@ class Game {
     // ROLLING: begin hold — accelerates while held, jumps on release
     if (this.sm.is(State.ROLLING)) {
       this._beginHold('pointer')
+      return
+    }
+
+    // FLYING / FALLING: if waiting for respawn input, activate drop
+    if ((this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) && this._respawnWaiting) {
+      this._activateRespawn()
       return
     }
 
@@ -1652,6 +1644,12 @@ class Game {
       return
     }
 
+    // FLYING / FALLING: if waiting for respawn input, activate drop
+    if ((this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) && this._respawnWaiting) {
+      this._activateRespawn()
+      return
+    }
+
     // FLYING / FALLING: hold for spin only — no jump on release in air
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this._beginHold('keyboard')
@@ -1707,10 +1705,14 @@ class Game {
     this.pointerIsDown = false
     this.spaceIsDown = false
     this.slingDragging = false
-    this._pendingPointerClear = false
+    // Always consume the next pointerup so any lingering tutorial/UI click
+    // cannot bleed into sling drag or boost actions on the first game frame.
+    this._pendingPointerClear = true
     this._namePromptJustClosed = false
     this._spawnGraceTimer = 0
     this._pendingTerrainRebuild.clear()
+    this._respawnWaiting = false
+    this._respawnPos = null
     this.slingPull.set(0, 0)
     this.slingPower = 0
     this.slingAngle = Math.PI / 4
@@ -1778,6 +1780,8 @@ class Game {
     this.preBoostSource = null
     this.activeRocket = null
     this.activeSpring = null
+    this._respawnWaiting = false
+    this._respawnPos = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -2111,18 +2115,28 @@ class Game {
     this.slowmoTime = Math.max(0, this.slowmoTime - dt)
     this.time += simDt
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
-      this._edgeFallGraceTimer = Math.max(0, this._edgeFallGraceTimer - simDt)
       this._setArmadilloSprite('jump')
-      this._updateFlight(simDt)
-      if (this.boostHeld) {
-        // drive spinAngleVel toward a fast target while held — smooth ramp up/down
-        const targetSpin = Math.max(18, this.velocity.length() / (ARMADILLO_SIZE / 2))
-        this.spinAngleVel = THREE.MathUtils.lerp(this.spinAngleVel, targetSpin, Math.min(1, simDt * 8))
+      if (this._respawnWaiting) {
+        // Freeze at respawn position until player presses Space / Click
+        const rp = this._respawnPos
+        this.armadillo.position.set(rp.x, rp.y, 0)
+        this.physics.setArmadilloPos(rp.x, rp.y)
+        this.physics.setArmadilloVelocity(0, 0)
+        this.velocity.set(0, 0)
+        this._syncMotionToArmadillo()
       } else {
-        // no input: bleed spin and tilt toward velocity direction
-        this.spinAngleVel *= Math.pow(0.18, simDt)   // fast decay when released
+        this._edgeFallGraceTimer = Math.max(0, this._edgeFallGraceTimer - simDt)
+        this._updateFlight(simDt)
+        if (this.boostHeld) {
+          // drive spinAngleVel toward a fast target while held — smooth ramp up/down
+          const targetSpin = Math.max(18, this.velocity.length() / (ARMADILLO_SIZE / 2))
+          this.spinAngleVel = THREE.MathUtils.lerp(this.spinAngleVel, targetSpin, Math.min(1, simDt * 8))
+        } else {
+          // no input: bleed spin and tilt toward velocity direction
+          this.spinAngleVel *= Math.pow(0.18, simDt)   // fast decay when released
+        }
+        this.armadillo.rotation.z -= this.spinAngleVel * simDt
       }
-      this.armadillo.rotation.z -= this.spinAngleVel * simDt
     } else if (this.sm.is(State.ROLLING)) {
       this._setArmadilloSprite(Math.floor(this.time * 10) % 2 === 0 ? 'walk1' : 'walk2')
       this._updateRolling(simDt)
@@ -2797,13 +2811,16 @@ class Game {
     this._updateStallState(dt)
 
     if (this.armadillo.position.x >= bounds.right - ARMADILLO_SIZE / 2) {
-      this.armadillo.position.x = bounds.right + ARMADILLO_SIZE
-      this._fallOff()
+      // Push armadillo clearly past the right wall and slightly upward so it
+      // escapes the corner geometry without sliding down the vertical wall face.
+      this.armadillo.position.x = bounds.right + ARMADILLO_SIZE * 2
+      this.armadillo.position.y += ARMADILLO_SIZE
+      this._fallOff(true)
     }
   }
 
 
-  _fallOff() {
+  _fallOff(fromRightEdge = false) {
     if (!this.currentIsland) return
     // If input is already held at the moment we fall off the right edge, fire the
     // edge jump immediately — no grace timer needed and no risk of the downward
@@ -2817,9 +2834,13 @@ class Game {
     }
     if (!this.sm.transition(State.FALLING)) return
     const vx = this.speedRatio * MAX_SPEED
-    this.velocity.set(vx, 0)  // pure horizontal exit — no downward vy from slope
+    // Right-edge exit: small upward kick to escape the corner wall geometry
+    const vy = fromRightEdge ? 120 : 0
+    this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vx, 0)
+    this.physics.setArmadilloVelocity(vx, vy)
+    // Discard stale wall contact events so Planck doesn't apply a push-out impulse
+    if (fromRightEdge) this.physics.clearContacts()
     this._syncMotionToArmadillo()
     // grace window: if input is released within 120ms after falling off edge, still jump
     this._edgeFallGraceTimer = 0.12
@@ -2954,33 +2975,29 @@ class Game {
       : SEA_LEVEL_Y
     const landY = terrainTop + ARMADILLO_SIZE / 2 + 40   // 40 px gap — no touching
 
-    // ── 4. Use a clean, moderate forward velocity — do NOT inherit the ────────
-    //      post-destruction exit speed which can be several times normal.
-    //      Give a gentle forward nudge so the armadillo flies toward the
-    //      island rather than dropping straight down.
-    const safeVx = Math.min(this.speedRatio * MAX_SPEED * 0.5, 400)
-    const bounceVy = 420
-
-    // Modest speed bonus on rescue
+    // ── 4. Modest speed bonus on rescue ───────────────────────────────────────
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + 0.35)
 
-    // ── 5. Reset all physics state before teleporting ─────────────────────────
+    // ── 5. Reset all physics state and place armadillo above terrain ──────────
+    //      Armadillo hovers frozen at this position until the player presses
+    //      Space / Click to drop straight down.
     this._cancelBoostHold()
     this.spinAngleVel = Math.min(this.spinAngleVel, 12)  // bleed extreme spin
 
     this.armadillo.visible = true
     this.armadillo.position.set(landX, landY, 0)
-    this.velocity.set(safeVx, bounceVy)
+    this.velocity.set(0, 0)
 
-    // setArmadilloPos zeroes Planck vel/angVel; setArmadilloVelocity restores desired vel
     this.physics.setArmadilloPos(landX, landY)
-    this.physics.setArmadilloVelocity(safeVx, bounceVy)
-    // Discard any contact events that accumulated before this teleport so the
-    // first flight frame cannot immediately trigger a spurious landing.
+    this.physics.setArmadilloVelocity(0, 0)
     this.physics.clearContacts()
-    // Give 3 frames of grace so Planck cannot apply a contact impulse from
-    // the newly-placed ball touching the terrain it just spawned above.
-    this._spawnGraceTimer = 3
+    // _spawnGraceTimer will be set to 3 by _activateRespawn when the player
+    // inputs to drop — no need to set it here.
+    this._spawnGraceTimer = 0
+
+    // Mark as waiting for player input before falling
+    this._respawnWaiting = true
+    this._respawnPos = new THREE.Vector2(landX, landY)
 
     this.flightPeakY = landY
     this._syncMotionToArmadillo()
@@ -3114,7 +3131,12 @@ class Game {
     this.velocity.set(0, 0)
     this.lastRating = reason
     this._saveBestRecord()
-    this._submitRunScore()
+    // Score is submitted only when the player explicitly registers via the
+    // game-over leaderboard entry form. Reset pendingScoreEntry so the UI
+    // starts fresh for this run.
+    this.pendingScoreEntry = null
+    this._respawnWaiting = false
+    this._respawnPos = null
 
     if (reason === 'SPLASH' && !this.splashStarted) {
       this._triggerSplashEffect(this.armadillo.position.x)
@@ -3143,20 +3165,28 @@ class Game {
     this.showingLeaderboard = false
   }
 
-  _confirmName(name) {
-    // Store the real name, or empty string for "skip / anonymous".
-    // Never persist the literal word 'Anonymous' — it's a display fallback only.
-    const trimmed = name.trim().slice(0, 16)
-    this.playerName = (trimmed === 'Anonymous' || trimmed === '') ? '' : trimmed
-    savePlayerName(this.playerName)
-    this._closeNamePrompt()
+  // Called when user input is received while waiting for respawn after sea bounce.
+  // Armadillo drops straight down under gravity from the spawn position.
+  _activateRespawn() {
+    if (!this._respawnWaiting) return
+    this._respawnWaiting = false
+    this._respawnPos = null
+    // Zero velocity — gravity pulls straight down
+    this.velocity.set(0, 0)
+    this.physics.setArmadilloVelocity(0, 0)
+    this.physics.clearContacts()
+    // Grace frames so Planck doesn't apply stale contact impulses
+    this._spawnGraceTimer = 3
   }
 
-  _closeNamePrompt() {
-    this.showingNamePrompt = false
-    // Consume the next pointerup so the interaction that closed the prompt
-    // cannot bleed into gameplay (e.g. triggering a sling hold-release).
-    this._namePromptJustClosed = true
+  // Save score to leaderboard with the given name (called from game-over register button).
+  _saveScoreWithName(rawName) {
+    const trimmed = rawName.trim().slice(0, 16)
+    this.playerName = (trimmed === '' || trimmed === 'Anonymous') ? '' : trimmed
+    savePlayerName(this.playerName)
+    this._submitRunScore()
+    // Open leaderboard after saving
+    this._openLeaderboard()
   }
 
   _ensureAudio() {
@@ -3240,9 +3270,11 @@ class Game {
     // update PostFX then render (BackgroundPass → RenderPass → Effects)
     this.postfx.update(this.trauma, heightRatio, dt ?? FIXED_DT)
     this.postfx.render(dt ?? FIXED_DT)
-    // Do not re-render the HUD while the name prompt is open — destroying and
+    // Do not re-render the HUD while a name input is focused — destroying and
     // recreating the <input> element every frame loses focus and kills typing.
-    if (!this.showingNamePrompt) this._renderHud()
+    const activeEl = document.activeElement
+    if (activeEl && activeEl.classList.contains('name-input')) return
+    this._renderHud()
   }
 
   _updateRendererClearSky(heightRatio) {
@@ -3381,14 +3413,61 @@ class Game {
 
       ${slingMeter}
 
-      ${this.sm.is(State.TITLE) && !this.showingNamePrompt ? `
-        <div class="start-layer">
-          <div class="start-title">ARMADILLO RUSH</div>
-          <div class="start-subtitle">🌊 Sea → ☁️ Sky → 🌕 Moon</div>
-          <div class="start-subtitle">Click to start slinging</div>
-          <div class="start-best"><span class="start-best-label">BEST</span> ${this.bestRecord.score.toLocaleString()}</div>
-          <div class="start-tip">💡 ${TIPS[this._tipIndex]}</div>
-          <button type="button" class="clickable name-edit-btn" data-action="name-edit">Nickname: ${this.playerName || 'Anonymous'}</button>
+      ${this.sm.is(State.TITLE) ? `
+        <div class="tutorial-layer">
+          <div class="tutorial-card">
+            <div class="tutorial-game-title">ARMADILLO RUSH</div>
+            <div class="tutorial-subtitle">🌊 바다 → ☁️ 하늘 → 🌕 달 &nbsp;|&nbsp; Sea → Sky → Moon</div>
+
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">🎯 목표 / Objective</div>
+              <div class="tutorial-row">
+                <span class="ko">슬링샷으로 아르마딜로를 발사하여 최대한 높이, 멀리 날려보세요!</span>
+                <span class="en">Fling the armadillo as high and far as possible — aim for the moon!</span>
+              </div>
+            </div>
+
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">🕹️ 조작법 / Controls</div>
+              <div class="tutorial-row">
+                <span class="ko">🖱️ <b>드래그</b>: 슬링샷 조준 및 발사</span>
+                <span class="en">🖱️ <b>Drag</b>: Aim and release the slingshot</span>
+              </div>
+              <div class="tutorial-row">
+                <span class="ko">⬛ <b>Space 누르기</b>: 지형 위에서 가속 / 공중에서 회전</span>
+                <span class="en">⬛ <b>Hold Space</b>: Accelerate on terrain / spin in air</span>
+              </div>
+              <div class="tutorial-row">
+                <span class="ko">⬛ <b>Space 떼기</b>: 점프!</span>
+                <span class="en">⬛ <b>Release Space</b>: Jump!</span>
+              </div>
+              <div class="tutorial-row">
+                <span class="ko">💀 <b>바다 추락</b>: 생명 1개 감소. Space/클릭으로 낙하 재시작</span>
+                <span class="en">💀 <b>Sea fall</b>: Lose 1 life. Press Space/Click to drop again</span>
+              </div>
+            </div>
+
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">💡 팁 / Tips</div>
+              <div class="tutorial-row">
+                <span class="ko">빠른 속도로 지형을 부수면 속도 폭발!</span>
+                <span class="en">Smash terrain at high speed for a burst boost!</span>
+              </div>
+              <div class="tutorial-row">
+                <span class="ko">높이가 곧 점수 — 달까지 올라가면 보너스!</span>
+                <span class="en">Altitude = score. Reach the moon for bonus points!</span>
+              </div>
+            </div>
+
+            <div class="tutorial-best">
+              <span class="tutorial-best-label">BEST</span>
+              ${this.bestRecord.score.toLocaleString()}
+            </div>
+
+            <button type="button" class="clickable tutorial-start-btn" data-action="start-game">
+              시작하기 / Start Game
+            </button>
+          </div>
         </div>
       ` : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
@@ -3403,9 +3482,26 @@ class Game {
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
               ${rankText}
             </div>
-            <button type="button" class="clickable primary-button" data-action="leaderboard">Leaderboard</button>
-            <button type="button" class="clickable secondary-button" data-action="restart">Retry</button>
+            <div class="score-register">
+              <div class="score-register-label">리더보드 등록 / Register Score</div>
+              <input class="name-input clickable" type="text" maxlength="16"
+                placeholder="닉네임 / Nickname"
+                value="${this.playerName || ''}"
+                autocomplete="off" spellcheck="false" />
+              <button type="button" class="clickable primary-button" data-action="score-save">
+                점수 등록 / Register
+              </button>
+            </div>
+            <button type="button" class="clickable secondary-button" data-action="leaderboard">리더보드 보기 / Leaderboard</button>
+            <button type="button" class="clickable secondary-button" data-action="restart">다시 시작 / Retry</button>
           </div>
+        </div>
+      ` : ''}
+
+      ${this._respawnWaiting ? `
+        <div class="respawn-hint">
+          부활 준비 완료!<br>
+          <span style="font-size:13px;opacity:0.8">Space 또는 클릭으로 낙하 / Press Space or Click to drop</span>
         </div>
       ` : ''}
 
@@ -3429,33 +3525,18 @@ class Game {
       ${this.showingLeaderboard ? `
         <div class="leaderboard-layer">
           <div class="leaderboard-card">
-            <div class="leaderboard-title">LEADERBOARD</div>
+            <div class="leaderboard-title">🏆 LEADERBOARD</div>
             <div class="leaderboard-list">${lbRowsHtml}</div>
             <div class="leaderboard-actions">
-              <button type="button" class="clickable secondary-button" data-action="leaderboard-close">Close</button>
+              <button type="button" class="clickable secondary-button" data-action="leaderboard-close">닫기 / Close</button>
             </div>
-          </div>
-        </div>
-      ` : ''}
-
-      ${this.showingNamePrompt ? `
-        <div class="name-layer">
-          <div class="name-card">
-            <div class="name-card-title">Your nickname</div>
-            <div class="name-card-sub">Shown on the leaderboard. Max 16 characters.</div>
-            <input class="name-input clickable" type="text" maxlength="16"
-              placeholder="Enter nickname…"
-              value="${this.playerName || ''}"
-              autocomplete="off" spellcheck="false" />
-            <button type="button" class="clickable primary-button" data-action="name-confirm">Save</button>
-            <button type="button" class="clickable secondary-button" data-action="name-skip">Play as Anonymous</button>
           </div>
         </div>
       ` : ''}
 
       ${showBoostButton && !this.isPaused ? `
         <button type="button" class="clickable boost-button ${boostButtonActive ? 'is-pressed' : ''} ${boostButtonReady ? 'is-ready' : ''}" data-action="boost" aria-label="Boost">
-          <span class="boost-button-core">BOOST</span>
+          <span class="boost-button-core">SPACE</span>
         </button>
       ` : ''}
 

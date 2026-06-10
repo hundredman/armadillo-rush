@@ -166,57 +166,76 @@ button {
 
 .action-hint.is-above-boost {
   left: 50%;
-  bottom: 142px;
+  bottom: 116px;
   max-width: min(460px, calc(100vw - 36px));
   text-align: center;
   transform: translateX(-50%);
 }
+
+/* ── Spacebar-style boost button ────────────────────────────────────────── */
 
 .boost-button {
   position: fixed;
   left: 50%;
   bottom: 34px;
   z-index: 16;
-  width: 94px;
-  height: 94px;
+  width: 200px;
+  height: 56px;
   border: 0;
-  border-radius: 50%;
-  color: #2b160d;
-  font-weight: 1000;
+  border-radius: 8px;
+  color: #1a1a2e;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.12em;
   cursor: pointer;
   pointer-events: auto;
-  background:
-    radial-gradient(circle at 35% 28%, #fff4bd 0 13%, transparent 14%),
-    radial-gradient(circle at 50% 50%, #ffd54f 0 48%, #f9a825 49% 68%, #7a3e16 69% 100%);
+  background: linear-gradient(180deg, #f5f5ee 0%, #d8d8cc 100%);
   box-shadow:
-    0 16px 28px rgba(0, 0, 0, 0.34),
-    inset 0 -8px 0 rgba(111, 55, 17, 0.4),
-    inset 0 4px 0 rgba(255, 255, 255, 0.42);
+    0 5px 0 #94948a,
+    0 10px 20px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid #7a7a72;
   text-shadow: none;
   transform: translateX(-50%);
-  transition: transform 90ms ease, filter 120ms ease, box-shadow 120ms ease;
+  transition: transform 80ms ease, box-shadow 80ms ease;
 }
 
-.boost-button::before {
+.boost-button::after {
   content: "";
   position: absolute;
-  inset: -10px;
-  border: 3px solid rgba(255, 213, 79, 0.28);
-  border-radius: 50%;
+  inset: 2px 4px auto 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
 }
 
-.boost-button.is-ready::before {
-  animation: boostRing 0.9s ease-out infinite;
+.boost-button.is-ready {
+  background: linear-gradient(180deg, #fff9e0 0%, #ffe082 100%);
+  box-shadow:
+    0 5px 0 #b89300,
+    0 10px 24px rgba(255, 213, 79, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-bottom-color: #9a7c00;
+  color: #3a2a00;
 }
 
 .boost-button.is-pressed,
 .boost-button:active {
-  filter: brightness(1.12);
-  transform: translateX(-50%) translateY(6px) scale(0.92);
+  transform: translateX(-50%) translateY(4px);
   box-shadow:
-    0 7px 14px rgba(0, 0, 0, 0.3),
-    inset 0 -3px 0 rgba(111, 55, 17, 0.48),
-    inset 0 4px 0 rgba(255, 255, 255, 0.5);
+    0 1px 0 #94948a,
+    0 4px 10px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.boost-button.is-ready.is-pressed,
+.boost-button.is-ready:active {
+  box-shadow:
+    0 1px 0 #b89300,
+    0 4px 10px rgba(255, 213, 79, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .boost-button-core {
@@ -226,7 +245,7 @@ button {
   width: 100%;
   height: 100%;
   font-size: 13px;
-  letter-spacing: 0;
+  letter-spacing: 0.12em;
 }
 
 @keyframes boostRing {
@@ -241,7 +260,7 @@ button {
 }
 
 .pause-layer,
-.start-layer,
+.tutorial-layer,
 .modal-layer,
 .flash-layer {
   position: fixed;
@@ -282,115 +301,128 @@ button {
   font-size: 15px;
 }
 
-.start-layer {
+/* ── Tutorial screen ────────────────────────────────────────────────────── */
+
+.tutorial-layer {
   z-index: 9;
   display: grid;
   place-items: center;
-  align-content: center;
-  gap: 12px;
-  padding: 24px;
-  background:
-    linear-gradient(180deg, rgba(5, 7, 19, 0.12), rgba(5, 7, 19, 0.58));
-  text-align: center;
+  padding: 20px;
+  background: linear-gradient(180deg, rgba(5, 7, 19, 0.18), rgba(5, 7, 19, 0.72));
+  pointer-events: auto;
+  overflow-y: auto;
 }
 
-.start-title {
+.tutorial-card {
+  width: min(580px, calc(100vw - 40px));
+  padding: 28px 28px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(5, 7, 19, 0.90);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  display: grid;
+  gap: 16px;
+}
+
+.tutorial-game-title {
   color: #ffd54f;
-  font-size: clamp(42px, 7vw, 86px);
+  font-size: clamp(32px, 5vw, 56px);
   font-weight: 1000;
   line-height: 0.95;
-  text-shadow: 0 5px 0 rgba(0, 0, 0, 0.28), 0 18px 38px rgba(0, 0, 0, 0.44);
+  text-align: center;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 14px 32px rgba(0, 0, 0, 0.44);
+  margin-bottom: 4px;
 }
 
-.start-subtitle {
-  padding: 9px 15px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+.tutorial-subtitle {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: -8px;
+}
+
+.tutorial-section {
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 8px;
-  background: rgba(5, 7, 19, 0.62);
-  font-size: 16px;
-  font-weight: 900;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 8px;
 }
 
-.start-best {
+.tutorial-section-title {
+  color: #ffd54f;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.tutorial-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tutorial-row .ko {
+  color: #fff;
+  font-weight: 800;
+}
+
+.tutorial-row .en {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 600;
+}
+
+.tutorial-best {
   display: inline-flex;
   align-items: baseline;
   gap: 7px;
-  padding: 7px 15px;
-  border: 1px solid rgba(255, 213, 79, 0.30);
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 213, 79, 0.28);
   border-radius: 8px;
   background: rgba(5, 7, 19, 0.50);
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
+  justify-self: center;
 }
 
-.start-best-label {
+.tutorial-best-label {
   color: rgba(255, 213, 79, 0.80);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 
-.lives-hud {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 5px;
-  z-index: 20;
-  image-rendering: pixelated;
-}
-
-.heart-pixel {
-  display: block;
-  image-rendering: pixelated;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
-}
-
-.heart-pixel.heart-full rect {
-  fill: #e8354a;
-}
-
-.heart-pixel.heart-empty rect {
-  fill: rgba(255, 255, 255, 0.18);
-}
-
-.start-tip {
-  margin-top: 10px;
-  padding: 9px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  background: rgba(5, 7, 19, 0.52);
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13px;
-  font-weight: 700;
-  max-width: min(400px, calc(100vw - 48px));
-  text-align: center;
-  line-height: 1.4;
-}
-
-.name-edit-btn {
-  margin-top: 12px;
-  padding: 10px 22px;
-  border: 1.5px solid rgba(255, 213, 79, 0.55);
-  border-radius: 8px;
-  background: rgba(255, 213, 79, 0.10);
-  color: #ffd54f;
+.tutorial-start-btn {
+  width: 100%;
+  height: 52px;
+  border: 0;
+  border-radius: 10px;
+  background: #ffd54f;
+  color: #10131a;
   font: inherit;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 16px;
+  font-weight: 1000;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: background 120ms, border-color 120ms, color 120ms;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  transition: transform 80ms ease, filter 80ms ease;
+  pointer-events: auto;
 }
 
-.name-edit-btn:hover {
-  background: rgba(255, 213, 79, 0.22);
-  border-color: #ffd54f;
-  color: #fff;
+.tutorial-start-btn:hover {
+  filter: brightness(1.07);
 }
 
+.tutorial-start-btn:active {
+  transform: translateY(2px);
+}
 
 .flash-layer {
   z-index: 8;
@@ -453,111 +485,27 @@ button {
   to   { text-shadow: 0 0 28px rgba(140, 200, 255, 0.9), 0 0 60px rgba(100, 160, 255, 0.6); }
 }
 
-@media (max-width: 620px) {
-  .hud-panel {
-    width: 168px;
-    padding: 10px 11px;
-  }
+/* ── Score register section (game-over card) ────────────────────────────── */
 
-  .hud-stats {
-    font-size: 11px;
-  }
-
-  .hud-stats div:nth-child(n + 8) {
-    display: none;
-  }
-
-  .hud-aim {
-    top: 142px;
-    transform: scale(0.78);
-    transform-origin: left top;
-  }
-
-  .meter-power {
-    left: 14px;
-    height: 100px;
-    bottom: 100px;
-  }
-
-  .control-row {
-    right: 10px;
-    top: 10px;
-    flex-direction: column;
-  }
-
-  .primary-button,
-  .secondary-button {
-    min-width: 76px;
-    height: 38px;
-    border-radius: 8px;
-    font-size: 12px;
-  }
-
-  .action-hint {
-    right: 12px;
-    left: 12px;
-    bottom: 12px;
-    text-align: center;
-  }
-
-  .action-hint.is-above-boost {
-    right: 12px;
-    left: 12px;
-    bottom: 150px;
-    max-width: none;
-    transform: none;
-  }
-
-  .boost-button {
-    width: 78px;
-    height: 78px;
-    bottom: 58px;
-  }
-
-  .boost-button-core {
-    font-size: 11px;
-  }
-}
-
-/* ── Name input overlay ─────────────────────────────────────────────────── */
-
-.name-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 22;
+.score-register {
   display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.68);
-  pointer-events: auto;
-  touch-action: auto;
-  -webkit-user-select: text;
-  user-select: text;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.name-card {
-  width: min(360px, calc(100vw - 40px));
-  padding: 28px 24px 22px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  background: rgba(5, 7, 19, 0.96);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
-  display: grid;
-  gap: 14px;
-  text-align: center;
+.score-register-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
 }
 
-.name-card-title {
-  font-size: 22px;
-  font-weight: 1000;
-  color: #ffd54f;
-}
-
-.name-card-sub {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: -6px;
-}
+/* ── Name input ─────────────────────────────────────────────────────────── */
 
 .name-input {
   width: 100%;
@@ -567,11 +515,14 @@ button {
   background: rgba(255, 255, 255, 0.07);
   color: #fff;
   font: inherit;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   text-align: center;
   outline: none;
   transition: border-color 120ms;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: auto;
 }
 
 .name-input:focus {
@@ -683,13 +634,31 @@ button {
   padding: 24px 0;
 }
 
-@media (max-width: 620px) {
-  .leaderboard-card {
-    padding: 16px 14px 14px;
-  }
-  .lb-row {
-    font-size: 12px;
-  }
+/* ── Lives HUD ──────────────────────────────────────────────────────────── */
+
+.lives-hud {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  z-index: 20;
+  image-rendering: pixelated;
+}
+
+.heart-pixel {
+  display: block;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+}
+
+.heart-pixel.heart-full rect {
+  fill: #e8354a;
+}
+
+.heart-pixel.heart-empty rect {
+  fill: rgba(255, 255, 255, 0.18);
 }
 
 /* ── Item effect HUD ──────────────────────────────────────────────────────── */
@@ -735,4 +704,29 @@ button {
 
 .item-effect-spring .item-effect-fill {
   background: #00e5ff;
+}
+
+/* ── Respawn prompt ──────────────────────────────────────────────────────── */
+
+.respawn-hint {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 14px 24px;
+  border: 2px solid rgba(100, 181, 246, 0.6);
+  border-radius: 10px;
+  background: rgba(5, 7, 19, 0.78);
+  font-size: 16px;
+  font-weight: 900;
+  text-align: center;
+  color: #90caf9;
+  pointer-events: none;
+  animation: respawnPulse 1s ease-in-out infinite alternate;
+  line-height: 1.5;
+}
+
+@keyframes respawnPulse {
+  from { opacity: 0.7; border-color: rgba(100, 181, 246, 0.4); }
+  to   { opacity: 1.0; border-color: rgba(100, 181, 246, 0.9); }
 }

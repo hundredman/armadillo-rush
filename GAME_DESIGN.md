@@ -1,6 +1,6 @@
 # Armadillo Rush — Game Design Document
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 ## Core Pitch
 
@@ -10,16 +10,17 @@ The core skill is hold-and-release timing: hold input to accelerate on terrain, 
 
 ## Player Loop
 
-1. Enter a nickname (persisted for leaderboard).
+1. Read the bilingual tutorial screen (Korean + English); click **시작하기 / Start Game**.
 2. Drag the slingshot pouch — a vertical power bar shows pull strength.
 3. Release the pouch to launch.
 4. Fly and land on terrain.
-5. Hold Space / tap → accelerate while rolling.
+5. Hold Space → accelerate while rolling.
 6. Release → jump. Spin energy converts to jump force.
 7. In the air, hold to spin continuously.
 8. Land on the next island; momentum carries forward.
-9. Fall into the sea → lose one life (3 total); respawn ahead.
-10. Reach moon altitude → run clear; score saved.
+9. Fall into the sea → lose one life (3 total); armadillo hovers frozen above respawn island. Press Space or click → drop straight down.
+10. Reach moon altitude → run clear; score entry shown.
+11. Enter nickname on the game-over screen to register score to the local leaderboard.
 
 ## Input State Machine
 
@@ -29,10 +30,11 @@ Input has exactly two states: **held** and **released**.
 
 | Game state | Effect |
 | --- | --- |
-| TITLE / GAMEOVER | Enter SLINGING mode |
+| TITLE | — (tutorial screen; click tutorial button to start) |
+| GAMEOVER | — (handled by UI buttons) |
 | SLINGING | Begin sling drag |
 | ROLLING | `boostHeld = true` — acceleration begins immediately |
-| FLYING / FALLING | `boostHeld = true` — spin begins |
+| FLYING / FALLING | `boostHeld = true` — spin begins; activates respawn if `_respawnWaiting` |
 
 ### While held
 
@@ -65,11 +67,11 @@ If `boostHeld` is true at the moment of landing, acceleration starts immediately
 
 ## Input Isolation
 
-Clicks and taps inside `#ui-overlay` (HUD, buttons, name prompt) never reach the gameplay input system. Pointer events are blocked by a `closest('#ui-overlay')` guard in the `pointerdown` handler.
+Clicks inside `#ui-overlay` (HUD, buttons, tutorial card, game-over card) never reach the gameplay input system. Pointer events are blocked by a `closest('#ui-overlay')` guard in the `pointerdown` handler.
 
-On transition from title/menu to gameplay, all input state is hard-reset: `pointerIsDown`, `spaceIsDown`, `boostHeld`, `slingDragging`, `_pendingPointerClear`, `_namePromptJustClosed`.
+On transition from the tutorial screen to gameplay (`start-game` action), all input state is hard-reset: `pointerIsDown`, `spaceIsDown`, `boostHeld`, `slingDragging`. `_pendingPointerClear` is set to `true` so the `pointerup` event from clicking the start button is consumed before gameplay begins.
 
-The name prompt HTML is rendered once when the prompt opens and not re-rendered while it is open — this keeps the `<input>` element stable so the player can type without focus being stolen.
+The game-over name input is rendered in the HUD; `_renderHud()` is skipped while the `<input>` element is focused — this keeps the DOM stable so the player can type without focus being stolen.
 
 ## Speed System
 
@@ -242,7 +244,7 @@ Four shape types — hill, valley, slope, bowl — are mixed within each section
 
 ### Top-surface collision
 
-Only the top surface counts as valid ground. Right-edge boundary (`bounds.right`) is enforced in both `_findGroundedIsland` and `_findLandingIsland` — past the right edge is rejected, preventing wall-riding on vertical side faces.
+Only the top surface counts as valid ground. Right-edge boundary (`bounds.right`) is enforced in both `_findGroundedIsland` and `_findLandingIsland` — past the right edge is rejected, preventing wall-riding on vertical side faces. When the armadillo crosses the right edge it is displaced outward with an upward velocity kick and `clearContacts()` is called to flush stale Planck contact events.
 
 ### Biomes
 
@@ -257,18 +259,16 @@ Only the top surface counts as valid ground. Right-edge boundary (`bounds.right`
 When the armadillo hits the sea:
 1. Splash particles and ripples.
 2. One life lost.
-3. Lives remain → find the nearest forward island with enough undamaged surface; spawn 40 px above it with a speed bonus; set `_spawnGraceTimer = 3` to prevent instant re-contact.
-4. All lives gone → result modal.
+3. Lives remain → find the nearest forward island with enough undamaged surface; place armadillo 40 px above it with zero velocity; set `_respawnWaiting = true`. The armadillo is held frozen in place (physics zeroed each frame) and a **부활 준비 완료!** hint overlays the screen.
+4. Player presses Space or clicks → `_activateRespawn()` fires: clears `_respawnWaiting`, zeros velocity on both the JS side and Planck body, calls `clearContacts()`, sets `_spawnGraceTimer = 3`. Gravity then pulls the armadillo straight down onto the island.
+5. All lives gone → result modal.
 
 ## Nickname System
 
 - Stored in `localStorage` under `armadillo-rush-player-name`.
-- Displayed as `Nickname: [name]` on the title button, or `Nickname: Anonymous` if not set.
-- Prompt shown on first launch; skipping stores empty string → displayed as Anonymous everywhere.
-- Editable at any time via the title screen button.
-- The name prompt HTML is rendered once; `_renderHud()` is skipped while the prompt is open to prevent the `<input>` from being torn down every frame.
-- Escape closes the prompt and sets `_namePromptJustClosed` to consume the next pointerup.
-- Max 16 characters.
+- Entered on the game-over screen when registering a score; the last used name is pre-filled.
+- Max 16 characters. Empty or whitespace-only is stored as "Anonymous".
+- Not required to play — nickname entry is optional at the end of each run.
 
 ## Scoreboard
 
@@ -281,23 +281,17 @@ Accumulated through the run:
 
 ### Local storage
 
-`submitScore` saves entries to `localStorage` key `armadillo-rush-scores` (max 100 entries, trimmed by score descending).
-
-### Backend extension point
-
-`_syncRemote(entry)` in `src/game/scoreboard.js`:
-
-```js
-async function _syncRemote(entry) {
-  return fetch('/api/scores', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(entry),
-  }).then(r => r.json())
-}
-```
+`submitScore` saves entries to `localStorage` key `armadillo-rush-scores` (max 100 entries, trimmed by score descending). All leaderboard data is local to the browser — no network requests.
 
 ## UI Layout
+
+### Tutorial screen (TITLE state)
+
+Full-screen overlay with a centered card shown before the first run. Contains:
+- Game title: **ARMADILLO RUSH**
+- Bilingual subtitle: 🌊 바다 → ☁️ 하늘 → 🌕 달 | Sea → Sky → Moon
+- Three sections (한국어 / English): 목표/Objective, 조작법/Controls, 팁/Tips
+- **시작하기 / Start Game** button
 
 ### HUD panel (top-left)
 
@@ -317,13 +311,20 @@ Vertical pill bar (`12 × 130 px`), bottom-anchored, fills upward (orange → go
 
 Pause / Restart buttons.
 
-### BOOST button (bottom-center)
+### SPACE button (bottom-center)
 
-Visible during active gameplay. Equivalent to holding Space.
+Wide spacebar-shaped key (200 × 56 px). Visible during active gameplay. Equivalent to holding Space. Shows yellow variant when ready to boost, depressed style when pressed.
 
-### Name prompt overlay
+### Respawn hint overlay
 
-Full-screen overlay with a centered card. Contains a text input (pre-filled with current name), a Save button, and a "Play as Anonymous" skip button. Pointer events blocked on canvas while overlay is open.
+Centered pulsing overlay shown while `_respawnWaiting` is true: **부활 준비 완료! / Press Space or Click to drop**.
+
+### Game-over card
+
+Displays final score, distance, and height. Contains:
+- Nickname input and **점수 등록 / Register** button to save score to the local leaderboard.
+- **리더보드 보기 / Leaderboard** button.
+- **다시 시작 / Retry** button.
 
 ## Physics Parameters
 
@@ -358,8 +359,10 @@ src/main.js
   Game state machine, input isolation, slingshot drag, armadillo physics,
   rolling, flight, open-air fall acceleration, terrain destruction
   (_tryDestroyTerrain, _breakTerrainAt, _carveLaunchPath),
-  sea bounce + respawn, camera follow, HUD (_renderHud),
-  scoreboard wiring, item collection + effects
+  sea bounce + respawn (_doSeaBounce, _activateRespawn, _respawnWaiting),
+  right-edge escape (_fallOff with fromRightEdge flag),
+  camera follow, HUD (_renderHud — tutorial / game / game-over screens),
+  scoreboard wiring (_saveScoreWithName), item collection + effects
 
 src/game/terrain.js
   Shape generation (hill/valley/slope/bowl), biome config,
@@ -368,7 +371,8 @@ src/game/terrain.js
 
 src/game/physics.js
   Planck.js world, ChainShape terrain fixtures, bullet CCD,
-  gravity scaling by altitude, flushContacts() (sleep/wake trick)
+  gravity scaling by altitude, flushContacts() (sleep/wake trick),
+  clearContacts(), setArmadilloPos(), setArmadilloVelocity()
 
 src/game/particles.js
   Instanced geometry particle system (dirt, burst, flame, splash, ripple, rating)
@@ -379,16 +383,16 @@ src/game/items.js
   getProceduralItemSpec
 
 src/game/scoreboard.js
-  Local-first leaderboard, submitScore, fetchLeaderboard,
-  getSavedPlayerName / savePlayerName, backend stub
+  Local leaderboard (localStorage), submitScore, fetchLeaderboard,
+  getSavedPlayerName / savePlayerName
 
 src/renderer/
   WebGL scene, sky/background, post effects
 
 src/ui.css
-  HUD panel, title screen, game-over modal, pause menu, boost button,
-  pixel heart lives, leaderboard overlay, name-prompt overlay,
-  item effect bars (in-panel), vertical power gauge
+  HUD panel, tutorial screen (bilingual), game-over modal + score register,
+  pause menu, spacebar SPACE button, pixel heart lives, leaderboard overlay,
+  respawn hint overlay, item effect bars (in-panel), vertical power gauge
 ```
 
 ## Current Status
@@ -400,11 +404,14 @@ Implemented:
 - Procedural terrain (hill/valley/slope/bowl) with biomes
 - 105-island hand-authored static layout + unlimited procedural continuation
 - Terrain destruction: momentum-preserving, push-out-free (2-frame Planck bypass grace window, flushContacts)
-- Sea splash failure with 3-life bounce system + spawn-grace
+- Sea splash failure with 3-life bounce system + hover-wait respawn (straight-down drop on Space/Click)
+- Right-edge escape: upward kick + clearContacts prevents wall-sliding
 - Item system: Rocket, Spring, Heart — collectible pickups with immediate and timed effects
 - Cloud speed bonus and meteor reduced gravity
 - Open-air fall acceleration (cloud/space layers, terrain-aware suppression)
-- Bottom-center BOOST button with Space feedback
+- Bilingual tutorial screen (Korean + English) with start button
+- Bottom-center spacebar SPACE button
+- Post-game nickname entry and local-only leaderboard
 - Moon-clear state
 - Unified spin system — persists across all transitions
 - Edge-fall grace jump (120 ms window after falling off right edge)
@@ -412,7 +419,5 @@ Implemented:
 - Jump angle clamped to 40–58°
 - Top-surface-only collision
 - Atomic boostHeld reconstruction at landing
-- Local-first leaderboard with nickname input
-- Stable nickname prompt (no DOM teardown while typing)
-- Input isolation: UI clicks never bleed into gameplay
+- Input isolation: UI clicks never bleed into gameplay; start-game button consumes its own pointerup
 - GitHub Pages deployment at https://hundredman.github.io/armadillo-rush/

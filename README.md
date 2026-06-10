@@ -4,10 +4,6 @@
 
 **Play online:** https://hundredman.github.io/armadillo-rush/
 
-Scan to play on mobile:
-
-![QR code — scan to play](qr.png)
-
 ---
 
 ## Overview
@@ -18,18 +14,19 @@ The player launches a curled armadillo from a wooden slingshot, lands on floatin
 
 ## Gameplay
 
-1. **Set a nickname** — shown on the leaderboard. Tap "Nickname: Anonymous" on the title screen to edit.
+1. **Read the tutorial** — shown on the start screen in Korean and English. Click **시작하기 / Start Game** to begin.
 2. **Drag the slingshot pouch** and release to launch. A vertical power bar on the left shows pull strength.
 3. **Land on terrain** — the armadillo rolls freely.
-4. **Hold** Space / tap → accelerate while rolling.
+4. **Hold** Space → accelerate while rolling.
 5. **Release** → jump off the terrain with accumulated spin force.
 6. **Hold** while airborne → continuous clockwise spin.
 7. Release in the air → spin slows; no air-jump fires.
 8. **Edge bonus**: releasing near the right edge of an island gives an extra upward kick.
 9. **Hill crest bonus**: crossing the peak of a hill at speed fires a bonus launch upward.
 10. **Collect items** floating above terrain to gain power-ups.
-11. Fall into the sea → lose one life (3 total). Each sea hit respawns you on the nearest island ahead.
+11. Fall into the sea → lose one life (3 total). After a sea bounce, the armadillo hovers frozen above the respawn island — press Space or click to drop straight down.
 12. Reach moon altitude to clear the run.
+13. **After the run** — enter a nickname to register your score on the leaderboard (max 16 characters).
 
 ## Items
 
@@ -52,7 +49,6 @@ Input has two states: **held** and **released**. Effect depends on game state:
 | ROLLING | Accelerate | Jump |
 | FLYING / FALLING | Continuous spin | Spin decays — no air jump |
 | SLINGING | Sling drag | Launch (if pull ≥ minimum) |
-| TITLE / GAMEOVER | Enter SLINGING | — |
 
 Key rules:
 - The armadillo never accelerates without held input — no passive slope effects.
@@ -62,11 +58,12 @@ Key rules:
 
 ## Controls
 
-| Device | Action |
+| Action | Input |
 | --- | --- |
-| Mouse / Touch | Click and drag for all actions |
-| Keyboard | Space to hold/release; Escape to pause |
-| On-screen BOOST button | Equivalent to pointer hold (works on mobile) |
+| All actions | Mouse click and drag |
+| Hold / release | Space bar |
+| Pause | Escape |
+| On-screen SPACE button | Equivalent to Space bar hold |
 
 ## Terrain Destruction
 
@@ -88,34 +85,16 @@ Thresholds:
 On sea contact:
 1. Splash particles and ripples trigger.
 2. One life is lost.
-3. If lives remain → respawn at the nearest undamaged island ahead, with a forward speed bonus and a spawn-grace window to prevent instant re-contact.
+3. If lives remain → the armadillo is placed frozen above the nearest undamaged island ahead. A **부활 준비 완료! / Press Space or Click to drop** hint appears. Press Space or click to release — the armadillo drops straight down onto the island.
 4. All lives gone → result modal appears.
 
 ## Scoreboard
 
 **Score formula:** accumulated from height, distance, and event bonuses.
 
-Scores are stored in a **shared online leaderboard** (Supabase) so every player on the same deployed URL sees the same rankings. The client falls back to `localStorage` automatically if Supabase is not configured (local development without `.env.local`).
+Scores are stored in a **local leaderboard** backed by `localStorage`. No account or network connection required.
 
-**Nicknames:** Enter a name before your first run (max 16 characters). Stored under `armadillo-rush-player-name`. Empty or skipped → displays as "Anonymous". Click "Nickname: …" on the title screen to change it.
-
-### Leaderboard setup (Supabase)
-
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Open the **SQL editor** and run `scripts/supabase-setup.sql` (creates the `scores` table and RLS policies).
-3. Copy your **Project URL** and **anon public key** from *Settings → API*.
-4. For local development create `.env.local` in the project root:
-   ```
-   VITE_SUPABASE_URL=https://your-project-id.supabase.co
-   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-   ```
-5. For the deployed build, add the same two values as **repository secrets** in *GitHub → Settings → Secrets and variables → Actions*:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-
-   The GitHub Actions workflow (`.github/workflows/deploy.yml`) injects them at build time and deploys to GitHub Pages automatically on every push to `main`.
-
-The anon key is safe to expose — Supabase Row Level Security only permits `SELECT` and `INSERT` with server-side score and name validation. `UPDATE` and `DELETE` are denied.
+**Nicknames:** Entered after each run when registering a score (max 16 characters). The last used name is pre-filled on the next registration. Leaving the field empty stores the run as "Anonymous".
 
 ## Tech Stack
 
@@ -152,12 +131,14 @@ npm run deploy
 ```text
 src/
 ├── main.js               # Game loop, input, slingshot, rolling, flight,
-│                         #   terrain destruction, sea bounce, camera, HUD,
-│                         #   scoreboard, item collection + effects
+│                         #   terrain destruction, sea bounce + respawn,
+│                         #   camera, HUD (tutorial/game-over/leaderboard),
+│                         #   scoreboard wiring, item collection + effects
 ├── state.js              # State machine: TITLE → SLINGING → FLYING → ROLLING/FALLING → GAMEOVER
 ├── config.js             # Shared tuning constants (gravity, speed, camera)
-├── ui.css                # All UI: HUD panel, title screen, modal, boost button,
-│                         #   pixel hearts, leaderboard, name prompt, item bars,
+├── ui.css                # All UI: HUD panel, tutorial screen, game-over modal,
+│                         #   pause menu, spacebar SPACE button, pixel hearts,
+│                         #   leaderboard overlay, respawn hint, item bars,
 │                         #   vertical power gauge
 ├── game/
 │   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
@@ -167,7 +148,7 @@ src/
 │   │                     #   collection, animation, effect constants
 │   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
 │   ├── physics.js        # Planck.js world: terrain fixtures, gravity, flushContacts
-│   └── scoreboard.js     # Local-first leaderboard, player name storage, backend stub
+│   └── scoreboard.js     # Local leaderboard (localStorage), player name storage
 ├── renderer/
 │   ├── scene.js          # WebGL renderer, orthographic camera
 │   ├── background.js     # Background layers, sea, clouds, moon
