@@ -2416,7 +2416,14 @@ class Game {
     }
 
     // Determine new boostHeld state atomically — no cancel+re-begin gap.
-    // If input is still physically down, keep/start boost; otherwise clear all hold state.
+    this._reconstructBoostHoldOnLanding()
+  }
+
+  // Atomically rebuild the boost-hold state at the instant of landing: if a
+  // physical input is still down, keep/start boost (with its source); otherwise
+  // clear all hold state.  Reads pointerIsDown/spaceIsDown directly so event
+  // ordering can't leave a stale hold.  Shared by normal and cloud landings.
+  _reconstructBoostHoldOnLanding() {
     if (this.pointerIsDown) {
       this.boostHeld = true
       this.boostHoldSource = 'pointer'
@@ -2446,19 +2453,7 @@ class Game {
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
     }
-    if (this.pointerIsDown) {
-      this.boostHeld = true
-      this.boostHoldSource = 'pointer'
-      this.preBoostSource = null
-    } else if (this.spaceIsDown) {
-      this.boostHeld = true
-      this.boostHoldSource = 'keyboard'
-      this.preBoostSource = null
-    } else {
-      this.boostHeld = false
-      this.boostHoldSource = null
-      this.preBoostSource = null
-    }
+    this._reconstructBoostHoldOnLanding()
     this.lastRating = 'CLOUD'
     this._setArmadilloColor(0xd8f4ff)
     this._spawnRipple(this.armadillo.position.x, this.armadillo.position.y - ARMADILLO_SIZE / 2, 0xd8f4ff, 120, 0.42)
