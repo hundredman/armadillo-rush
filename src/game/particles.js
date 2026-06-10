@@ -143,6 +143,92 @@ export class ParticleSystem {
     })
   }
 
+  // ── Per-item collection effects ─────────────────────────────────────────
+
+  /** Rocket collect: orange ring burst + trailing sparks */
+  spawnCollectRocket(x, y) {
+    // wide orange ring
+    this.spawn(x, y, 0xff6d00, 18, 260, {
+      spreadAngle: Math.PI * 2,
+      sizeMin: 6, sizeMax: 20,
+      lifeMin: 0.28, lifeMax: 0.62,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.06,
+    })
+    // bright yellow core flash
+    this.spawn(x, y, 0xffcc00, 8, 180, {
+      spreadAngle: Math.PI * 2,
+      sizeMin: 4, sizeMax: 10,
+      lifeMin: 0.12, lifeMax: 0.28,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.02,
+    })
+    // white center pop
+    this.spawn(x, y, 0xffffff, 4, 120, {
+      spreadAngle: 0.8,
+      sizeMin: 3, sizeMax: 7,
+      lifeMin: 0.06, lifeMax: 0.15,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.01,
+    })
+  }
+
+  /** Boost collect: gold star-shaped burst */
+  spawnCollectBoost(x, y) {
+    // primary gold
+    this.spawn(x, y, 0xffd600, 16, 220, {
+      spreadAngle: Math.PI * 2,
+      sizeMin: 5, sizeMax: 16,
+      lifeMin: 0.30, lifeMax: 0.70,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.05,
+    })
+    // amber secondary
+    this.spawn(x, y, 0xf9a825, 10, 150, {
+      spreadAngle: Math.PI * 2,
+      sizeMin: 3, sizeMax: 10,
+      lifeMin: 0.20, lifeMax: 0.50,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.04,
+    })
+    // tiny white sparkles
+    this.spawn(x, y, 0xfff9c4, 12, 300, {
+      spreadAngle: Math.PI * 2,
+      sizeMin: 2, sizeMax: 5,
+      lifeMin: 0.10, lifeMax: 0.28,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.02,
+    })
+  }
+
+  /** Heart collect: rosy-red scatter with pink shimmer */
+  spawnCollectHeart(x, y) {
+    // red main burst — upward bias
+    this.spawn(x, y, 0xff1744, 14, 200, {
+      spreadAngle: Math.PI * 1.4,
+      sizeMin: 6, sizeMax: 18,
+      lifeMin: 0.30, lifeMax: 0.65,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.18,
+    })
+    // pink shimmer
+    this.spawn(x, y, 0xff80ab, 12, 160, {
+      spreadAngle: Math.PI * 1.8,
+      sizeMin: 3, sizeMax: 10,
+      lifeMin: 0.18, lifeMax: 0.45,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.12,
+    })
+    // white highlight flash
+    this.spawn(x, y, 0xffffff, 5, 140, {
+      spreadAngle: Math.PI * 2,
+      sizeMin: 2, sizeMax: 6,
+      lifeMin: 0.06, lifeMax: 0.16,
+      biasAngle: Math.PI / 2,
+      gravityScale: 0.01,
+    })
+  }
+
   /** Timing judgment effect — upward star burst. */
   spawnRating(x, y, hexColor, count = 16) {
     this.spawn(x, y, hexColor, count, 240, {

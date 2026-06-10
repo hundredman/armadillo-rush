@@ -126,34 +126,45 @@ function buildRocketMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.rocket
   const P = 3  // 1 pixel = 3 world units
+  const DARK = 0x3d1a00   // outline/shadow color
+
+  // ── Dark outline pass (drawn first, slightly larger) ──────────────
+  pixRect(g, -2*P,   6*P,  4*P,   P, DARK, 0.09)           // nose outline top
+  pixRect(g, -3*P,  -3*P,  6*P, 10*P, DARK, 0.09)          // body outline
+  pixRect(g, -6*P,  -4*P,  3*P,  5*P, DARK, 0.09)          // left fin outline
+  pixRect(g,  3*P,  -4*P,  3*P,  5*P, DARK, 0.09)          // right fin outline
+  pixRect(g, -2*P,  -6*P,  4*P,  3*P, 0x664400, 0.09)      // flame outline
 
   // ── Body (main orange) ──────────────────────────────────────────
-  // Nose tip (2px wide × 1px tall)
-  pixRect(g, -P,     7*P,  2*P,   P, c.main)
-  // Nose mid (4px wide)
-  pixRect(g, -2*P,   6*P,  4*P,   P, c.main)
-  // Main body (6px wide × 9px tall — covers nose base through lower body)
-  pixRect(g, -3*P,  -3*P,  6*P, 9*P, c.main)
+  pixRect(g, -P,     7*P,  2*P,   P, c.main)  // nose tip
+  pixRect(g, -2*P,   6*P,  4*P,   P, c.main)  // nose mid
+  pixRect(g, -3*P,  -3*P,  6*P, 9*P, c.main)  // body
 
-  // ── Window highlight ─────────────────────────────────────────────
-  pixRect(g, -P,     P,    3*P, 3*P, c.glow, 0.13)
+  // ── Window (viewport) ────────────────────────────────────────────
+  pixRect(g, -P,     3*P,  2*P, 2*P, 0x001a33, 0.13)   // dark glass
+  pixRect(g, -P,     4*P,  P,   P,   0x66ccff, 0.14)   // highlight glint
 
-  // ── Fins (ring/red) ──────────────────────────────────────────────
-  pixRect(g, -5*P,  -3*P,  2*P, 4*P, c.ring)   // left
-  pixRect(g,  3*P,  -3*P,  2*P, 4*P, c.ring)   // right
+  // ── Side stripe ──────────────────────────────────────────────────
+  pixRect(g, -3*P,   0,    P,   3*P, 0xff3d00, 0.13)   // left stripe
+  pixRect(g,  2*P,   0,    P,   3*P, 0xff3d00, 0.13)   // right stripe
 
-  // ── Exhaust flame (bright yellow-orange) ─────────────────────────
+  // ── Fins ─────────────────────────────────────────────────────────
+  pixRect(g, -5*P,  -3*P,  2*P, 4*P, c.ring)
+  pixRect(g,  3*P,  -3*P,  2*P, 4*P, c.ring)
+
+  // ── Exhaust flame ────────────────────────────────────────────────
   pixRect(g, -2*P,  -5*P,  4*P, 2*P, 0xffcc00)
+  pixRect(g, -P,    -6*P,  2*P,  P,  0xffffff, 0.13)  // inner core
 
   // ── Ring ─────────────────────────────────────────────────────────
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(20, 24, 12),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.40, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(22, 26, 12),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.10
   g.add(ring)
 
-  g.rotation.z = -ROCKET_ANGLE  // visually matches the 25° launch angle
+  g.rotation.z = -ROCKET_ANGLE
   return g
 }
 
@@ -161,24 +172,34 @@ function buildBoostMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.boost
   const P = 3
+  const DARK = 0x3d2800  // outline color
 
-  // ── Pixel-art lightning bolt — 4 connected rectangles ────────────
-  // Reading the bolt top-right → upper-left → lower-right → bottom-left
-  pixRect(g,  0,    5*P,  3*P, 2*P, c.main)        // top arm (right)
-  pixRect(g, -2*P,  2*P,  4*P, 3*P, c.main)        // upper body (left)
-  pixRect(g,  0,   -P,    4*P, 3*P, c.main)         // lower body (right)
-  pixRect(g, -2*P, -4*P,  3*P, 3*P, c.main)        // bottom tip (left)
+  // ── Dark outline (1px border all around the bolt) ─────────────────
+  pixRect(g,  -P,    5*P,  5*P, 3*P, DARK, 0.09)   // top outline
+  pixRect(g, -3*P,   P,   6*P, 5*P, DARK, 0.09)   // mid outline
+  pixRect(g,  -P,   -2*P,  6*P, 4*P, DARK, 0.09)  // lower outline
+  pixRect(g, -3*P,  -5*P,  5*P, 4*P, DARK, 0.09)  // bottom outline
 
-  // ── Inner highlight ───────────────────────────────────────────────
+  // ── Main bolt body ───────────────────────────────────────────────
+  pixRect(g,  0,    5*P,  3*P, 2*P, c.main)   // top arm
+  pixRect(g, -2*P,  2*P,  4*P, 3*P, c.main)   // upper body
+  pixRect(g,  0,   -P,    4*P, 3*P, c.main)   // lower body
+  pixRect(g, -2*P, -4*P,  3*P, 3*P, c.main)   // bottom tip
+
+  // ── Inner highlight (bright left edge of bolt) ────────────────────
   pixRect(g,  P,    5*P,  P,   2*P, c.glow, 0.13)
   pixRect(g, -P,    2*P,  2*P, 3*P, c.glow, 0.13)
-  pixRect(g,  P,   -P,    2*P, 3*P, c.glow, 0.13)
-  pixRect(g, -P,   -4*P,  2*P, 3*P, c.glow, 0.13)
+  pixRect(g,  P,   -P,    2*P, 2*P, c.glow, 0.13)
+  pixRect(g, -P,   -4*P,  2*P, 2*P, c.glow, 0.13)
+
+  // ── Shadow/depth right side ───────────────────────────────────────
+  pixRect(g,  2*P,  2*P,  P,   3*P, c.ring, 0.11)   // upper shadow
+  pixRect(g,  3*P,  -P,   P,   2*P, c.ring, 0.11)   // lower shadow
 
   // ── Ring ──────────────────────────────────────────────────────────
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(18, 22, 12),
-    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.50, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(20, 24, 12),
+    new THREE.MeshBasicMaterial({ color: c.ring, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.11
   g.add(ring)
@@ -189,27 +210,39 @@ function buildHeartMesh() {
   const g = new THREE.Group()
   const c = ITEM_COLORS.heart
   const col = c.main
-  const P = 2  // 1 pixel = 2 world units
+  const P = 3  // increased from 2 — larger, more readable
+  const DARK = 0x4d0010  // dark outline
 
-  // ── Pixel-art heart (7 × 6 grid, 2px/pixel) ──────────────────────
-  // Top bumps (gap of 1 pixel between them)
+  // ── Dark outline (1px border) ────────────────────────────────────
+  pixRect(g, -5*P,  4*P,  4*P, 3*P, DARK, 0.09)  // left bump outline
+  pixRect(g,   P,   4*P,  4*P, 3*P, DARK, 0.09)  // right bump outline
+  pixRect(g, -5*P,  -P,  10*P, 6*P, DARK, 0.09)  // body outline
+  pixRect(g, -4*P, -3*P,  8*P, 3*P, DARK, 0.09)  // lower outline
+  pixRect(g, -3*P, -5*P,  6*P, 3*P, DARK, 0.09)
+  pixRect(g, -2*P, -7*P,  4*P, 3*P, DARK, 0.09)
+  pixRect(g,  -P,  -8*P,  2*P, 2*P, DARK, 0.09)  // tip outline
+
+  // ── Main heart shape ─────────────────────────────────────────────
   pixRect(g, -4*P,  4*P,  3*P, 2*P, col)  // left bump
   pixRect(g,   P,   4*P,  3*P, 2*P, col)  // right bump
-  // Full-width body rows
-  pixRect(g, -4*P,  2*P,  8*P, 2*P, col)  // row connecting bumps
-  pixRect(g, -4*P,  0,    8*P, 2*P, col)  // middle row
-  // Narrowing toward tip
-  pixRect(g, -3*P, -2*P,  6*P, 2*P, col)
+  pixRect(g, -4*P,  2*P,  8*P, 2*P, col)  // top body
+  pixRect(g, -4*P,  0,    8*P, 2*P, col)  // mid body
+  pixRect(g, -3*P, -2*P,  6*P, 2*P, col)  // narrowing
   pixRect(g, -2*P, -4*P,  4*P, 2*P, col)
   pixRect(g,  -P,  -6*P,  2*P, 2*P, col)  // tip
 
   // ── Inner highlight ───────────────────────────────────────────────
-  pixRect(g, -3*P,  2*P,  6*P, 2*P, c.glow, 0.13)
+  pixRect(g, -3*P,  2*P,  3*P, 2*P, c.glow, 0.13)  // top-left sheen
+  pixRect(g, -2*P,  0,    2*P, P,   c.glow, 0.13)
+
+  // ── Shadow (right + bottom edge) ─────────────────────────────────
+  pixRect(g,  2*P,  0,    2*P, 2*P, c.ring, 0.11)
+  pixRect(g, -2*P, -2*P,  2*P, 2*P, c.ring, 0.11)
 
   // ── Ring ──────────────────────────────────────────────────────────
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(16, 20, 16),
-    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+    new THREE.RingGeometry(20, 24, 16),
+    new THREE.MeshBasicMaterial({ color: c.glow, transparent: true, opacity: 0.50, side: THREE.DoubleSide }),
   )
   ring.position.z = 0.10
   g.add(ring)

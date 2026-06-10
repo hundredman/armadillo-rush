@@ -239,6 +239,8 @@ class Game {
 
     // flame trail spawn cooldown (prevent per-frame emission)
     this.flameTrailCooldown = 0
+    // rolling dust spawn cooldown
+    this._dustTimer = 0
 
     // camera follow target
     this.camTarget = new THREE.Vector2(SLING_POS.x, SLING_POS.y)
@@ -269,6 +271,23 @@ class Game {
 
     this.armadillo = this._createArmadillo()
     this.renderer.add(this.armadillo)
+
+    // ── Shadow — oval blob beneath armadillo ─────────────────────────────
+    // Sits at z = -0.05, behind terrain but above sea.
+    // Scale and opacity are driven each render frame by ground distance.
+    this.armadilloShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 24),   // unit circle, scaled each frame
+      new THREE.MeshBasicMaterial({
+        color: 0x0a0c1a,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      }),
+    )
+    this.armadilloShadow.position.z = -0.05
+    this.armadilloShadow.renderOrder = -1
+    this.renderer.add(this.armadilloShadow)
+
     this._resetRun()
     this._syncMotionToArmadillo()
 
@@ -2627,7 +2646,7 @@ class Game {
     this.physics.moveArmadilloPos(exitX, exitY)
     this.physics.setArmadilloVelocity(exitVx, exitVy)
     this.physics.flushContacts()
-    const graceFrames = isUpwardHit ? 4 : 3
+    const graceFrames = isUpwardHit ? 7 : 5
     this._spawnGraceTimer = Math.max(this._spawnGraceTimer, graceFrames)
 
     this._setArmadilloColor(0xffd54f)
@@ -2645,7 +2664,7 @@ class Game {
       this.physics.addTerrain(terrain)
       this.physics.setArmadilloVelocity(impactVelocity.x, impactVelocity.y)
       this.physics.flushContacts()
-      this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 2)
+      this._spawnGraceTimer = Math.max(this._spawnGraceTimer, 4)
     }
     // when called from _breakTerrainHits (refreshPhysics=false), velocity is set
     // there after all hits are processed — do not touch it here
@@ -2867,6 +2886,25 @@ class Game {
 
     this._updateStallState(dt)
 
+    // Rolling dust — throttled, only when moving fast enough
+    this._dustTimer -= dt
+    if (this._dustTimer <= 0 && this.speedRatio >= 0.28) {
+      const interval = THREE.MathUtils.lerp(0.10, 0.03, this.speedRatio / BOOST_SPEED_LIMIT)
+      this._dustTimer = interval
+      const footX = this.armadillo.position.x - moveX * 0.5
+      const footY = this.armadillo.position.y - ARMADILLO_SIZE / 2
+      const dustCount = this.boostHeld ? 3 : 2
+      this.particleSystem.spawn(footX, footY, 0x8d7355, dustCount, 55, {
+        spreadAngle: Math.PI * 0.5,
+        biasAngle: Math.PI,          // drift backward/left
+        sizeMin: 3,
+        sizeMax: 8,
+        lifeMin: 0.15,
+        lifeMax: 0.35,
+        gravityScale: 0.08,
+      })
+    }
+
     if (this.armadillo.position.x >= bounds.right - ARMADILLO_SIZE / 2) {
       // Push armadillo clearly past the right wall and slightly upward so it
       // escapes the corner geometry without sliding down the vertical wall face.
@@ -2907,9 +2945,8 @@ class Game {
   _updateStallState(dt) {
     if (this.speedRatio <= STALL_SPEED_RATIO) {
       this.stallTime += dt
-      if (this.stallTime >= STALL_GAMEOVER_SEC) {
-        this._gameOver('STOP')
-      }
+      // Show danger warning but do NOT trigger game over for low speed alone.
+      // Game over only happens from lives running out (sea fall/bounce) or moon.
       return
     }
 
@@ -3158,7 +3195,7 @@ class Game {
       this._syncMotionToArmadillo()
       this.lastRating = 'ROCKET!'
       this._setArmadilloColor(0xff6d00)
-      this._spawnParticles(item.x, item.y, 0xffe0b2, 22, 300)
+      this.particleSystem.spawnCollectRocket(item.x, item.y)
       this._playTone(280, 0.18, 0.10, 'sawtooth')
       setTimeout(() => this._playTone(420, 0.14, 0.10, 'sawtooth'), 100)
     } else if (item.type === 'boost') {
@@ -3166,15 +3203,14 @@ class Game {
       this.activeSpring = { timeLeft: ITEM_SPRING_DURATION }
       this.lastRating = 'BOOST!'
       this._setArmadilloColor(0xffd600)
-      this._spawnParticles(item.x, item.y, 0xffd600, 22, 280)
-      this._spawnParticles(item.x, item.y, 0xfff9c4, 12, 200)
+      this.particleSystem.spawnCollectBoost(item.x, item.y)
       this._playTone(880, 0.12, 0.08, 'sine')
       setTimeout(() => this._playTone(1100, 0.09, 0.07, 'sine'), 80)
     } else if (item.type === 'heart') {
       this.lives = Math.min(3, this.lives + 1)
       this.lastRating = 'HEART!'
       this._setArmadilloColor(0xff1744)
-      this._spawnParticles(item.x, item.y, 0xff8a80, 20, 240)
+      this.particleSystem.spawnCollectHeart(item.x, item.y)
       this.flashTime = Math.max(this.flashTime, 0.08)
       this._playTone(880, 0.14, 0.09, 'sine')
       setTimeout(() => this._playTone(1100, 0.10, 0.08, 'sine'), 120)
@@ -3330,7 +3366,10 @@ class Game {
     this._updateRendererClearSky(heightRatio)
     this._updateSceneSkyPlane(heightRatio)
     this._updateWorldSea()
-    this.background.update(heightRatio, this.time)
+    this.background.update(heightRatio, this.time, this.camPos.x, this.camPos.y)
+
+    // ── Shadow update ───────────────────────────────────────────────────────
+    this._updateArmadilloShadow()
 
     // update PostFX then render (BackgroundPass → RenderPass → Effects)
     this.postfx.update(this.trauma, heightRatio, dt ?? FIXED_DT)
@@ -3352,6 +3391,41 @@ class Game {
       color.copy(SKY_CLEAR_HIGH).lerp(SKY_CLEAR_SPACE, THREE.MathUtils.smoothstep(heightRatio, 0.68, 0.90))
     }
     this.renderer.renderer.setClearColor(color, 1)
+  }
+
+  // Oval shadow blob beneath the armadillo.
+  // Fades and shrinks as the character rises above terrain (or sea).
+  _updateArmadilloShadow() {
+    if (!this.armadilloShadow) return
+    const ax = this.armadillo.position.x
+    const ay = this.armadillo.position.y
+
+    // Find ground below armadillo: check current island first, then all islands
+    let groundY = null
+    if (this.currentIsland) {
+      groundY = getTerrainTopY(this.currentIsland, ax)
+    } else {
+      for (const island of this.islands) {
+        if (island.destroyed) continue
+        const b = island.bounds
+        const left = b.rampLeft ?? b.left
+        if (ax < left || ax > b.right) continue
+        const ty = getTerrainTopY(island, ax)
+        if (groundY === null || ty > groundY) groundY = ty
+      }
+    }
+    if (groundY === null) groundY = -360  // sea level fallback
+
+    const gap = ay - ARMADILLO_SIZE / 2 - groundY
+    const MAX_GAP = 320  // beyond this, shadow is fully invisible
+    const t = 1 - THREE.MathUtils.clamp(gap / MAX_GAP, 0, 1)
+
+    // scale: 28px at ground, shrinks with distance
+    const shadowScale = ARMADILLO_SIZE * (0.55 + t * 0.45)
+    this.armadilloShadow.scale.set(shadowScale, shadowScale * 0.32, 1)
+    this.armadilloShadow.position.x = ax
+    this.armadilloShadow.position.y = groundY + 1  // just above terrain
+    this.armadilloShadow.material.opacity = t * 0.36 * (this.armadillo.visible ? 1 : 0)
   }
 
   _renderHud() {
@@ -3595,7 +3669,7 @@ class Game {
         // Position hint directly above the armadillo in screen space
         const sc = this._worldToScreen(
           this.armadillo.position.x,
-          this.armadillo.position.y + ARMADILLO_SIZE + 24,
+          this.armadillo.position.y + ARMADILLO_SIZE + 100,
         )
         return `<div class="respawn-hint" style="left:${sc.x.toFixed(1)}px;top:${sc.y.toFixed(1)}px">
           부활 준비 완료!<br>
