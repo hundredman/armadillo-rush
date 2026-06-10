@@ -274,20 +274,24 @@ class Game {
     this.armadillo = this._createArmadillo()
     this.renderer.add(this.armadillo)
 
-    // ── Shadow — oval blob beneath armadillo ─────────────────────────────
-    // Sits at z = -0.05, behind terrain but above sea.
-    // Scale and opacity are driven each render frame by ground distance.
+    // ── Shadow — oval blob projected onto the ground below the armadillo ──
+    // Must paint ON TOP of the terrain surface (not behind it), so it uses
+    // depthTest:false + a renderOrder between the terrain (0) and the armadillo
+    // sprite (20).  Drawing it behind the terrain made it show through only over
+    // open sky, looking like it floated.  Scale/opacity/position are driven each
+    // frame by the distance to the ground beneath the character.
     this.armadilloShadow = new THREE.Mesh(
       new THREE.CircleGeometry(1, 24),   // unit circle, scaled each frame
       new THREE.MeshBasicMaterial({
         color: 0x0a0c1a,
         transparent: true,
         opacity: 0,
+        depthTest: false,
         depthWrite: false,
       }),
     )
-    this.armadilloShadow.position.z = -0.05
-    this.armadilloShadow.renderOrder = -1
+    this.armadilloShadow.position.z = 0.05   // above grass/ridge, below the armadillo
+    this.armadilloShadow.renderOrder = 5     // after terrain, before the armadillo
     this.renderer.add(this.armadilloShadow)
 
     this._resetRun()
