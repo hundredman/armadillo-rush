@@ -360,22 +360,42 @@ button {
   margin-bottom: 2px;
 }
 
-.tutorial-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 16px;
+.tutorial-lang-toggle {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: -4px;
+}
+
+.lang-btn {
+  padding: 5px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 20px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.50);
+  font: inherit;
   font-size: 12px;
-  line-height: 1.45;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
 
-.tutorial-row .ko {
+.lang-btn.is-active {
+  background: rgba(255, 213, 79, 0.18);
+  border-color: rgba(255, 213, 79, 0.60);
+  color: #ffd54f;
+}
+
+.lang-btn:hover:not(.is-active) {
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  font-weight: 800;
 }
 
-.tutorial-row .en {
-  color: rgba(255, 255, 255, 0.55);
-  font-weight: 600;
+.tutorial-row {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #fff;
+  font-weight: 700;
 }
 
 .tutorial-best {
@@ -503,6 +523,27 @@ button {
   letter-spacing: 0.08em;
   color: rgba(255, 255, 255, 0.5);
   text-transform: uppercase;
+}
+
+.score-register-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(100, 220, 100, 0.30);
+  border-radius: 8px;
+  background: rgba(100, 220, 100, 0.08);
+  color: #88e088;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+
+.score-register-rank {
+  color: #ffd54f;
+  font-size: 16px;
 }
 
 /* ── Name input ─────────────────────────────────────────────────────────── */

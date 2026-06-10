@@ -282,9 +282,10 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
   )
   soil.position.z = -0.02
 
-  // grass layer (inner top surface)
+  // grass layer — extends over the left-entry ramp so the whole surface reads as one terrain
   const grassShape = new THREE.Shape()
-  grassShape.moveTo(topPoints[0].x, topPoints[0].y)
+  grassShape.moveTo(leftTop.x - LEFT_RAMP_W, leftTop.y - 40)
+  grassShape.quadraticCurveTo(leftTop.x - LEFT_RAMP_W * 0.3, leftTop.y - 4, leftTop.x, leftTop.y)
   for (let i = 1; i < topPoints.length; i++) grassShape.lineTo(topPoints[i].x, topPoints[i].y)
   for (let i = topPoints.length - 1; i >= 0; i--) {
     const p = topPoints[i]
@@ -292,6 +293,8 @@ export function createCurvedTerrain({ x, y, w, depth, rimH, shapeType = 'bowl', 
     const softEdge = THREE.MathUtils.clamp(edgeT, 0.35, 1)
     grassShape.lineTo(p.x, p.y - 14 * softEdge)
   }
+  // Inner ramp edge (approx. 6 px inside the ramp surface) closes back to moveTo
+  grassShape.quadraticCurveTo(leftTop.x - LEFT_RAMP_W * 0.3, leftTop.y - 10, leftTop.x - LEFT_RAMP_W, leftTop.y - 46)
   grassShape.closePath()
 
   const grass = new THREE.Mesh(
@@ -424,14 +427,30 @@ function createGrassShapeForInterval(terrain, startX, endX) {
   const top = collectTopPoints(terrain, startX, endX)
   if (top.length < 2) return null
 
+  // Extend grass over the left-entry ramp for the leftmost interval
+  const rampLeft = terrain.bounds.rampLeft ?? terrain.bounds.left
+  const isLeftmost = Math.abs(startX - terrain.bounds.left) < 1 && rampLeft < terrain.bounds.left
+
   const shape = new THREE.Shape()
-  shape.moveTo(top[0].x, top[0].y)
+  if (isLeftmost) {
+    const leftTop = terrain.points[0]
+    const rampW = terrain.bounds.left - rampLeft
+    shape.moveTo(rampLeft, leftTop.y - 40)
+    shape.quadraticCurveTo(rampLeft + rampW * 0.7, leftTop.y - 4, top[0].x, top[0].y)
+  } else {
+    shape.moveTo(top[0].x, top[0].y)
+  }
   for (let i = 1; i < top.length; i++) shape.lineTo(top[i].x, top[i].y)
   for (let i = top.length - 1; i >= 0; i--) {
     const p = top[i]
     const edgeT = Math.min(i, top.length - 1 - i) / 8
     const softEdge = THREE.MathUtils.clamp(edgeT, 0.35, 1)
     shape.lineTo(p.x, p.y - 14 * softEdge)
+  }
+  if (isLeftmost) {
+    const leftTop = terrain.points[0]
+    const rampW = terrain.bounds.left - rampLeft
+    shape.quadraticCurveTo(rampLeft + rampW * 0.7, leftTop.y - 10, rampLeft, leftTop.y - 46)
   }
   shape.closePath()
   return shape

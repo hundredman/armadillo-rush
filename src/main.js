@@ -174,7 +174,10 @@ class Game {
     this._slingReady = false
     // Set true once the tutorial screen has been rendered — skip rebuilding the
     // static TITLE DOM every frame so the button is stable and `:active` shows.
+    // Stores the last-rendered language key ('ko'/'en') so a lang toggle forces a rebuild.
     this._tutorialRendered = false
+    // Tutorial language: 'ko' = 한국어 (default), 'en' = English
+    this._tutorialLang = 'ko'
     // Cached key for GAMEOVER HUD — only rebuilds when content actually changes
     // (pendingScoreEntry rank, showingLeaderboard, isPaused).  Prevents
     // per-frame innerHTML replacement from destroying the nickname text input.
@@ -1380,6 +1383,9 @@ class Game {
       if (action === 'score-save') {
         const input = this.ui.querySelector('.name-input')
         this._saveScoreWithName(input ? input.value : '')
+      }
+      if (action === 'toggle-lang') {
+        this._tutorialLang = this._tutorialLang === 'ko' ? 'en' : 'ko'
       }
       return true
     }
@@ -3329,7 +3335,7 @@ class Game {
     if (document.activeElement?.classList.contains('name-input')) return
     // Tutorial screen is completely static — skip rebuilding the DOM every
     // requestAnimationFrame so the button is stable and CSS :active shows.
-    if (this.sm.is(State.TITLE) && this._tutorialRendered) return
+    if (this.sm.is(State.TITLE) && this._tutorialRendered === this._tutorialLang) return
     // GAMEOVER screen: only rebuild when visible content actually changes.
     // This keeps the nickname input stable and buttons clickable.
     if (this.sm.is(State.GAMEOVER)) {
@@ -3459,51 +3465,55 @@ class Game {
 
       ${slingMeter}
 
-      ${this.sm.is(State.TITLE) ? `
+      ${this.sm.is(State.TITLE) ? (() => {
+        const lang = this._tutorialLang
+        const ko = lang === 'ko'
+        return `
         <div class="tutorial-layer">
           <div class="tutorial-card">
             <div class="tutorial-game-title">ARMADILLO RUSH</div>
-            <div class="tutorial-subtitle">🌊 바다 → ☁️ 하늘 → 🌕 달 &nbsp;|&nbsp; Sea → Sky → Moon</div>
+            <div class="tutorial-subtitle">${ko ? '🌊 바다 → ☁️ 하늘 → 🌕 달' : '🌊 Sea → ☁️ Sky → 🌕 Moon'}</div>
 
-            <div class="tutorial-section">
-              <div class="tutorial-section-title">🎯 목표 / Objective</div>
-              <div class="tutorial-row">
-                <span class="ko">슬링샷으로 아르마딜로를 발사하여 최대한 높이, 멀리 날려보세요!</span>
-                <span class="en">Fling the armadillo as high and far as possible — aim for the moon!</span>
-              </div>
+            <div class="tutorial-lang-toggle">
+              <button type="button" class="clickable lang-btn${ko ? ' is-active' : ''}" data-action="toggle-lang">한국어</button>
+              <button type="button" class="clickable lang-btn${!ko ? ' is-active' : ''}" data-action="toggle-lang">English</button>
             </div>
 
+            ${ko ? `
             <div class="tutorial-section">
-              <div class="tutorial-section-title">🕹️ 조작법 / Controls</div>
-              <div class="tutorial-row">
-                <span class="ko">🖱️ <b>드래그</b>: 슬링샷 조준 및 발사</span>
-                <span class="en">🖱️ <b>Drag</b>: Aim and release the slingshot</span>
-              </div>
-              <div class="tutorial-row">
-                <span class="ko">⬛ <b>Space 누르기</b>: 지형 위에서 가속 / 공중에서 회전</span>
-                <span class="en">⬛ <b>Hold Space</b>: Accelerate on terrain / spin in air</span>
-              </div>
-              <div class="tutorial-row">
-                <span class="ko">⬛ <b>Space 떼기</b>: 점프!</span>
-                <span class="en">⬛ <b>Release Space</b>: Jump!</span>
-              </div>
-              <div class="tutorial-row">
-                <span class="ko">💀 <b>바다 추락</b>: 생명 1개 감소. Space/클릭으로 낙하 재시작</span>
-                <span class="en">💀 <b>Sea fall</b>: Lose 1 life. Press Space/Click to drop again</span>
-              </div>
+              <div class="tutorial-section-title">🎯 목표</div>
+              <div class="tutorial-row">슬링샷으로 아르마딜로를 발사하여 최대한 높이, 멀리 날려보세요!</div>
             </div>
-
             <div class="tutorial-section">
-              <div class="tutorial-section-title">💡 팁 / Tips</div>
-              <div class="tutorial-row">
-                <span class="ko">빠른 속도로 지형을 부수면 속도 폭발!</span>
-                <span class="en">Smash terrain at high speed for a burst boost!</span>
-              </div>
-              <div class="tutorial-row">
-                <span class="ko">높이가 곧 점수 — 달까지 올라가면 보너스!</span>
-                <span class="en">Altitude = score. Reach the moon for bonus points!</span>
-              </div>
+              <div class="tutorial-section-title">🕹️ 조작법</div>
+              <div class="tutorial-row">🖱️ <b>드래그</b>: 슬링샷 조준 및 발사</div>
+              <div class="tutorial-row">⬛ <b>Space 누르기</b>: 지형 위에서 가속 / 공중에서 회전</div>
+              <div class="tutorial-row">⬛ <b>Space 떼기</b>: 점프!</div>
+              <div class="tutorial-row">💀 <b>바다 추락</b>: 생명 1개 감소. Space/클릭으로 낙하 재시작</div>
             </div>
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">💡 팁</div>
+              <div class="tutorial-row">빠른 속도로 지형을 부수면 속도 폭발!</div>
+              <div class="tutorial-row">높이가 곧 점수 — 달까지 올라가면 보너스!</div>
+            </div>
+            ` : `
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">🎯 Objective</div>
+              <div class="tutorial-row">Fling the armadillo as high and far as possible — aim for the moon!</div>
+            </div>
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">🕹️ Controls</div>
+              <div class="tutorial-row">🖱️ <b>Drag</b>: Aim and release the slingshot</div>
+              <div class="tutorial-row">⬛ <b>Hold Space</b>: Accelerate on terrain / spin in air</div>
+              <div class="tutorial-row">⬛ <b>Release Space</b>: Jump!</div>
+              <div class="tutorial-row">💀 <b>Sea fall</b>: Lose 1 life. Press Space/Click to drop again</div>
+            </div>
+            <div class="tutorial-section">
+              <div class="tutorial-section-title">💡 Tips</div>
+              <div class="tutorial-row">Smash terrain at high speed for a burst boost!</div>
+              <div class="tutorial-row">Altitude = score. Reach the moon for bonus points!</div>
+            </div>
+            `}
 
             <div class="tutorial-best">
               <span class="tutorial-best-label">BEST</span>
@@ -3511,11 +3521,12 @@ class Game {
             </div>
 
             <button type="button" class="clickable tutorial-start-btn" data-action="start-game">
-              시작하기 / Start Game
+              ${ko ? '시작하기' : 'Start Game'}
             </button>
           </div>
         </div>
-      ` : ''}
+        `
+      })() : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
       ${this.sm.is(State.GAMEOVER) ? `
         <div class="modal-layer">
@@ -3528,7 +3539,9 @@ class Game {
               <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
               ${rankText}
             </div>
-            <div class="score-register">
+            ${this.pendingScoreEntry
+              ? `<div class="score-register-done">✓ 등록 완료 / Registered  <span class="score-register-rank">#${this.pendingScoreEntry.rank}</span></div>`
+              : `<div class="score-register">
               <div class="score-register-label">리더보드 등록 / Register Score</div>
               <input class="name-input clickable" type="text" maxlength="16"
                 placeholder="닉네임 / Nickname"
@@ -3537,7 +3550,7 @@ class Game {
               <button type="button" class="clickable primary-button" data-action="score-save">
                 점수 등록 / Register
               </button>
-            </div>
+            </div>`}
             <button type="button" class="clickable secondary-button" data-action="leaderboard">리더보드 보기 / Leaderboard</button>
             <button type="button" class="clickable secondary-button" data-action="restart">다시 시작 / Retry</button>
           </div>
@@ -3588,8 +3601,8 @@ class Game {
 
       <div class="action-hint ${showBoostButton && !this.isPaused ? 'is-above-boost' : ''}">${action}</div>
     `
-    // Mark tutorial as rendered so subsequent frames skip the rebuild.
-    this._tutorialRendered = this.sm.is(State.TITLE)
+    // Store the rendered lang key — if lang toggles, cache miss forces a rebuild.
+    this._tutorialRendered = this.sm.is(State.TITLE) ? this._tutorialLang : false
   }
 
   loop() {
