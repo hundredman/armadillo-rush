@@ -2331,8 +2331,12 @@ class Game {
     // Grace frames: Planck step is skipped entirely so it cannot issue any
     // push-out or bounce impulse against freshly-rebuilt or overlapping fixtures.
     // We manually integrate position under gravity instead.
+    // NOTE: _tryDestroyTerrain is still called here so chained multi-island
+    // destruction (e.g., destroying island A then B in consecutive frames) works.
     if (this._spawnGraceTimer > 0) {
       this._spawnGraceTimer--
+      // Try chained destruction even during grace window.
+      if (this._tryDestroyTerrain(prevX, prevY, incomingVelocity, dt)) return
       this.velocity.y -= baseGravity * dt
       this.armadillo.position.x += this.velocity.x * dt
       this.armadillo.position.y += this.velocity.y * dt
@@ -2555,21 +2559,22 @@ class Game {
         if (y <= island.bounds.bottom) continue
 
         // ── Destruction direction gate ────────────────────────────────────
-        // Block only steep downward impacts — where the ball is falling
-        // mostly vertically onto the top surface.  Side, forward, and
-        // upward impacts are always allowed (they cannot reach this code
-        // via a pure side or bottom hit because getTerrainTopY only
-        // models the top surface).
+        // Only allow terrain destruction for predominantly forward/horizontal
+        // impacts.  Pure vertical falls and near-vertical descents should land
+        // normally without craters.
         //
-        // Rule: if vy is negative (falling) AND |vy| > |vx| * 1.4
-        // the impact angle from horizontal exceeds atan(1.4) ≈ 54°,
-        // which is steep enough to be "diving from above".  At that
-        // point the ball should land normally, not break terrain.
+        // Two conditions both block destruction (either alone is sufficient):
+        //   1. Falling (vy < 0) AND the angle from horizontal exceeds ~31°
+        //      i.e. |vy| > |vx| * 0.6  →  blocked as "landing from above"
+        //   2. Horizontal speed is below 40% of UNDER_BREAK_SPEED (160 px/s)
+        //      regardless of angle — the ball simply isn't moving forward fast
+        //      enough to punch through terrain.
         //
-        // When vy ≥ 0 (rising after a bounce, or horizontal) this check
-        // is skipped entirely so those impacts always remain valid.
-        if (incomingVelocity.y < 0 &&
-            Math.abs(incomingVelocity.y) > Math.abs(incomingVelocity.x) * 1.4) continue
+        // Upward hits (vy ≥ 0, bouncing up through terrain) are always allowed.
+        if (incomingVelocity.y < 0 && (
+            Math.abs(incomingVelocity.y) > Math.abs(incomingVelocity.x) * 0.6 ||
+            Math.abs(incomingVelocity.x) < UNDER_BREAK_SPEED * 0.4
+        )) continue
 
         const key = `${this.islands.indexOf(island)}:${Math.round(x / 10)}`
         if (hitKeys.has(key)) continue
@@ -2838,16 +2843,20 @@ class Game {
       this.lastRating = 'HOLD'
       this._setArmadilloColor(0xffb74d)
     } else {
-      // no input: friction + slope gravity — downhill accelerates, uphill decelerates
+      // no input: slope gravity + directional friction
+      // Uphill (slope>0) decelerates forward and accelerates backward;
+      // downhill (slope<0) accelerates forward and decelerates backward.
+      // When speed reaches 0 on an uphill the character rolls backward naturally.
       const slope = getTerrainSlopeAngle(this.currentIsland, this.armadillo.position.x)
-      // sin(+slope) > 0 → uphill → decelerate; sin(−slope) < 0 → downhill → accelerate
-      const SLOPE_GRAVITY_SCALE = 1.4   // speedRatio/s per unit sin
+      const SLOPE_GRAVITY_SCALE = 1.4
       const slopeEffect = -Math.sin(slope) * SLOPE_GRAVITY_SCALE
-      this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (slopeEffect - ROLLING_FRICTION_PER_SEC) * dt,
-        0,
-        BOOST_SPEED_LIMIT,
-      )
+      // Friction opposes motion direction — zero when stopped
+      const frictionSign = this.speedRatio > 0 ? -1 : this.speedRatio < 0 ? 1 : 0
+      const newSpeed = this.speedRatio + (slopeEffect + frictionSign * ROLLING_FRICTION_PER_SEC) * dt
+      // Allow backward rolling up to 50% of max forward speed
+      this.speedRatio = THREE.MathUtils.clamp(newSpeed, -BOOST_SPEED_LIMIT * 0.5, BOOST_SPEED_LIMIT)
+      // Snap micro-oscillations to rest
+      if (Math.abs(this.speedRatio) < 0.008) this.speedRatio = 0
     }
 
     // Sample slope before moving so we can detect crest crossing.
@@ -2857,6 +2866,12 @@ class Game {
     this.armadillo.position.x += moveX
     if (isTerrainDamagedAt(this.currentIsland, this.armadillo.position.x, ARMADILLO_SIZE / 2)) {
       this._fallOff()
+      return
+    }
+    // Left-edge exit when rolling backward past the island's left boundary
+    const leftEdge = bounds.rampLeft ?? bounds.left
+    if (this.speedRatio < 0 && this.armadillo.position.x <= leftEdge) {
+      this._fallOff(false)
       return
     }
     // snap y to terrain top — follows slope naturally
@@ -2875,28 +2890,30 @@ class Game {
       return
     }
 
-    // ground spin: drive rotation from speedRatio so it always matches forward speed.
-    // spinAngleVel converges quickly so air→ground transition feels continuous.
-    const contactSpin = this.speedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)  // rad/s
+    // ground spin: driven by speedRatio — negative speedRatio reverses spin direction
+    const contactSpin = this.speedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)  // rad/s (negative = backward)
     const spinTarget = this.boostHeld
-      ? Math.max(contactSpin, 10 + this.speedRatio * 18)   // held: visibly spinning even when slow
+      ? Math.max(contactSpin, 10 + this.speedRatio * 18)
       : contactSpin
     this.spinAngleVel = THREE.MathUtils.lerp(this.spinAngleVel, spinTarget, Math.min(1, dt * 14))
     this.armadillo.rotation.z -= this.spinAngleVel * dt
 
     this._updateStallState(dt)
 
-    // Rolling dust — throttled, only when moving fast enough
+    // Rolling dust — throttled, handles both forward and backward rolling
     this._dustTimer -= dt
-    if (this._dustTimer <= 0 && this.speedRatio >= 0.28) {
-      const interval = THREE.MathUtils.lerp(0.10, 0.03, this.speedRatio / BOOST_SPEED_LIMIT)
+    const absSpeed = Math.abs(this.speedRatio)
+    if (this._dustTimer <= 0 && absSpeed >= 0.28) {
+      const interval = THREE.MathUtils.lerp(0.10, 0.03, absSpeed / BOOST_SPEED_LIMIT)
       this._dustTimer = interval
-      const footX = this.armadillo.position.x - moveX * 0.5
+      const footX = this.armadillo.position.x - moveX * 0.5  // behind current position
       const footY = this.armadillo.position.y - ARMADILLO_SIZE / 2
       const dustCount = this.boostHeld ? 3 : 2
+      // Particles drift opposite to direction of travel
+      const dustBias = this.speedRatio >= 0 ? Math.PI : 0
       this.particleSystem.spawn(footX, footY, 0x8d7355, dustCount, 55, {
         spreadAngle: Math.PI * 0.5,
-        biasAngle: Math.PI,          // drift backward/left
+        biasAngle: dustBias,
         sizeMin: 3,
         sizeMax: 8,
         lifeMin: 0.15,
@@ -3490,8 +3507,6 @@ class Game {
       </div>` : ''
 
     const isMoonClear = this.lastRating === 'MOON'
-    const gameOverTitle = isMoonClear ? '🌕 MOON REACHED!' : (this.lastRating === 'SPLASH' ? '🌊 SPLASH!' : 'GAME OVER')
-    const gameOverTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
 
     const isGameActive = !this.sm.is(State.TITLE)
     const heartsHTML = [1,2,3].map(i => {
@@ -3523,11 +3538,6 @@ class Game {
               <span class="lb-meta">${e.heightM}m high · ${e.distanceM}m far</span>
             </div>`
         }).join('')
-
-    // ── Rank summary for game-over card ───────────────────────────────────
-    const rankText = this.pendingScoreEntry
-      ? `<div><span>RANK</span><strong>#${this.pendingScoreEntry.rank}</strong></div>`
-      : ''
 
     // ── Active item effect indicators ─────────────────────────────────────
     const rocketPct = this.activeRocket
@@ -3636,34 +3646,40 @@ class Game {
         `
       })() : ''}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
-      ${this.sm.is(State.GAMEOVER) ? `
+      ${this.sm.is(State.GAMEOVER) ? (() => {
+        const ko = this._tutorialLang === 'ko'
+        const goTitle = isMoonClear
+          ? (ko ? '🌕 달 도달!' : '🌕 MOON REACHED!')
+          : (this.lastRating === 'SPLASH' ? (ko ? '🌊 바다에 빠졌어요!' : '🌊 SPLASH!') : (ko ? '게임 오버' : 'GAME OVER'))
+        const goTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
+        return `
         <div class="modal-layer">
           <div class="result-card">
-            <div class="${gameOverTitleClass}">${gameOverTitle}</div>
+            <div class="${goTitleClass}">${goTitle}</div>
             <div class="result-grid">
-              <div><span>SCORE</span><strong>${score}</strong></div>
-              <div><span>HEIGHT</span><strong>${heightM}m</strong></div>
-              <div><span>DIST</span><strong>${distanceM}m</strong></div>
-              <div><span>BEST</span><strong>${this.bestRecord.score}</strong></div>
-              ${rankText}
+              <div><span>${ko ? '점수' : 'SCORE'}</span><strong>${score}</strong></div>
+              <div><span>${ko ? '높이' : 'HEIGHT'}</span><strong>${heightM}m</strong></div>
+              <div><span>${ko ? '거리' : 'DIST'}</span><strong>${distanceM}m</strong></div>
+              <div><span>${ko ? '최고' : 'BEST'}</span><strong>${this.bestRecord.score}</strong></div>
+              ${this.pendingScoreEntry ? `<div><span>${ko ? '순위' : 'RANK'}</span><strong>#${this.pendingScoreEntry.rank}</strong></div>` : ''}
             </div>
             ${this.pendingScoreEntry
-              ? `<div class="score-register-done">✓ 등록 완료 / Registered  <span class="score-register-rank">#${this.pendingScoreEntry.rank}</span></div>`
+              ? `<div class="score-register-done">✓ ${ko ? '등록 완료' : 'Registered'} <span class="score-register-rank">#${this.pendingScoreEntry.rank}</span></div>`
               : `<div class="score-register">
-              <div class="score-register-label">리더보드 등록 / Register Score</div>
+              <div class="score-register-label">${ko ? '리더보드에 점수 등록' : 'Register to Leaderboard'}</div>
               <input class="name-input clickable" type="text" maxlength="16"
-                placeholder="닉네임 / Nickname"
+                placeholder="${ko ? '닉네임 입력' : 'Enter nickname'}"
                 value="${this.playerName || ''}"
                 autocomplete="off" spellcheck="false" />
               <button type="button" class="clickable primary-button" data-action="score-save">
-                점수 등록 / Register
+                ${ko ? '점수 등록' : 'Submit Score'}
               </button>
             </div>`}
-            <button type="button" class="clickable secondary-button" data-action="leaderboard">리더보드 보기 / Leaderboard</button>
-            <button type="button" class="clickable secondary-button" data-action="restart">다시 시작 / Retry</button>
+            <button type="button" class="clickable secondary-button" data-action="leaderboard">${ko ? '🏆 리더보드 보기' : '🏆 Leaderboard'}</button>
+            <button type="button" class="clickable secondary-button restart-btn" data-action="restart">${ko ? '🔄 다시 시작' : '🔄 Retry'}</button>
           </div>
-        </div>
-      ` : ''}
+        </div>`
+      })() : ''}
 
       ${this._respawnWaiting ? (() => {
         // Position hint directly above the armadillo in screen space
@@ -3671,9 +3687,10 @@ class Game {
           this.armadillo.position.x,
           this.armadillo.position.y + ARMADILLO_SIZE + 100,
         )
+        const ko = this._tutorialLang === 'ko'
         return `<div class="respawn-hint" style="left:${sc.x.toFixed(1)}px;top:${sc.y.toFixed(1)}px">
-          부활 준비 완료!<br>
-          <span style="font-size:13px;opacity:0.8">Space 또는 클릭으로 낙하 / Press Space or Click to drop</span>
+          ${ko ? '부활 준비 완료!' : 'Ready to drop!'}<br>
+          <span style="font-size:13px;opacity:0.8">${ko ? 'Space 또는 클릭으로 낙하' : 'Space or Click to fall'}</span>
         </div>`
       })() : ''}
 
@@ -3694,17 +3711,19 @@ class Game {
         </div>
       ` : ''}
 
-      ${this.showingLeaderboard ? `
+      ${this.showingLeaderboard ? (() => {
+        const ko = this._tutorialLang === 'ko'
+        return `
         <div class="leaderboard-layer">
           <div class="leaderboard-card">
-            <div class="leaderboard-title">🏆 LEADERBOARD</div>
+            <div class="leaderboard-title">🏆 ${ko ? '리더보드' : 'LEADERBOARD'}</div>
             <div class="leaderboard-list">${lbRowsHtml}</div>
             <div class="leaderboard-actions">
-              <button type="button" class="clickable secondary-button" data-action="leaderboard-close">닫기 / Close</button>
+              <button type="button" class="clickable secondary-button" data-action="leaderboard-close">${ko ? '닫기' : 'Close'}</button>
             </div>
           </div>
-        </div>
-      ` : ''}
+        </div>`
+      })() : ''}
 
       ${showBoostButton && !this.isPaused ? `
         <button type="button" class="clickable boost-button ${boostButtonActive ? 'is-pressed' : ''} ${boostButtonReady ? 'is-ready' : ''}" data-action="boost" aria-label="Boost">

@@ -130,26 +130,40 @@ button {
 .primary-button,
 .secondary-button {
   min-width: 84px;
-  height: 42px;
+  height: 44px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   color: #10131a;
+  font-size: 14px;
   font-weight: 900;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+  transition: transform 80ms ease, box-shadow 80ms ease, filter 80ms ease;
 }
 
 .primary-button {
-  background: #ffd54f;
+  background: linear-gradient(to bottom, #ffe082, #ffd54f);
 }
 
 .secondary-button {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.90);
+}
+
+.primary-button:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.32);
+}
+
+.secondary-button:hover {
+  filter: brightness(1.04);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
 .primary-button:active,
 .secondary-button:active {
-  transform: translateY(1px);
+  transform: translateY(2px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.20);
 }
 
 .action-hint {
@@ -461,35 +475,68 @@ button {
 
 .result-card {
   width: min(360px, calc(100vw - 40px));
-  padding: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 8px;
-  background: rgba(5, 7, 19, 0.92);
-  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.42);
+  padding: 26px 24px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(5, 7, 19, 0.94);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 }
 
 .result-title {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
   color: #ffd54f;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 1000;
+  letter-spacing: 0.01em;
 }
 
 .result-grid {
   display: grid;
-  gap: 8px;
-  margin-bottom: 16px;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.result-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.result-grid span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+}
+
+.result-grid strong {
+  font-size: 17px;
   font-weight: 900;
+  color: #fff;
 }
 
 .result-card .primary-button,
 .result-card .secondary-button {
   width: 100%;
   margin-bottom: 8px;
+  height: 46px;
+  font-size: 15px;
 }
 
 .result-card .secondary-button:last-child {
   margin-bottom: 0;
+}
+
+.result-card .restart-btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 /* moon reached clear */
