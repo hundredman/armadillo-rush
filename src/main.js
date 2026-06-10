@@ -1613,6 +1613,42 @@ class Game {
     this._playTone(220 + power * 260, 0.12, 0.08 + power * 0.06, 'square')
   }
 
+  // ── Shared jump/launch helpers ────────────────────────────────────────────
+  // Boost-aware angle/speed math common to every jump type.  Given the base
+  // launch angle and the horizontal speed to convert, it applies the Boost item's
+  // angle floor, speed recompute and forward multiplier IDENTICALLY everywhere.
+  // Each caller still adds its own vertical kick, floors and bonuses afterward, so
+  // the distinct feel of island / edge-fall / hill-crest jumps is preserved.
+  _computeBoostedLaunch(baseAngle, horizontalSpeed) {
+    const baseLaunchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(baseAngle), 0.35))
+    const hasBoost = !!this.activeBoost
+    const angle = hasBoost ? Math.max(baseAngle, BOOST_MIN_ANGLE) : baseAngle
+    const launchSpeed = hasBoost
+      ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(angle), 0.35))
+      : baseLaunchSpeed
+    const vx = Math.cos(angle) * launchSpeed * (hasBoost ? BOOST_VX_MULT : 1)
+    const sinComponent = Math.sin(angle) * launchSpeed
+    const boostVyBonus = hasBoost ? BOOST_VY_BONUS : 0
+    return { hasBoost, vx, sinComponent, boostVyBonus }
+  }
+
+  // Push a freshly computed launch velocity into both the JS and Planck state —
+  // identical in every jump path.  Callers handle their own follow-up afterward
+  // (motion sync for island/crest, grace-timer reset for edge-fall).
+  _commitLaunchVelocity(vx, vy) {
+    this.velocity.set(vx, vy)
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(vx, vy)
+  }
+
+  // Identical visual + audio feedback for a Boost-enhanced jump.
+  _boostLaunchFeedback() {
+    this.lastRating = 'BOOST!'
+    this._setArmadilloColor(0xffd600)
+    this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
+    this._playTone(1040, 0.10, 0.08, 'triangle')
+  }
+
   _launchFromIsland(source = 'auto') {
     if (!this.currentIsland) return
     if (!this.sm.transition(State.FALLING)) return
@@ -1638,41 +1674,25 @@ class Game {
     }
 
     const horizontalSpeed = this.speedRatio * MAX_SPEED
-    const launchSpeed = Math.min(
-      LAUNCH_SPEED,
-      horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
-    )
-    const hasBoost = !!this.activeBoost
-    // Boost stays active for its full duration — NOT consumed on use
-    // Boost: enhance arc angle and both velocity axes on every jump while active
-    const effectiveAngle = hasBoost ? Math.max(launchAngle, BOOST_MIN_ANGLE) : launchAngle
-    const effectiveLaunchSpeed = hasBoost
-      ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
-      : launchSpeed
-    const boostVyBonus = hasBoost ? BOOST_VY_BONUS : 0
-    const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
-    const vxBoosted = hasBoost ? vxRaw * BOOST_VX_MULT : vxRaw
+    // Boost stays active for its full duration — NOT consumed on use.
+    const { hasBoost, vx: launchVx, sinComponent, boostVyBonus } =
+      this._computeBoostedLaunch(launchAngle, horizontalSpeed)
     // Always exit moving rightward — a corner snap can produce zero or negative vx
     const minVx = Math.max(horizontalSpeed * 0.4, 120)
-    const vx = Math.max(vxBoosted, minVx)
+    const vx = Math.max(launchVx, minVx)
     // Ensure vy is always upward — corner geometry can produce a downward normal
-    const vyRaw = Math.sin(effectiveAngle) * effectiveLaunchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + boostVyBonus
+    const vyRaw = sinComponent + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + boostVyBonus
     const vy = Math.max(vyRaw, 200)
-    this.velocity.set(vx, vy)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
-    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vx, vy)
+    this._commitLaunchVelocity(vx, vy)
     this._syncMotionToArmadillo()
 
     this.currentIsland = null
     const isEdgeJump = edgeRatio > 0.5
     const strongBoost = inputStrength >= 0.45
     if (hasBoost) {
-      this.lastRating = 'BOOST!'
-      this._setArmadilloColor(0xffd600)
-      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
-      this._playTone(1040, 0.10, 0.08, 'triangle')
+      this._boostLaunchFeedback()
     } else {
       this.lastRating = isEdgeJump ? 'EDGE!' : strongBoost ? 'BOOST' : hadBoostInput ? 'HOP' : 'JUMP'
       this._setArmadilloColor(isEdgeJump ? 0xffffff : strongBoost ? 0xfff176 : hadBoostInput ? 0xffb74d : 0xff7043)
@@ -1693,25 +1713,15 @@ class Game {
     const speedBonus = source === 'keyboard' || source === 'pointer' ? BOOST_RELEASE_SPEED_KICK : 0
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
     const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
-    const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
-    const hasBoost = !!this.activeBoost
-    // Boost stays active — NOT consumed on use
-    const effectiveAngle = hasBoost ? Math.max(launchAngle, BOOST_MIN_ANGLE) : launchAngle
-    const effectiveLaunchSpeed = hasBoost
-      ? Math.min(LAUNCH_SPEED, Math.max(this.speedRatio * MAX_SPEED, 200) / Math.max(Math.cos(effectiveAngle), 0.35))
-      : launchSpeed
-    const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
-    const vx = hasBoost ? vxRaw * BOOST_VX_MULT : vxRaw
-    const vy = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + BOOST_RELEASE_VERTICAL_KICK + (hasBoost ? BOOST_VY_BONUS : 0)
-    this.velocity.set(vx, vy)
-    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vx, vy)
+    // Boost stays active — NOT consumed on use.  No minVx clamp here (edge-fall
+    // keeps its softer exit), and the full vertical kick always applies.
+    const { hasBoost, vx, sinComponent, boostVyBonus } =
+      this._computeBoostedLaunch(launchAngle, horizontalSpeed)
+    const vy = Math.abs(sinComponent) + BOOST_RELEASE_VERTICAL_KICK + boostVyBonus
+    this._commitLaunchVelocity(vx, vy)
     this._edgeFallGraceTimer = 0
     if (hasBoost) {
-      this.lastRating = 'BOOST!'
-      this._setArmadilloColor(0xffd600)
-      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
-      this._playTone(1040, 0.10, 0.08, 'triangle')
+      this._boostLaunchFeedback()
     } else {
       this.lastRating = 'EDGE!'
       this._setArmadilloColor(0xffffff)
@@ -1734,30 +1744,19 @@ class Game {
     // Launch angle: crest always sends the ball upward, biased slightly forward
     const launchAngle   = THREE.MathUtils.degToRad(52)        // steeper than edge jump — hill pops up
     const horizontalSpeed = this.speedRatio * MAX_SPEED
-    const launchSpeed   = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
-    const vx            = Math.cos(launchAngle) * launchSpeed
+    // Crest keeps its own speed-scaled vertical kick on top of the shared math.
     const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
-    const hasBoost     = !!this.activeBoost
-    // Boost stays active — NOT consumed on use
-    const effectiveAngle = hasBoost ? Math.max(launchAngle, BOOST_MIN_ANGLE) : launchAngle
-    const effectiveLaunchSpeed = hasBoost
-      ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
-      : launchSpeed
-    const vxFinal       = hasBoost ? Math.cos(effectiveAngle) * effectiveLaunchSpeed * BOOST_VX_MULT : vx
-    const vy            = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + crestKick + (hasBoost ? BOOST_VY_BONUS : 0)
+    const { hasBoost, vx, sinComponent, boostVyBonus } =
+      this._computeBoostedLaunch(launchAngle, horizontalSpeed)
+    const vy            = Math.abs(sinComponent) + crestKick + boostVyBonus
 
-    this.velocity.set(vxFinal, vy)
-    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
-    this.physics.setArmadilloVelocity(vxFinal, vy)
+    this._commitLaunchVelocity(vx, vy)
     this._syncMotionToArmadillo()
     this.currentIsland  = null
 
     const isHeld        = this.boostHeld
     if (hasBoost) {
-      this.lastRating = 'BOOST!'
-      this._setArmadilloColor(0xffd600)
-      this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
-      this._playTone(1040, 0.10, 0.08, 'triangle')
+      this._boostLaunchFeedback()
     } else {
       this.lastRating     = isHeld ? 'CREST!' : 'CREST'
       this._setArmadilloColor(isHeld ? 0xfff176 : 0xaed581)
