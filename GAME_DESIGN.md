@@ -165,7 +165,7 @@ Fires immediately on collect. If ROLLING, transitions to FALLING first. While ac
 
 ### Boost effect
 
-`speedRatio += SPRING_SPEED_BONUS` (0.28) immediately on collect. While `activeSpring` is live and the armadillo is ROLLING, `speedRatio += SPRING_PASSIVE_SPEED × dt` (0.22/s) passively each frame. On every jump (`_launchFromIsland`, `_launchFromFallingEdge`, `_launchFromHillCrest`), `SPRING_VY_BONUS` (320 px/s) is added to vy — the effect is **not consumed**; it repeats on every jump until the 10 s timer expires.
+`speedRatio += BOOST_SPEED_BONUS` (0.28) immediately on collect. While `activeBoost` is live and the armadillo is ROLLING, `speedRatio += BOOST_PASSIVE_SPEED × dt` (0.22/s) passively each frame. On every jump (`_launchFromIsland`, `_launchFromFallingEdge`, `_launchFromHillCrest`), `BOOST_VY_BONUS` (320 px/s) is added to vy — the effect is **not consumed**; it repeats on every jump until the 10 s timer expires.
 
 ### HUD indicators
 

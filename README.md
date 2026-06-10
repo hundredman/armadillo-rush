@@ -34,11 +34,11 @@ Three collectible pickups float above terrain islands on a gentle bob animation:
 
 | Item | Visual | Effect |
 | --- | --- | --- |
-| **Rocket** | Orange rocket tilted 45° | Immediately launches armadillo upward-forward at 45° (~940 px/s) for 2.2 s; gravity ignored during thrust |
-| **Spring** | Cyan arrow with coil | Instant +speed bonus; next jump gets +420 px/s vertical kick; consumed on that jump |
-| **Heart** | Red heart | Restore one life (max 3) |
+| **Rocket** | Orange pixel-art rocket tilted 25° | Immediately launches armadillo upward-forward at 25° (~860 px/s) for 2.0 s; gravity ignored during thrust |
+| **Boost** | Yellow pixel-art lightning bolt | +0.28 speedRatio on collect; +0.22/s passive while rolling; +320 px/s vertical kick on every jump (repeats, not consumed) for 10 s |
+| **Heart** | Red pixel-art heart | Restore one life (max 3) |
 
-Active Rocket and Spring effects show as color-coded bars inside the stats panel (bottom of the panel, below stats).
+Active Rocket and Boost effects show as color-coded bars in a standalone panel below the stats HUD.
 
 ## Input
 
@@ -144,7 +144,7 @@ src/
 │   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
 │   │                     #   105-island static layout + procedural continuation,
 │   │                     #   damage system (damageTerrain, getTerrainTopY)
-│   ├── items.js          # Rocket / Spring / Heart: spawn table, meshes,
+│   ├── items.js          # Rocket / Boost / Heart: spawn table, meshes,
 │   │                     #   collection, animation, effect constants
 │   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
 │   ├── physics.js        # Planck.js world: terrain fixtures, gravity, flushContacts

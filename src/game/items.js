@@ -12,11 +12,11 @@ import * as THREE from 'three'
  *
  * Active effect state stored on the Game instance:
  *   game.activeRocket  { timeLeft }  — rocket thrust active; velocity overridden each frame
- *   game.activeSpring  { timeLeft }  — boost effect active (speed + jump enhanced for duration)
+ *   game.activeBoost  { timeLeft }  — boost effect active (speed + jump enhanced for duration)
  */
 
 export const ITEM_ROCKET_DURATION  = 2.0  // seconds of sustained rocket thrust (reduced from 2.2)
-export const ITEM_SPRING_DURATION  = 10.0 // seconds the boost is active
+export const ITEM_BOOST_DURATION  = 10.0 // seconds the boost is active
 export const ITEM_COLLECT_RADIUS   = 38   // px — collection trigger distance
 
 // Rocket: thrust velocity (px/s) applied every frame while active, at 25° (flatter — more forward)
@@ -26,11 +26,11 @@ export const ROCKET_VX             = Math.cos(ROCKET_ANGLE) * ROCKET_SPEED  // �
 export const ROCKET_VY             = Math.sin(ROCKET_ANGLE) * ROCKET_SPEED  // ≈ 364 px/s
 
 // Boost: applied on every jump while active (not consumed on use — lasts full duration)
-export const SPRING_VY_BONUS       = 320  // per-jump vertical bonus (repeating; was 680 one-time)
-export const SPRING_VX_MULT        = 1.15 // per-jump forward multiplier (was 1.22)
-export const SPRING_MIN_ANGLE      = Math.PI / 180 * 40  // 40° min launch arc (was 50°)
-export const SPRING_SPEED_BONUS    = 0.28 // immediate speedRatio on collect (was 0.45)
-export const SPRING_PASSIVE_SPEED  = 0.22 // speedRatio/s passive gain while rolling with boost
+export const BOOST_VY_BONUS       = 320  // per-jump vertical bonus (repeating; was 680 one-time)
+export const BOOST_VX_MULT        = 1.15 // per-jump forward multiplier (was 1.22)
+export const BOOST_MIN_ANGLE      = Math.PI / 180 * 40  // 40° min launch arc (was 50°)
+export const BOOST_SPEED_BONUS    = 0.28 // immediate speedRatio on collect (was 0.45)
+export const BOOST_PASSIVE_SPEED  = 0.22 // speedRatio/s passive gain while rolling with boost
 
 // ─── Item spawn table ────────────────────────────────────────────────────────
 // Each entry: { islandIndex, offsetX, offsetY, type }

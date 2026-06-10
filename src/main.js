@@ -29,15 +29,15 @@ import {
 import {
   ITEM_SPAWN_TABLE,
   ITEM_ROCKET_DURATION,
-  ITEM_SPRING_DURATION,
+  ITEM_BOOST_DURATION,
   ITEM_COLLECT_RADIUS,
   ROCKET_VX,
   ROCKET_VY,
-  SPRING_VY_BONUS,
-  SPRING_VX_MULT,
-  SPRING_MIN_ANGLE,
-  SPRING_SPEED_BONUS,
-  SPRING_PASSIVE_SPEED,
+  BOOST_VY_BONUS,
+  BOOST_VX_MULT,
+  BOOST_MIN_ANGLE,
+  BOOST_SPEED_BONUS,
+  BOOST_PASSIVE_SPEED,
   createItem,
   getProceduralItemSpec,
   updateItems,
@@ -228,7 +228,7 @@ class Game {
     // Item system
     this.items = []            // all spawned item objects
     this.activeRocket = null   // { timeLeft } or null — overrides velocity each frame
-    this.activeSpring = null   // { timeLeft } or null — bonus on next jump
+    this.activeBoost = null   // { timeLeft } or null — bonus on next jump
 
     // landing ripple effect pool (max 4 simultaneous)
     this.ripples = []
@@ -598,283 +598,6 @@ class Game {
       this.renderer.add(this.slingGuide)
       return
     }
-
-    // Wooden slingshot: round fork + dark rubber band + leather pocket.
-    const S = SLING_POS
-
-    const wood    = 0x6d4c41
-    const woodDk  = 0x3e2723
-    const woodMid = 0x8a5a3f
-    const woodHi  = 0xb9825f
-
-    const trunkBase = new THREE.Vector2(S.x, S.y - 74)
-    const forkBase = new THREE.Vector2(S.x, S.y + 4)
-    const tipL = new THREE.Vector2(S.x - 44, S.y + 73)
-    const tipR = new THREE.Vector2(S.x + 44, S.y + 72)
-
-    const makeCurvedBranch = (points, widths, z = -0.06) => {
-      const left = []
-      const right = []
-      for (let i = 0; i < points.length; i++) {
-        const p = points[i]
-        const prev = points[Math.max(0, i - 1)]
-        const next = points[Math.min(points.length - 1, i + 1)]
-        const dx = next.x - prev.x
-        const dy = next.y - prev.y
-        const len = Math.max(1, Math.hypot(dx, dy))
-        const nx = -dy / len
-        const ny = dx / len
-        const w = widths[i]
-        left.push(new THREE.Vector2(p.x + nx * w, p.y + ny * w))
-        right.push(new THREE.Vector2(p.x - nx * w, p.y - ny * w))
-      }
-
-      const shape = new THREE.Shape()
-      shape.moveTo(left[0].x, left[0].y)
-      for (let i = 1; i < left.length; i++) {
-        const prev = left[i - 1]
-        const cur = left[i]
-        shape.quadraticCurveTo(prev.x, prev.y, cur.x, cur.y)
-      }
-      for (let i = right.length - 1; i >= 0; i--) {
-        const cur = right[i]
-        const prev = right[Math.min(right.length - 1, i + 1)]
-        shape.quadraticCurveTo(prev.x, prev.y, cur.x, cur.y)
-      }
-      shape.closePath()
-
-      const core = new THREE.Mesh(
-        new THREE.ShapeGeometry(shape, 18),
-        new THREE.MeshBasicMaterial({ color: wood, side: THREE.DoubleSide }),
-      )
-      core.position.z = z
-
-      const shadow = new THREE.Mesh(
-        new THREE.ShapeGeometry(shape, 18),
-        new THREE.MeshBasicMaterial({ color: woodDk, transparent: true, opacity: 0.88, side: THREE.DoubleSide }),
-      )
-      shadow.position.set(3, -3, z - 0.014)
-
-      const highlightPts = points.map((p, i) => {
-        const prev = points[Math.max(0, i - 1)]
-        const next = points[Math.min(points.length - 1, i + 1)]
-        const dx = next.x - prev.x
-        const dy = next.y - prev.y
-        const len = Math.max(1, Math.hypot(dx, dy))
-        return new THREE.Vector3(p.x - dy / len * widths[i] * 0.36, p.y + dx / len * widths[i] * 0.36, z + 0.018)
-      })
-      const highlight = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(highlightPts),
-        new THREE.LineBasicMaterial({ color: woodHi, transparent: true, opacity: 0.48 }),
-      )
-
-      const group = new THREE.Group()
-      group.add(shadow, core, highlight)
-      return group
-    }
-
-    const trunk = makeCurvedBranch([
-      trunkBase,
-      new THREE.Vector2(S.x - 2, S.y - 42),
-      forkBase,
-    ], [13, 12, 15], -0.075)
-    const armL = makeCurvedBranch([
-      forkBase,
-      new THREE.Vector2(S.x - 24, S.y + 28),
-      tipL,
-    ], [13, 12, 9], -0.06)
-    const armR = makeCurvedBranch([
-      forkBase,
-      new THREE.Vector2(S.x + 24, S.y + 27),
-      tipR,
-    ], [13, 12, 9], -0.055)
-    const footShape = new THREE.Shape()
-    footShape.moveTo(S.x - 28, S.y - 84)
-    footShape.quadraticCurveTo(S.x, S.y - 94, S.x + 31, S.y - 84)
-    footShape.quadraticCurveTo(S.x + 20, S.y - 73, S.x - 22, S.y - 75)
-    footShape.quadraticCurveTo(S.x - 31, S.y - 78, S.x - 28, S.y - 84)
-    const foot = new THREE.Mesh(
-      new THREE.ShapeGeometry(footShape, 12),
-      new THREE.MeshBasicMaterial({ color: woodDk, side: THREE.DoubleSide }),
-    )
-    foot.position.z = -0.095
-
-    const crotch = new THREE.Mesh(
-      new THREE.CircleGeometry(15, 32),
-      new THREE.MeshBasicMaterial({ color: woodMid }),
-    )
-    crotch.scale.set(1.0, 0.86, 1)
-    crotch.position.set(S.x, S.y + 4, -0.034)
-
-    for (const knot of [
-      { x: S.x - 6, y: S.y - 36, s: 4.2 },
-      { x: S.x + 16, y: S.y + 26, s: 3.2 },
-      { x: S.x - 25, y: S.y + 42, s: 3.0 },
-    ]) {
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(knot.s * 0.45, knot.s, 18),
-        new THREE.MeshBasicMaterial({ color: woodDk }),
-      )
-      ring.scale.y = 0.72
-      ring.rotation.z = 0.35
-      ring.position.set(knot.x, knot.y, -0.018)
-      this.renderer.add(ring)
-    }
-
-    for (const tip of [tipL, tipR]) {
-      const cap = new THREE.Mesh(
-        new THREE.CircleGeometry(9.5, 24),
-        new THREE.MeshBasicMaterial({ color: woodDk }),
-      )
-      cap.position.set(tip.x, tip.y, -0.02)
-      const inner = new THREE.Mesh(
-        new THREE.CircleGeometry(5.7, 20),
-        new THREE.MeshBasicMaterial({ color: woodHi }),
-      )
-      inner.position.set(tip.x - 1.5, tip.y + 1.2, -0.01)
-      this.renderer.add(cap)
-      this.renderer.add(inner)
-    }
-
-    const mkBandGeom = () => {
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Array(12).fill(0), 3))
-      geometry.setIndex([0, 1, 2, 0, 2, 3])
-      return geometry
-    }
-    const bandMat = new THREE.MeshBasicMaterial({
-      color: 0x2a1712,
-      transparent: true,
-      opacity: 0.96,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
-    this.slingBandL = new THREE.Mesh(mkBandGeom(), bandMat.clone())
-    this.slingBandR = new THREE.Mesh(mkBandGeom(), bandMat.clone())
-    const bandHiMat = new THREE.MeshBasicMaterial({
-      color: 0x5d4037,
-      transparent: true,
-      opacity: 0.82,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    })
-    this.slingBandHiL = new THREE.Mesh(mkBandGeom(), bandHiMat.clone())
-    this.slingBandHiR = new THREE.Mesh(mkBandGeom(), bandHiMat.clone())
-
-    // pocket
-    const pouchShape = new THREE.Shape()
-    pouchShape.moveTo(-20, 2)
-    pouchShape.bezierCurveTo(-14, 13, 14, 13, 20, 2)
-    pouchShape.bezierCurveTo(16, -12, -15, -12, -20, 2)
-    pouchShape.closePath()
-    this.slingPouch = new THREE.Mesh(
-      new THREE.ShapeGeometry(pouchShape, 18),
-      new THREE.MeshBasicMaterial({ color: 0x5a3525 }),
-    )
-    const pouchRim = new THREE.Mesh(
-      new THREE.ShapeGeometry(pouchShape, 18),
-      new THREE.MeshBasicMaterial({
-        color: 0x2a1712,
-        transparent: true,
-        opacity: 0.32,
-        side: THREE.DoubleSide,
-      }),
-    )
-    pouchRim.scale.set(1.08, 1.12, 1)
-    pouchRim.position.z = -0.006
-    const pouchHi = new THREE.Mesh(
-      new THREE.CircleGeometry(3.8, 18),
-      new THREE.MeshBasicMaterial({ color: 0xb9825f, transparent: true, opacity: 0.5 }),
-    )
-    pouchHi.scale.set(1.8, 0.52, 1)
-    pouchHi.position.set(-5, 4, 0.012)
-    const pouchShade = new THREE.Mesh(
-      new THREE.CircleGeometry(7.4, 22),
-      new THREE.MeshBasicMaterial({ color: 0x2a1712, transparent: true, opacity: 0.26 }),
-    )
-    pouchShade.scale.set(2.3, 0.48, 1)
-    pouchShade.position.set(3, -5, 0.014)
-    const pouchGripL = new THREE.Mesh(
-      new THREE.RingGeometry(3.4, 5.1, 18),
-      new THREE.MeshBasicMaterial({ color: 0x2a1712, transparent: true, opacity: 0.72, side: THREE.DoubleSide }),
-    )
-    pouchGripL.scale.set(1.1, 0.62, 1)
-    pouchGripL.position.set(-19.2, 2.2, 0.02)
-    const pouchGripR = pouchGripL.clone()
-    pouchGripR.position.set(19.2, 2.2, 0.02)
-    const pouchStitch = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-13, 1.5, 0.018),
-        new THREE.Vector3(-5, -1.5, 0.018),
-        new THREE.Vector3(5, -1.5, 0.018),
-        new THREE.Vector3(13, 1.5, 0.018),
-      ]),
-      new THREE.LineBasicMaterial({ color: 0xd1a06e, transparent: true, opacity: 0.55 }),
-    )
-    this.slingPouchGroup = new THREE.Group()
-    this.slingPouchGroup.add(pouchRim, this.slingPouch, pouchShade, pouchHi, pouchGripL, pouchGripR, pouchStitch)
-
-    const wrapMat = new THREE.MeshBasicMaterial({ color: 0x2a1712, transparent: true, opacity: 0.86, side: THREE.DoubleSide })
-    const wrapHiMat = new THREE.MeshBasicMaterial({ color: 0xd1a06e, transparent: true, opacity: 0.34, side: THREE.DoubleSide })
-    const makeWrap = (x, y, rot, scaleX = 1) => {
-      const wrap = new THREE.Group()
-      for (let i = 0; i < 3; i++) {
-        const strap = new THREE.Mesh(new THREE.BoxGeometry(33, 4.4, 1), wrapMat)
-        strap.position.set(x, y + (i - 1) * 5.3, -0.002 + i * 0.002)
-        strap.rotation.z = rot
-        strap.scale.x = scaleX
-        wrap.add(strap)
-        const hi = new THREE.Mesh(new THREE.BoxGeometry(20, 1.1, 1), wrapHiMat)
-        hi.position.set(x - 2, y + (i - 1) * 5.3 + 1.2, 0.004 + i * 0.002)
-        hi.rotation.z = rot
-        hi.scale.x = scaleX
-        wrap.add(hi)
-      }
-      return wrap
-    }
-    const forkWrap = makeWrap(S.x, S.y + 11, -0.08, 1.08)
-    const leftWrap = makeWrap(S.x - 37, S.y + 62, 0.78, 0.72)
-    const rightWrap = makeWrap(S.x + 37, S.y + 61, -0.76, 0.72)
-
-    const grainMat = new THREE.LineBasicMaterial({ color: 0x2f1d17, transparent: true, opacity: 0.26 })
-    const makeGrain = (points, z = -0.01) => new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(points.map(([x, y]) => new THREE.Vector3(x, y, z))),
-      grainMat,
-    )
-    const grains = [
-      makeGrain([[S.x - 5, S.y - 70], [S.x - 7, S.y - 38], [S.x - 3, S.y - 7], [S.x - 9, S.y + 12]]),
-      makeGrain([[S.x + 6, S.y - 64], [S.x + 4, S.y - 30], [S.x + 8, S.y - 2], [S.x + 5, S.y + 18]]),
-      makeGrain([[S.x - 13, S.y + 12], [S.x - 25, S.y + 32], [S.x - 36, S.y + 61]]),
-      makeGrain([[S.x + 13, S.y + 12], [S.x + 25, S.y + 31], [S.x + 38, S.y + 60]]),
-    ]
-
-    this.renderer.add(foot)
-    this.renderer.add(trunk)
-    this.renderer.add(armL)
-    this.renderer.add(armR)
-    this.renderer.add(crotch)
-    this.renderer.add(forkWrap)
-    this.renderer.add(leftWrap)
-    this.renderer.add(rightWrap)
-    for (const grain of grains) this.renderer.add(grain)
-    this.renderer.add(this.slingBandL)
-    this.renderer.add(this.slingBandR)
-    this.renderer.add(this.slingBandHiL)
-    this.renderer.add(this.slingBandHiR)
-    this.renderer.add(this.slingPouchGroup)
-
-    this._forkTipU = { x: tipL.x, y: tipL.y }
-    this._forkTipD = { x: tipR.x, y: tipR.y }
-
-    // launch guide dots (shown while dragging)
-    const dottedMat = new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 8, gapSize: 6, opacity: 0.5, transparent: true })
-    const dottedGeom = new THREE.BufferGeometry().setFromPoints(
-      Array.from({ length: 16 }, (_, i) => new THREE.Vector3(0, 0, 0)),
-    )
-    this.slingGuide = new THREE.Line(dottedGeom, dottedMat)
-    this.slingGuide.visible = false
-    this.slingGuide.computeLineDistances()
-    this.renderer.add(this.slingGuide)
   }
 
   _getSlingPocketPosition() {
@@ -1279,151 +1002,6 @@ class Game {
       this.armadilloShellBaseMat = sprite.material
       return group
     }
-
-    const group = new THREE.Group()
-
-    const shellMat = new THREE.MeshBasicMaterial({ color: 0x9b745d })
-    const shellDarkMat = new THREE.MeshBasicMaterial({ color: 0x3a241d })
-    const shellPlateMat = new THREE.MeshBasicMaterial({ color: 0x6f4d3d })
-    const bellyMat = new THREE.MeshBasicMaterial({ color: 0xd6b28f })
-    const faceMat = new THREE.MeshBasicMaterial({ color: 0xb98a6d })
-    const faceLightMat = new THREE.MeshBasicMaterial({ color: 0xd0a184 })
-    const tintMat = new THREE.MeshBasicMaterial({
-      color: 0xff8a50,
-      transparent: true,
-      opacity: 0.24,
-      side: THREE.DoubleSide,
-    })
-
-    const shell = new THREE.Mesh(new THREE.CircleGeometry(17, 64), shellMat)
-    shell.scale.set(1, 1, 1)
-    shell.position.set(0, 0, 0.07)
-
-    const belly = new THREE.Mesh(new THREE.CircleGeometry(9.5, 36), bellyMat)
-    belly.scale.set(0.92, 0.52, 1)
-    belly.rotation.z = -0.72
-    belly.position.set(3.8, -6.8, 0.08)
-
-    const rim = new THREE.Mesh(
-      new THREE.RingGeometry(15.1, 17.2, 56),
-      new THREE.MeshBasicMaterial({
-        color: 0x3e2723,
-        transparent: true,
-        opacity: 0.55,
-        side: THREE.DoubleSide,
-      }),
-    )
-    rim.scale.set(1, 1, 1)
-    rim.position.z = 0.09
-
-    const tint = new THREE.Mesh(new THREE.RingGeometry(12.8, 17.4, 56), tintMat)
-    tint.scale.set(1, 1, 1)
-    tint.position.z = 0.1
-
-    const bands = new THREE.Group()
-    for (let i = 0; i < 5; i++) {
-      const plate = new THREE.Mesh(
-        new THREE.RingGeometry(7.8 + i * 1.65, 8.8 + i * 1.65, 38, 1, 2.46, 1.58),
-        i % 2 === 0 ? shellDarkMat : shellPlateMat,
-      )
-      plate.position.set(-2.5 + i * 0.18, -0.4, 0.112 + i * 0.002)
-      plate.rotation.z = -0.66 + i * 0.12
-      plate.scale.set(1.02, 0.93, 1)
-      bands.add(plate)
-    }
-
-    for (const [x, y, s] of [[-6.5, 7.5, 2.2], [-1.0, 9.2, 1.8], [4.6, 6.6, 2.0], [-8.4, -3.8, 1.7]]) {
-      const scute = new THREE.Mesh(
-        new THREE.CircleGeometry(s, 14),
-        new THREE.MeshBasicMaterial({ color: 0xc29a7d, transparent: true, opacity: 0.72 }),
-      )
-      scute.position.set(x, y, 0.118)
-      bands.add(scute)
-    }
-
-    const head = new THREE.Mesh(new THREE.CircleGeometry(6.6, 32), faceMat)
-    head.scale.set(1.02, 0.78, 1)
-    head.position.set(10.8, -2.5, 0.12)
-    head.rotation.z = -0.45
-
-    const snout = new THREE.Mesh(new THREE.CircleGeometry(4.6, 24), faceMat)
-    snout.scale.set(1.18, 0.48, 1)
-    snout.position.set(15.2, -5.1, 0.13)
-    snout.rotation.z = -0.28
-
-    const cheek = new THREE.Mesh(new THREE.CircleGeometry(3.1, 18), faceLightMat)
-    cheek.scale.set(1.18, 0.62, 1)
-    cheek.position.set(12.2, -5.2, 0.145)
-    cheek.rotation.z = -0.32
-
-    const nose = new THREE.Mesh(new THREE.CircleGeometry(1.5, 16), shellDarkMat)
-    nose.position.set(18.8, -6.3, 0.15)
-
-    const ear = new THREE.Mesh(new THREE.CircleGeometry(2.7, 16), shellDarkMat)
-    ear.scale.set(0.82, 1.05, 1)
-    ear.position.set(8.6, 2.8, 0.12)
-    ear.rotation.z = -0.2
-
-    const eye = new THREE.Mesh(new THREE.CircleGeometry(1.15, 12), new THREE.MeshBasicMaterial({ color: 0x111111 }))
-    eye.position.set(13.4, -1.4, 0.16)
-    const eyeSpark = new THREE.Mesh(new THREE.CircleGeometry(0.35, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }))
-    eyeSpark.position.set(13.75, -1.05, 0.17)
-
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(10, 2.2, 1), shellDarkMat)
-    tail.position.set(-13.5, 8.8, 0.08)
-    tail.rotation.z = 0.58
-
-    const tailTip = new THREE.Mesh(new THREE.CircleGeometry(2.2, 12), shellDarkMat)
-    tailTip.position.set(-17.5, 11.2, 0.09)
-
-    const footMat = new THREE.MeshBasicMaterial({ color: 0x33221c })
-    const footA = new THREE.Mesh(new THREE.CircleGeometry(2.8, 16), footMat)
-    footA.scale.set(1.45, 0.48, 1)
-    footA.position.set(-3.8, -14.1, 0.1)
-    const footB = footA.clone()
-    footB.position.set(7.2, -12.8, 0.1)
-    const clawMat = new THREE.MeshBasicMaterial({ color: 0xf5e1c4 })
-    const clawA = new THREE.Mesh(new THREE.CircleGeometry(0.9, 8), clawMat)
-    clawA.scale.set(1.0, 0.48, 1)
-    clawA.position.set(-0.5, -14.5, 0.13)
-    const clawB = clawA.clone()
-    clawB.position.set(10.2, -13.2, 0.13)
-
-    const shine = new THREE.Mesh(
-      new THREE.CircleGeometry(3.8, 24),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28 }),
-    )
-    shine.scale.set(1.35, 0.72, 1)
-    shine.position.set(-6.6, 6.6, 0.13)
-
-    group.add(
-      shadow,
-      tail,
-      tailTip,
-      shell,
-      belly,
-      bands,
-      rim,
-      tint,
-      head,
-      snout,
-      cheek,
-      ear,
-      eye,
-      eyeSpark,
-      nose,
-      footA,
-      footB,
-      clawA,
-      clawB,
-      shine,
-    )
-    this.armadilloBody = shell
-    this.armadilloShell = shell
-    this.armadilloBodyMat = tint.material
-    this.armadilloShellMat = tint.material
-    this.armadilloShellBaseMat = shell.material
-    return group
   }
 
   _setArmadilloColor(color) {
@@ -1858,7 +1436,7 @@ class Game {
     this.lives = 3
     this.preBoostSource = null
     this.activeRocket = null
-    this.activeSpring = null
+    this.activeBoost = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1902,7 +1480,7 @@ class Game {
     this.lives = 3
     this.preBoostSource = null
     this.activeRocket = null
-    this.activeSpring = null
+    this.activeBoost = null
     this._respawnWaiting = false
     this._respawnPos = null
     this.armadillo.visible = true
@@ -1960,7 +1538,7 @@ class Game {
         -islandHalfW, islandHalfW,
       )
 
-      // Occasionally swap Spring↔Rocket within the same section (~30% chance)
+      // Occasionally swap Boost↔Rocket within the same section (~30% chance)
       // Hearts are never swapped — they're fixed milestone rewards.
       let type = entry.type
       if (type !== 'heart' && Math.random() < 0.30) {
@@ -2064,21 +1642,21 @@ class Game {
       LAUNCH_SPEED,
       horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35),
     )
-    const hasSpring = !!this.activeSpring
+    const hasBoost = !!this.activeBoost
     // Boost stays active for its full duration — NOT consumed on use
     // Boost: enhance arc angle and both velocity axes on every jump while active
-    const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
-    const effectiveLaunchSpeed = hasSpring
+    const effectiveAngle = hasBoost ? Math.max(launchAngle, BOOST_MIN_ANGLE) : launchAngle
+    const effectiveLaunchSpeed = hasBoost
       ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
       : launchSpeed
-    const springVyBonus = hasSpring ? SPRING_VY_BONUS : 0
+    const boostVyBonus = hasBoost ? BOOST_VY_BONUS : 0
     const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
-    const vxBoosted = hasSpring ? vxRaw * SPRING_VX_MULT : vxRaw
+    const vxBoosted = hasBoost ? vxRaw * BOOST_VX_MULT : vxRaw
     // Always exit moving rightward — a corner snap can produce zero or negative vx
     const minVx = Math.max(horizontalSpeed * 0.4, 120)
     const vx = Math.max(vxBoosted, minVx)
     // Ensure vy is always upward — corner geometry can produce a downward normal
-    const vyRaw = Math.sin(effectiveAngle) * effectiveLaunchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + springVyBonus
+    const vyRaw = Math.sin(effectiveAngle) * effectiveLaunchSpeed + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + boostVyBonus
     const vy = Math.max(vyRaw, 200)
     this.velocity.set(vx, vy)
 
@@ -2090,7 +1668,7 @@ class Game {
     this.currentIsland = null
     const isEdgeJump = edgeRatio > 0.5
     const strongBoost = inputStrength >= 0.45
-    if (hasSpring) {
+    if (hasBoost) {
       this.lastRating = 'BOOST!'
       this._setArmadilloColor(0xffd600)
       this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
@@ -2116,20 +1694,20 @@ class Game {
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + speedBonus)
     const horizontalSpeed = Math.max(this.speedRatio * MAX_SPEED, 200)  // ensure minimum forward speed
     const launchSpeed = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
-    const hasSpring = !!this.activeSpring
+    const hasBoost = !!this.activeBoost
     // Boost stays active — NOT consumed on use
-    const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
-    const effectiveLaunchSpeed = hasSpring
+    const effectiveAngle = hasBoost ? Math.max(launchAngle, BOOST_MIN_ANGLE) : launchAngle
+    const effectiveLaunchSpeed = hasBoost
       ? Math.min(LAUNCH_SPEED, Math.max(this.speedRatio * MAX_SPEED, 200) / Math.max(Math.cos(effectiveAngle), 0.35))
       : launchSpeed
     const vxRaw = Math.cos(effectiveAngle) * effectiveLaunchSpeed
-    const vx = hasSpring ? vxRaw * SPRING_VX_MULT : vxRaw
-    const vy = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + BOOST_RELEASE_VERTICAL_KICK + (hasSpring ? SPRING_VY_BONUS : 0)
+    const vx = hasBoost ? vxRaw * BOOST_VX_MULT : vxRaw
+    const vy = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + BOOST_RELEASE_VERTICAL_KICK + (hasBoost ? BOOST_VY_BONUS : 0)
     this.velocity.set(vx, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
     this.physics.setArmadilloVelocity(vx, vy)
     this._edgeFallGraceTimer = 0
-    if (hasSpring) {
+    if (hasBoost) {
       this.lastRating = 'BOOST!'
       this._setArmadilloColor(0xffd600)
       this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
@@ -2159,14 +1737,14 @@ class Game {
     const launchSpeed   = Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(launchAngle), 0.35))
     const vx            = Math.cos(launchAngle) * launchSpeed
     const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
-    const hasSpring     = !!this.activeSpring
+    const hasBoost     = !!this.activeBoost
     // Boost stays active — NOT consumed on use
-    const effectiveAngle = hasSpring ? Math.max(launchAngle, SPRING_MIN_ANGLE) : launchAngle
-    const effectiveLaunchSpeed = hasSpring
+    const effectiveAngle = hasBoost ? Math.max(launchAngle, BOOST_MIN_ANGLE) : launchAngle
+    const effectiveLaunchSpeed = hasBoost
       ? Math.min(LAUNCH_SPEED, horizontalSpeed / Math.max(Math.cos(effectiveAngle), 0.35))
       : launchSpeed
-    const vxFinal       = hasSpring ? Math.cos(effectiveAngle) * effectiveLaunchSpeed * SPRING_VX_MULT : vx
-    const vy            = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + crestKick + (hasSpring ? SPRING_VY_BONUS : 0)
+    const vxFinal       = hasBoost ? Math.cos(effectiveAngle) * effectiveLaunchSpeed * BOOST_VX_MULT : vx
+    const vy            = Math.abs(Math.sin(effectiveAngle) * effectiveLaunchSpeed) + crestKick + (hasBoost ? BOOST_VY_BONUS : 0)
 
     this.velocity.set(vxFinal, vy)
     this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
@@ -2175,7 +1753,7 @@ class Game {
     this.currentIsland  = null
 
     const isHeld        = this.boostHeld
-    if (hasSpring) {
+    if (hasBoost) {
       this.lastRating = 'BOOST!'
       this._setArmadilloColor(0xffd600)
       this._spawnParticles(this.armadillo.position.x, this.armadillo.position.y, 0xffd600, 20, 320)
@@ -3215,14 +2793,14 @@ class Game {
     updateItems(this.items, dt, this.time)
 
     // Tick boost timer
-    if (this.activeSpring) {
-      this.activeSpring.timeLeft -= dt
-      if (this.activeSpring.timeLeft <= 0) {
-        this.activeSpring = null
+    if (this.activeBoost) {
+      this.activeBoost.timeLeft -= dt
+      if (this.activeBoost.timeLeft <= 0) {
+        this.activeBoost = null
       } else if (this.sm.is(State.ROLLING)) {
         // Passive speed acceleration while rolling with boost active —
         // the armadillo visibly picks up speed, making the next jump stronger.
-        this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + SPRING_PASSIVE_SPEED * dt)
+        this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + BOOST_PASSIVE_SPEED * dt)
       }
     }
     // Rocket timer is ticked inside _updateFlight so it can drive velocity there.
@@ -3267,8 +2845,8 @@ class Game {
       this._playTone(280, 0.18, 0.10, 'sawtooth')
       setTimeout(() => this._playTone(420, 0.14, 0.10, 'sawtooth'), 100)
     } else if (item.type === 'boost') {
-      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + SPRING_SPEED_BONUS)
-      this.activeSpring = { timeLeft: ITEM_SPRING_DURATION }
+      this.speedRatio = Math.min(BOOST_SPEED_LIMIT, this.speedRatio + BOOST_SPEED_BONUS)
+      this.activeBoost = { timeLeft: ITEM_BOOST_DURATION }
       this.lastRating = 'BOOST!'
       this._setArmadilloColor(0xffd600)
       this.particleSystem.spawnCollectBoost(item.x, item.y)
@@ -3683,8 +3261,8 @@ class Game {
     const rocketPct = this.activeRocket
       ? Math.ceil((this.activeRocket.timeLeft / ITEM_ROCKET_DURATION) * 100)
       : 0
-    const springPct = this.activeSpring
-      ? Math.ceil((this.activeSpring.timeLeft / ITEM_SPRING_DURATION) * 100)
+    const boostPct = this.activeBoost
+      ? Math.ceil((this.activeBoost.timeLeft / ITEM_BOOST_DURATION) * 100)
       : 0
     const rocketIconSvg = this._pixelIconSvg(
       ['...C...', '..LCS..', '..LCS..', '..LGS..', '..LgS..', '..LCS..', '.NLCSN.', '.NLCSN.', '..LCS..', '..FFF..', '...f...'],
@@ -3696,7 +3274,7 @@ class Game {
       { C: 'ffd600', L: 'fff9c4', S: 'c9a200' },
       '3a2500',
     )
-    const itemEffectsHTML = isGameActive && (this.activeRocket || this.activeSpring) ? `
+    const itemEffectsHTML = isGameActive && (this.activeRocket || this.activeBoost) ? `
       <div class="item-effects-panel">
         ${this.activeRocket ? `
         <div class="item-effect item-effect-rocket">
@@ -3706,12 +3284,12 @@ class Game {
             <div class="item-effect-bar"><div class="item-effect-fill" style="width:${rocketPct}%"></div></div>
           </div>
         </div>` : ''}
-        ${this.activeSpring ? `
+        ${this.activeBoost ? `
         <div class="item-effect item-effect-boost">
           <span class="item-effect-icon">${boostIconSvg}</span>
           <div class="item-effect-track">
             <div class="item-effect-label">BOOST</div>
-            <div class="item-effect-bar"><div class="item-effect-fill" style="width:${springPct}%"></div></div>
+            <div class="item-effect-bar"><div class="item-effect-fill" style="width:${boostPct}%"></div></div>
           </div>
         </div>` : ''}
       </div>` : ''
