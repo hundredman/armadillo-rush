@@ -1188,20 +1188,22 @@ class Game {
       }
     }, { capture: true })
 
-    // Hidden developer-mode unlock — type DEV_CODE (letters only).  Ignored while
-    // typing in a text input and when modifier keys are held, so it can't be hit
-    // by accident.  No visible button exposes this.
+    // Hidden developer-mode unlock — type DEV_CODE.  Uses the PHYSICAL key code
+    // (KeyA..KeyZ) rather than event.key, so it works regardless of keyboard
+    // layout or an active IME (e.g. a Korean IME, where event.key would be a
+    // composed Hangul character / "Process" and never match).  Ignored while a
+    // text field is focused and when modifier keys are held.
     window.addEventListener('keydown', (event) => {
-      if (event.target instanceof HTMLInputElement) return
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
       if (event.ctrlKey || event.metaKey || event.altKey) return
-      const k = event.key && event.key.length === 1 ? event.key.toLowerCase() : ''
-      if (!k) return
-      this._devCodeBuf = (this._devCodeBuf + k).slice(-DEV_CODE.length)
+      const m = /^Key([A-Z])$/.exec(event.code || '')
+      if (!m) return
+      this._devCodeBuf = (this._devCodeBuf + m[1].toLowerCase()).slice(-DEV_CODE.length)
       if (this._devCodeBuf === DEV_CODE) {
         this._devCodeBuf = ''
         this._toggleDevPanel()
       }
-    })
+    }, { capture: true })
   }
 
   /** Convert screen coordinates to world coordinates. */
