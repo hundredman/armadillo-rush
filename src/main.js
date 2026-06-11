@@ -219,6 +219,7 @@ class Game {
     this.showingLeaderboard = false
     this.leaderboardEntries = []   // cached from last fetchLeaderboard() call
     this.pendingScoreEntry = null  // set after game over, cleared after submission
+    this._lbScrollPending = false  // when true, scroll the leaderboard to the self row on next render
 
     // Respawn state — armadillo hovers at spawn position until player inputs
     this._respawnWaiting = false
@@ -2899,20 +2900,22 @@ class Game {
     const score     = this._getScore()
     const moonClear = this.lastRating === 'MOON'
     const name      = this.playerName || 'Anonymous'
-    submitScore(name, score, heightM, distanceM, moonClear)
+    return submitScore(name, score, heightM, distanceM, moonClear)
       .then(entry => { this.pendingScoreEntry = entry })
       .catch(() => {})
   }
 
-  async _openLeaderboard() {
-    // Fetch the full ranked list so the view can show the top entries plus a
-    // window around the current player; the render trims it to a compact set.
+  // scrollToSelf=false → open scrolled to the top (manual "Leaderboard" view).
+  // scrollToSelf=true  → open scrolled to the player's just-registered row.
+  async _openLeaderboard(scrollToSelf = false) {
     this.leaderboardEntries = await fetchLeaderboard(100)
+    this._lbScrollPending = scrollToSelf
     this.showingLeaderboard = true
   }
 
   _closeLeaderboard() {
     this.showingLeaderboard = false
+    this._lbScrollPending = false
   }
 
   // Called when user input is received while waiting for respawn after sea bounce.
@@ -2930,13 +2933,15 @@ class Game {
   }
 
   // Save score to leaderboard with the given name (called from game-over register button).
-  _saveScoreWithName(rawName) {
+  async _saveScoreWithName(rawName) {
     const trimmed = rawName.trim().slice(0, 16)
     this.playerName = (trimmed === '' || trimmed === 'Anonymous') ? '' : trimmed
     savePlayerName(this.playerName)
-    this._submitRunScore()
-    // Open leaderboard after saving
-    this._openLeaderboard()
+    // Await submission so pendingScoreEntry (the exact self row) is set before the
+    // leaderboard opens and auto-scrolls to it.
+    await this._submitRunScore()
+    // Open leaderboard after saving — scrolled to the player's new entry.
+    this._openLeaderboard(true)
   }
 
   _ensureAudio() {
@@ -3260,15 +3265,12 @@ class Game {
     if (lb.length === 0) {
       lbRowsHtml = `<div class="leaderboard-empty">${lbKo ? '아직 기록이 없어요 — 첫 기록을 남겨보세요!' : 'No scores yet — be the first!'}</div>`
     } else {
-      const TOP = 5
+      // Full list, scrollable.  The just-registered run (pendingScoreEntry.id) is
+      // the precise "self" row; without it, fall back to a name match so the
+      // player's existing entry is still highlighted.
       const selfId = this.pendingScoreEntry?.id ?? null
       const rowIsSelf = (e) => (selfId ? e.id === selfId : (!!this.playerName && e.name === this.playerName))
-      let userRank = this.pendingScoreEntry?.rank ?? null
-      if (userRank == null && this.playerName) {
-        const u = lb.find(e => e.name === this.playerName)
-        userRank = u ? u.rank : null
-      }
-      const renderRow = (e) => {
+      lbRowsHtml = lb.map(e => {
         const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank
         const moonBadge = e.moonClear ? ' 🌕' : ''
         const nm = e.name || (lbKo ? '익명' : 'Anonymous')
@@ -3280,21 +3282,7 @@ class Game {
               <span class="lb-score">${e.score.toLocaleString()}</span>
               <span class="lb-meta">${meta}</span>
             </div>`
-      }
-      const divider = '<div class="lb-divider">⋯</div>'
-      let html = lb.slice(0, TOP).map(renderRow).join('')
-      let lastShownRank = Math.min(TOP, lb.length)
-      if (userRank != null && userRank > TOP) {
-        const startRank = Math.max(TOP + 1, userRank - 1)   // window: user−1 … user+1
-        const endRank = Math.min(lb.length, userRank + 1)
-        if (startRank > lastShownRank + 1) html += divider  // hidden gap before the window
-        html += lb.slice(startRank - 1, endRank).map(renderRow).join('')
-        lastShownRank = endRank
-      }
-      // Trailing marker when more records exist below the last shown row — so a
-      // top-5-only view doesn't look like the list was simply cut off.
-      if (lastShownRank < lb.length) html += divider
-      lbRowsHtml = html
+      }).join('')
     }
 
     // ── Active item effect indicators ─────────────────────────────────────
@@ -3517,6 +3505,17 @@ class Game {
     `
     // Store the rendered lang key — if lang toggles, cache miss forces a rebuild.
     this._tutorialRendered = this.sm.is(State.TITLE) ? this._tutorialLang : false
+
+    // After a fresh leaderboard render, scroll the player's row into view if the
+    // view was opened right after registering (manual opens stay at the top).
+    if (this.showingLeaderboard && this._lbScrollPending) {
+      const list = this.ui.querySelector('.leaderboard-list')
+      const self = list?.querySelector('.lb-self')
+      if (list && self) {
+        list.scrollTop = self.offsetTop - list.clientHeight / 2 + self.clientHeight / 2
+        this._lbScrollPending = false
+      }
+    }
   }
 
   loop() {
