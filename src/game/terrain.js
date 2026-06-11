@@ -809,6 +809,19 @@ export function getTerrainTopY(terrain, x) {
 
 export function getTerrainSlopeAngle(terrain, x) {
   const points = terrain.points
+
+  // Left-entry ramp: its surface comes from getTerrainTopY (not terrain.points),
+  // so sample the ACTUAL surface there.  Otherwise this would return the inner
+  // terrain's slope and the rolling physics would push the ball up the ramp on
+  // its own — the ramp must obey the same slope/friction rules as normal ground.
+  const rampLeft = terrain.bounds?.rampLeft
+  if (rampLeft != null && x < points[0].x) {
+    const dx = 2
+    const y1 = getTerrainTopY(terrain, x - dx)
+    const y2 = getTerrainTopY(terrain, x + dx)
+    return Math.atan2(y2 - y1, 2 * dx)
+  }
+
   let nearest = 1
   for (let i = 1; i < points.length; i++) {
     if (Math.abs(points[i].x - x) < Math.abs(points[nearest].x - x)) nearest = i
