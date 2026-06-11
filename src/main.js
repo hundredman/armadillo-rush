@@ -3572,11 +3572,11 @@ class Game {
     const pullPct = Math.round(THREE.MathUtils.clamp(pullLen / SLING_MAX_PULL, 0, 1) * 100)
 
     const showBoostButton = !this.sm.is(State.TITLE)
-      && !this.sm.is(State.SLINGING)
       && !this.sm.is(State.GAMEOVER)
     const showControlRow = !this.isPaused
       && !this.sm.is(State.TITLE)
       && !this.sm.is(State.GAMEOVER)
+    const boostButtonAction = this.sm.is(State.SLINGING) ? '' : 'data-action="boost"'
     const boostButtonActive = this.boostHeld
     const boostButtonReady = this.sm.is(State.ROLLING)
 
@@ -3739,12 +3739,24 @@ class Game {
             </div>
             <div class="tutorial-section">
               <div class="tutorial-section-title">조작법</div>
-              <ul class="tutorial-list">
-                <li><b>드래그</b> — 슬링샷 조준 후 놓아서 발사</li>
-                <li><b>Space 누르기</b> — 지형 위 가속 / 공중 회전</li>
-                <li><b>Space 떼기</b> — 점프</li>
-                <li><b>바다 추락</b> — 생명 1 감소, Space·클릭으로 다시 낙하</li>
-              </ul>
+              <div class="tutorial-control-list">
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-mouse"><span></span></span>
+                  <div><b>마우스 드래그</b><span>슬링샷 조준 후 놓아서 발사</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
+                  <div><b>누르고 있기</b><span>지형 위 가속 / 공중 회전</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
+                  <div><b>떼기</b><span>지형 위에서 점프</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icons"><span class="tutorial-control-icon tutorial-space-key mini">SPACE</span><span class="tutorial-control-icon tutorial-mouse mini"><span></span></span></span>
+                  <div><b>바다 추락</b><span>생명 1 감소, Space 또는 클릭으로 다시 낙하</span></div>
+                </div>
+              </div>
             </div>
             <div class="tutorial-section">
               <div class="tutorial-section-title">팁</div>
@@ -3760,12 +3772,24 @@ class Game {
             </div>
             <div class="tutorial-section">
               <div class="tutorial-section-title">Controls</div>
-              <ul class="tutorial-list">
-                <li><b>Drag</b> — aim and release the slingshot</li>
-                <li><b>Hold Space</b> — accelerate on terrain / spin in air</li>
-                <li><b>Release Space</b> — jump</li>
-                <li><b>Sea fall</b> — lose 1 life; press Space/Click to drop again</li>
-              </ul>
+              <div class="tutorial-control-list">
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-mouse"><span></span></span>
+                  <div><b>Mouse drag</b><span>Aim the slingshot, then release</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
+                  <div><b>Hold</b><span>Accelerate on terrain / spin in air</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
+                  <div><b>Release</b><span>Jump from terrain</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icons"><span class="tutorial-control-icon tutorial-space-key mini">SPACE</span><span class="tutorial-control-icon tutorial-mouse mini"><span></span></span></span>
+                  <div><b>Sea fall</b><span>Lose 1 life; Space or click to drop again</span></div>
+                </div>
+              </div>
             </div>
             <div class="tutorial-section">
               <div class="tutorial-section-title">Tips</div>
@@ -3826,8 +3850,8 @@ class Game {
               <div class="score-register-label">${ko ? '리더보드에 점수 등록' : 'Register to Leaderboard'}</div>
               <input class="name-input clickable" type="text" maxlength="16"
                 placeholder="${ko ? '닉네임 입력' : 'Enter nickname'}"
-                value=""
-                autocomplete="off" spellcheck="false" />
+                autocomplete="new-password" name="fresh-run-nickname" spellcheck="false"
+                autocapitalize="off" data-lpignore="true" data-1p-ignore="true" />
               <button type="button" class="clickable primary-button" data-action="score-save">
                 ${ko ? '점수 등록' : 'Submit Score'}
               </button>
@@ -3883,7 +3907,7 @@ class Game {
       })() : ''}
 
       ${showBoostButton && !this.isPaused ? `
-        <button type="button" class="clickable boost-button ${boostButtonActive ? 'is-pressed' : ''} ${boostButtonReady ? 'is-ready' : ''}" data-action="boost" aria-label="Boost">
+        <button type="button" class="clickable boost-button ${boostButtonActive ? 'is-pressed' : ''} ${boostButtonReady ? 'is-ready' : ''} ${this.sm.is(State.SLINGING) ? 'is-guide' : ''}" ${boostButtonAction} aria-label="Boost">
           <span class="boost-button-core">SPACE</span>
         </button>
       ` : ''}
@@ -3928,6 +3952,17 @@ class Game {
         </div>`
       })() : ''}
     `
+    const freshNameInput = this.ui.querySelector('.name-input')
+    if (freshNameInput && document.activeElement !== freshNameInput) {
+      freshNameInput.defaultValue = ''
+      freshNameInput.value = ''
+      setTimeout(() => {
+        if (document.activeElement !== freshNameInput) {
+          freshNameInput.defaultValue = ''
+          freshNameInput.value = ''
+        }
+      }, 0)
+    }
     // Store the rendered lang key — if lang toggles, cache miss forces a rebuild.
     this._tutorialRendered = this.sm.is(State.TITLE) ? this._tutorialLang : false
 
