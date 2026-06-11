@@ -133,6 +133,7 @@ const BOOST_SPEED_LIMIT = 1.8
 const BOOST_RELEASE_SPEED_KICK = 0.28  // reduced from 0.50 — less abrupt speed spike on release
 const BOOST_RELEASE_VERTICAL_KICK = 820  // reduced from 980 — softer upward launch
 const ROLLING_FRICTION_PER_SEC = 0.28 // speedRatio/s lost to friction when no input
+const LANDING_SETTLE_SEC = 0.08       // brief guard against instant crest re-launch on touchdown
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
 const SPACE_GRAVITY_FULL = 0.86
@@ -220,6 +221,7 @@ class Game {
     this.boostHeld = false
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
+    this._landingSettleTimer = 0
     this._edgeFallGraceTimer = 0 // seconds remaining to still jump after falling off edge
     this._spawnGraceTimer = 0    // frames to skip Planck contact resolution after teleport
     this._pendingTerrainRebuild = new Set()  // islands to re-add fixtures when grace ends
@@ -1490,6 +1492,7 @@ class Game {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
     this.spinAngleVel = 0
+    this._landingSettleTimer = 0
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
     this._slingReady = false
@@ -2666,17 +2669,22 @@ class Game {
     const hSpeed = Math.abs(this.velocity.x)
     const impactSpeed = this.velocity.length()
     // Landing speed: take the best of horizontal velocity and spin-implied speed,
-    // so a player who was spinning fast in air doesn't lose momentum on touchdown
+    // but cap spin carry relative to real horizontal speed.  This keeps deliberate
+    // air spin useful without turning a mostly vertical landing into a sudden launch.
     const speedFromH    = hSpeed / MAX_SPEED
     const speedFromSpin = (this.spinAngleVel * (ARMADILLO_SIZE / 2)) / MAX_SPEED
-    const landedSpeedRatio = Math.min(BOOST_SPEED_LIMIT, Math.max(speedFromH, speedFromSpin * 0.75))
+    const spinCarryRatio = Math.min(Math.max(0, speedFromSpin) * 0.75, speedFromH + 0.35)
+    const landedSpeedRatio = Math.min(BOOST_SPEED_LIMIT, Math.max(speedFromH, spinCarryRatio))
     this.speedRatio = landedSpeedRatio
     // Snap spinAngleVel to the contact-roll speed immediately so rotation
     // matches forward movement from the very first ground frame
     this.spinAngleVel = landedSpeedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)
     this.velocity.set(0, 0)
-    this.physics.setArmadilloVelocity(0, 0)
     this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(0, 0)
+    this.physics.flushContacts()
+    this._landingSettleTimer = LANDING_SETTLE_SEC
     this.lastRating = 'ROLL'
 
     const dirtCount = impactSpeed > 700 ? 22 : 12
@@ -2738,8 +2746,11 @@ class Game {
     this.speedRatio = Math.min(BOOST_SPEED_LIMIT, landedSpeedRatio + 0.40)
     this.spinAngleVel = this.speedRatio * MAX_SPEED / (ARMADILLO_SIZE / 2)
     this.velocity.set(0, 0)
-    this.physics.setArmadilloVelocity(0, 0)
     this.armadillo.position.y = getTerrainTopY(island, this.armadillo.position.x) + ARMADILLO_SIZE / 2
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.physics.setArmadilloVelocity(0, 0)
+    this.physics.flushContacts()
+    this._landingSettleTimer = LANDING_SETTLE_SEC
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
     }
@@ -2755,6 +2766,7 @@ class Game {
     if (!this.currentIsland) return
 
     const bounds = this.currentIsland.bounds
+    this._landingSettleTimer = Math.max(0, this._landingSettleTimer - dt)
     if (this.boostHeld) {
       this.speedRatio = THREE.MathUtils.clamp(
         this.speedRatio + (BOOST_ACCEL_PER_SEC * this._climbPower() - ROLLING_FRICTION_PER_SEC) * dt,
@@ -2812,7 +2824,7 @@ class Game {
     const crossedCrest = slopeBefore > 0.08 && slopeAfter < -0.08   // ~5° threshold each side
     const isHillShape  = this.currentIsland.shapeType === 'hill' || this.currentIsland.shapeType === 'slope'
     const pastCenter   = this.armadillo.position.x > this.currentIsland.bowlCenter - 20
-    if (crossedCrest && isHillShape && pastCenter && this.speedRatio >= 0.55) {
+    if (this._landingSettleTimer <= 0 && crossedCrest && isHillShape && pastCenter && this.speedRatio >= 0.55) {
       this._launchFromHillCrest()
       return
     }
@@ -3820,7 +3832,7 @@ class Game {
                 ${ko ? '점수 등록' : 'Submit Score'}
               </button>
             </div>`}
-            <button type="button" class="clickable secondary-button" data-action="leaderboard">${ko ? '🏆 리더보드 보기' : '🏆 Leaderboard'}</button>
+            <button type="button" class="clickable secondary-button" data-action="leaderboard">${ko ? '리더보드 보기' : 'Leaderboard'}</button>
             <button type="button" class="clickable secondary-button restart-btn" data-action="restart">${ko ? '다시 시작' : 'Retry'}</button>
           </div>
         </div>`
