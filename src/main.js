@@ -87,6 +87,8 @@ const SLING_MAX_PULL = 120      // max pull distance (world px)
 const SLING_MIN_PULL = 18       // cancel if pull is below this
 const SLING_POWER_MIN = 0.78    // power ratio at minimum pull
 const SLING_POWER_MAX = 1.0     // power ratio at maximum pull
+const SLING_KEYBOARD_ANGLE = Math.PI / 4
+const SLING_KEYBOARD_CHARGE_SEC = 1.05
 
 // spawn new islands when this far ahead of camera viewport
 const ISLAND_SPAWN_LOOKAHEAD = 22000
@@ -195,9 +197,11 @@ class Game {
     }
     // sling state
     this.slingDragging = false
+    this._slingChargeSource = null
+    this._slingKeyboardChargeTime = 0
     this.slingPull = new THREE.Vector2(0, 0)
     this.slingPower = 0                  // power ratio 0~1
-    this.slingAngle = Math.PI / 4        // launch angle (radians)
+    this.slingAngle = SLING_KEYBOARD_ANGLE // launch angle (radians)
     // Set true when TITLE/GAMEOVER click transitions to SLINGING — the same
     // pointer-up that dismissed the start screen must not trigger any gameplay
     // action (sling drag, hold-release, etc.).  Cleared on next pointerup.
@@ -1172,18 +1176,21 @@ class Game {
     window.addEventListener('pointercancel', () => {
       this.pointerIsDown = false
       this._pendingPointerClear = false
-      this.slingDragging = false
-      this.slingPull.set(0, 0)
+      this._cancelSlingCharge()
       this._setArmadilloCurled(false)
       this._cancelHold()
     })
 
     window.addEventListener('blur', () => {
+      this._cancelSlingCharge()
       this._cancelHold()
     })
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this._cancelHold()
+      if (document.hidden) {
+        this._cancelSlingCharge()
+        this._cancelHold()
+      }
     })
 
     // keyboard
@@ -1221,6 +1228,10 @@ class Game {
         event.preventDefault()
         this.spaceIsDown = false
         if (this.sm.is(State.TITLE)) return
+        if (this.sm.is(State.SLINGING)) {
+          this._releaseKeyboardSlingCharge()
+          return
+        }
         this._endHold('keyboard')
       }
     }, { capture: true })
@@ -1296,6 +1307,8 @@ class Game {
       // Time-based dead zone: absorbs double-click bleed from the start button
       if (performance.now() < this._slingBlockUntil) return
       this.slingDragging = true
+      this._slingChargeSource = 'pointer'
+      this._slingKeyboardChargeTime = 0
       this._handlePointerMove(clientX, clientY)
       return
     }
@@ -1321,6 +1334,7 @@ class Game {
 
   _handlePointerMove(clientX, clientY) {
     if (!this.slingDragging || !this.sm.is(State.SLINGING)) return
+    if (this._slingChargeSource && this._slingChargeSource !== 'pointer') return
 
     const world = this._screenToWorld(clientX, clientY)
     // pull vector = touch pos - pocket rest pos (clamped)
@@ -1353,7 +1367,10 @@ class Game {
 
   _handlePointerRelease() {
     if (!this.slingDragging) return
+    if (this._slingChargeSource && this._slingChargeSource !== 'pointer') return
     this.slingDragging = false
+    this._slingChargeSource = null
+    this._slingKeyboardChargeTime = 0
 
     if (!this.sm.is(State.SLINGING)) return
     if (this.slingPower < 0.05) {
@@ -1363,6 +1380,57 @@ class Game {
       return
     }
     this._launchFromSling()
+  }
+
+  _startKeyboardSlingCharge() {
+    if (!this.sm.is(State.SLINGING)) return
+    if (this.slingDragging && this._slingChargeSource !== 'keyboard') return
+    if (performance.now() < this._slingBlockUntil) return
+
+    this.slingDragging = true
+    this._slingChargeSource = 'keyboard'
+    this._slingKeyboardChargeTime = 0
+    this._setKeyboardSlingCharge(0)
+  }
+
+  _setKeyboardSlingCharge(chargeRatio) {
+    const t = THREE.MathUtils.clamp(chargeRatio, 0, 1)
+    const pullLen = THREE.MathUtils.lerp(SLING_MIN_PULL, SLING_MAX_PULL, t)
+    this.slingAngle = SLING_KEYBOARD_ANGLE
+    this.slingPower = THREE.MathUtils.lerp(SLING_POWER_MIN, SLING_POWER_MAX, t)
+    this.slingPull.set(
+      -Math.cos(SLING_KEYBOARD_ANGLE) * pullLen,
+      -Math.sin(SLING_KEYBOARD_ANGLE) * pullLen,
+    )
+    const pocket = this._getSlingArmadilloPosition()
+    this.armadillo.position.set(pocket.x, pocket.y, 0)
+    this._setArmadilloCurled(true)
+    this._syncMotionToArmadillo()
+    this._updateSlingVisuals()
+  }
+
+  _releaseKeyboardSlingCharge() {
+    if (!this.slingDragging || this._slingChargeSource !== 'keyboard') return
+    this.slingDragging = false
+    this._slingChargeSource = null
+    this._slingKeyboardChargeTime = 0
+
+    if (!this.sm.is(State.SLINGING)) return
+    if (this.slingPower < 0.05) {
+      this._cancelSlingCharge()
+      return
+    }
+    this._launchFromSling()
+  }
+
+  _cancelSlingCharge() {
+    this.slingDragging = false
+    this._slingChargeSource = null
+    this._slingKeyboardChargeTime = 0
+    this.slingPull.set(0, 0)
+    this.slingPower = 0
+    this.slingAngle = SLING_KEYBOARD_ANGLE
+    this._updateSlingVisuals()
   }
 
   // ── Input hold / release ──────────────────────────────────────────────────
@@ -1424,8 +1492,11 @@ class Game {
       return
     }
 
-    // SLINGING: Space does not launch — drag only
-    if (this.sm.is(State.SLINGING)) return
+    // SLINGING: hold Space to charge a fixed 45° launch, release to fire.
+    if (this.sm.is(State.SLINGING)) {
+      this._startKeyboardSlingCharge()
+      return
+    }
 
     // ROLLING: begin hold — accelerates while held, jumps on release
     if (this.sm.is(State.ROLLING)) {
@@ -1495,6 +1566,8 @@ class Game {
     this._landingSettleTimer = 0
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
+    this._slingChargeSource = null
+    this._slingKeyboardChargeTime = 0
     this._slingReady = false
     this._tutorialRendered = false
     this._lastGameOverKey = null
@@ -1502,7 +1575,7 @@ class Game {
     this._respawnPos = null
     this.slingPull.set(0, 0)
     this.slingPower = 0
-    this.slingAngle = Math.PI / 4
+    this.slingAngle = SLING_KEYBOARD_ANGLE
     this.boostHeld = false
     this.boostHoldSource = null
     this.currentIsland = null
@@ -1679,6 +1752,8 @@ class Game {
     // reset sling band after launch
     this.slingPull.set(0, 0)
     this.slingPower = 0
+    this._slingChargeSource = null
+    this._slingKeyboardChargeTime = 0
 
     this._carveLaunchPath()
     this._triggerLaunchImpact()
@@ -1919,7 +1994,7 @@ class Game {
       this._updateRolling(simDt)
     } else if (this.sm.is(State.SLINGING)) {
       this._setArmadilloSprite('idle')
-      this._updateSlinging()
+      this._updateSlinging(simDt)
     }
     this._updateSplashGameOver(simDt)
     this._updateParticles(simDt)
@@ -1974,9 +2049,16 @@ class Game {
     }
   }
 
-  _updateSlinging() {
+  _updateSlinging(dt) {
     // lock armadillo to pocket while dragging
     if (this.sm.is(State.SLINGING)) {
+      if (this.slingDragging && this._slingChargeSource === 'keyboard') {
+        this._slingKeyboardChargeTime = Math.min(
+          SLING_KEYBOARD_CHARGE_SEC,
+          this._slingKeyboardChargeTime + dt,
+        )
+        this._setKeyboardSlingCharge(this._slingKeyboardChargeTime / SLING_KEYBOARD_CHARGE_SEC)
+      }
       const pocket = this._getSlingArmadilloPosition()
       this.armadillo.position.set(pocket.x, pocket.y, 0)
       this._setArmadilloCurled(this.slingDragging)
@@ -3586,7 +3668,7 @@ class Game {
       : this.sm.is(State.TITLE)
       ? (hintKo ? '클릭하여 시작' : 'Click to start')
       : this.sm.is(State.SLINGING)
-        ? (this.slingDragging ? (hintKo ? '놓아서 발사!' : 'Release to launch!') : (hintKo ? '드래그하여 조준' : 'Drag to aim'))
+        ? (this.slingDragging ? (hintKo ? '놓아서 발사!' : 'Release to launch!') : (hintKo ? '드래그 또는 Space 충전' : 'Drag or hold Space'))
       : this.sm.is(State.ROLLING)
         ? (hintKo ? 'Space: 가속 · 떼면 점프' : 'Space: accelerate · release to jump')
       : this.sm.is(State.GAMEOVER)
@@ -3746,11 +3828,15 @@ class Game {
                 </div>
                 <div class="tutorial-control">
                   <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
-                  <div><b>누르고 있기</b><span>지형 위 가속 / 공중 회전</span></div>
+                  <div><b>발사 전 누르기</b><span>45도 고정 발사, 길게 누를수록 강함</span></div>
                 </div>
                 <div class="tutorial-control">
                   <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
-                  <div><b>떼기</b><span>지형 위에서 점프</span></div>
+                  <div><b>비행 중 누르기</b><span>지형 위 가속 / 공중 회전</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
+                  <div><b>지형 위에서 떼기</b><span>점프</span></div>
                 </div>
                 <div class="tutorial-control">
                   <span class="tutorial-control-icons"><span class="tutorial-control-icon tutorial-space-key mini">SPACE</span><span class="tutorial-control-icon tutorial-mouse mini"><span></span></span></span>
@@ -3779,11 +3865,15 @@ class Game {
                 </div>
                 <div class="tutorial-control">
                   <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
-                  <div><b>Hold</b><span>Accelerate on terrain / spin in air</span></div>
+                  <div><b>Before launch</b><span>Fixed 45° shot; hold longer for power</span></div>
                 </div>
                 <div class="tutorial-control">
                   <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
-                  <div><b>Release</b><span>Jump from terrain</span></div>
+                  <div><b>In motion</b><span>Accelerate on terrain / spin in air</span></div>
+                </div>
+                <div class="tutorial-control">
+                  <span class="tutorial-control-icon tutorial-space-key">SPACE</span>
+                  <div><b>Release on terrain</b><span>Jump</span></div>
                 </div>
                 <div class="tutorial-control">
                   <span class="tutorial-control-icons"><span class="tutorial-control-icon tutorial-space-key mini">SPACE</span><span class="tutorial-control-icon tutorial-mouse mini"><span></span></span></span>
