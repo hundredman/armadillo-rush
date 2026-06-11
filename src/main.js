@@ -75,7 +75,9 @@ const LAUNCH_SPEED = 1600
 
 // world bounds
 const SEA_LEVEL_Y  = -360   // sea level — fall-out boundary
-const MOON_TARGET_Y = 18000  // moon target altitude (px)
+const MOON_TARGET_Y = 15000  // moon target altitude (px) — 1500m
+const LEGACY_MOON_TARGET_Y = 18000
+const SPACE_COMPRESSION_START_Y = 12000
 const SPLASH_GAMEOVER_DELAY = 0.42
 
 // sling constants
@@ -101,7 +103,9 @@ const DEV_CODE = 'armadev'
 
 // ── Atmospheric zone banners (Only-Up-style flavor text) ─────────────────────
 // Shown once each, in order, as the armadillo's altitude (heightRatio 0→1)
-// crosses each threshold.  Intentionally a bit over-the-top / "jank-game" vibe.
+// crosses each threshold.  heightRatio keeps the old sea/cloud/high-sky pacing
+// through the high-sky approach, then compresses only the final space stretch to 1500m.
+// Intentionally a bit over-the-top / "jank-game" vibe.
 const BANNER_SEC = 2.8
 // Armadillo's first-person climb toward its dream of reaching the moon.
 // No emoji; a little earnest and clumsy, but heartfelt — and the moon feels
@@ -110,8 +114,8 @@ const ZONE_BANNERS = [
   { at: 0.16, ko: '땅보다 하늘이 더 가까워졌어.',        en: 'The sky feels closer than the ground now.' },
   { at: 0.34, ko: '구름 위에서도 달은 잘 보여.',         en: 'Even above the clouds, I can still see the moon.' },
   { at: 0.55, ko: '등껍질은 무겁지만, 벌써 절반은 왔어.', en: 'My shell is heavy, but I am already halfway there.' },
-  { at: 0.70, ko: '여기는 별들 사이야. 조금만 더.',      en: 'I am among the stars now. Just a little more.' },
-  { at: 0.88, ko: '달빛이 점점 가까워지고 있어.',        en: 'The moonlight is getting closer and closer.' },
+  { at: 0.68, ko: '우주 암석들이 보여. 달이 가까워졌어.', en: 'I can see the space rocks. The moon is close now.' },
+  { at: 0.86, ko: '마지막 우주 길이야. 달빛이 바로 앞이야.', en: 'This is the last stretch of space. The moonlight is right ahead.' },
 ]
 // Ending cinematic phases (elapsed seconds): auto-fly toward the moon → approach
 // and decelerate → soft landing → linger, then hand off to the clear screen.
@@ -1984,7 +1988,16 @@ class Game {
   }
 
   _getHeightRatio(y = this.armadillo.position.y) {
-    return THREE.MathUtils.clamp((y - SEA_LEVEL_Y) / (MOON_TARGET_Y - SEA_LEVEL_Y), 0, 1)
+    if (y <= SPACE_COMPRESSION_START_Y) {
+      return THREE.MathUtils.clamp((y - SEA_LEVEL_Y) / (LEGACY_MOON_TARGET_Y - SEA_LEVEL_Y), 0, 1)
+    }
+    const anchorRatio = (SPACE_COMPRESSION_START_Y - SEA_LEVEL_Y) / (LEGACY_MOON_TARGET_Y - SEA_LEVEL_Y)
+    const spaceT = THREE.MathUtils.clamp(
+      (y - SPACE_COMPRESSION_START_Y) / (MOON_TARGET_Y - SPACE_COMPRESSION_START_Y),
+      0,
+      1,
+    )
+    return THREE.MathUtils.lerp(anchorRatio, 1, spaceT)
   }
 
   _getGravityPx() {
