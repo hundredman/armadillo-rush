@@ -3826,7 +3826,7 @@ class Game {
               <div class="score-register-label">${ko ? '리더보드에 점수 등록' : 'Register to Leaderboard'}</div>
               <input class="name-input clickable" type="text" maxlength="16"
                 placeholder="${ko ? '닉네임 입력' : 'Enter nickname'}"
-                value="${this.playerName || ''}"
+                value=""
                 autocomplete="off" spellcheck="false" />
               <button type="button" class="clickable primary-button" data-action="score-save">
                 ${ko ? '점수 등록' : 'Submit Score'}
