@@ -747,8 +747,31 @@ button {
 }
 
 .lb-row.lb-self {
-  background: rgba(255, 213, 79, 0.16);
-  border: 1px solid rgba(255, 213, 79, 0.4);
+  background: rgba(255, 213, 79, 0.24);
+  border: 1px solid rgba(255, 213, 79, 0.7);
+  box-shadow: inset 3px 0 0 #ffd54f, 0 0 0 1px rgba(255, 213, 79, 0.25);
+}
+
+.lb-row.lb-self .lb-name {
+  color: #ffe9b8;
+  font-weight: 1000;
+}
+
+.lb-row.lb-self .lb-score {
+  color: #ffe082;
+}
+
+.lb-self-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #ffd54f;
+  color: #3a2a10;
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
 }
 
 .lb-rank {

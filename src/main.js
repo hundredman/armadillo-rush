@@ -1038,6 +1038,12 @@ class Game {
       if (!button) return false
       event.preventDefault()
       event.stopPropagation()
+      // preventDefault() above stops the click from moving focus, so a focused
+      // nickname input would keep focus and freeze _renderHud (its guard skips
+      // rebuilds while a .name-input is focused).  Explicitly blur it so the UI
+      // can update after the button action (register / leaderboard / restart).
+      const active = document.activeElement
+      if (active && active.classList && active.classList.contains('name-input')) active.blur()
       this._ensureAudio()
       const action = button.dataset.action
       if (action === 'pause') this._togglePause()
@@ -2043,6 +2049,8 @@ class Game {
     this.sm.transition(State.GAMEOVER)
     this.velocity.set(0, 0)
     this.lastRating = 'MOON'
+    // Fresh result screen — never inherit a previous run's registration state.
+    this.pendingScoreEntry = null
     this._saveBestRecord()
     // moon reached — large particle burst
     this.particleSystem.spawnBurst(
@@ -3271,16 +3279,18 @@ class Game {
       const selfId = this.pendingScoreEntry?.id ?? null
       const rowIsSelf = (e) => (selfId ? e.id === selfId : (!!this.playerName && e.name === this.playerName))
       lbRowsHtml = lb.map(e => {
+        const self = rowIsSelf(e)
         const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank
         const moonBadge = e.moonClear ? ' 🌕' : ''
         const nm = e.name || (lbKo ? '익명' : 'Anonymous')
         const meta = lbKo ? `${e.heightM}m 높이 · ${e.distanceM}m 거리` : `${e.heightM}m high · ${e.distanceM}m far`
+        const selfTag = self ? `<span class="lb-self-tag">${lbKo ? '내 기록' : 'YOU'}</span>` : ''
         return `
-            <div class="lb-row${rowIsSelf(e) ? ' lb-self' : ''}">
+            <div class="lb-row${self ? ' lb-self' : ''}">
               <span class="lb-rank${e.rank <= 3 ? ' top3' : ''}">${medal}</span>
               <span class="lb-name">${nm}${moonBadge}</span>
               <span class="lb-score">${e.score.toLocaleString()}</span>
-              <span class="lb-meta">${meta}</span>
+              <span class="lb-meta">${selfTag}${meta}</span>
             </div>`
       }).join('')
     }
