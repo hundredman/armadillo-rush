@@ -230,6 +230,7 @@ class Game {
     this._devPanelOpen = false
     this._devResetArmed = false   // two-step confirm for leaderboard reset
     this._infiniteLives = false   // when ON, lives never drop and the sea never ends the run
+    this._devItemButtons = false  // when ON, show on-screen rocket/boost/heart test buttons
     this._devCodeBuf = ''
 
     // Respawn state — armadillo hovers at spawn position until player inputs
@@ -1083,6 +1084,7 @@ class Game {
         }
         this._forceHudRebuild()
       }
+      if (action === 'dev-toggle-itembtns')  { this._devItemButtons = !this._devItemButtons; this._forceHudRebuild() }
       if (action === 'dev-reset-lb')         { this._devResetArmed = true; this._forceHudRebuild() }
       if (action === 'dev-reset-lb-cancel')  { this._devResetArmed = false; this._forceHudRebuild() }
       if (action === 'dev-reset-lb-confirm') { this._devResetLeaderboard(); this._forceHudRebuild() }
@@ -3331,9 +3333,7 @@ class Game {
     const isMoonClear = this.lastRating === 'MOON'
 
     const isGameActive = !this.sm.is(State.TITLE)
-    const heartsHTML = [1,2,3].map(i => {
-      const full = i <= this.lives
-      return `<svg class="heart-pixel ${full ? 'heart-full' : 'heart-empty'}" width="28" height="28" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+    const heartSvg = (full) => `<svg class="heart-pixel ${full ? 'heart-full' : 'heart-empty'}" width="28" height="28" viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
         <rect x="1" y="2" width="3" height="1"/><rect x="6" y="2" width="3" height="1"/>
         <rect x="0" y="3" width="4" height="1"/><rect x="5" y="3" width="4" height="1"/>
         <rect x="0" y="4" width="9" height="1"/>
@@ -3343,7 +3343,10 @@ class Game {
         <rect x="3" y="8" width="3" height="1"/>
         <rect x="4" y="9" width="1" height="1"/>
       </svg>`
-    }).join('')
+    // Infinite-lives mode shows one heart + ∞ instead of the 3-heart count.
+    const livesHud = this._infiniteLives
+      ? `<div class="lives-hud lives-infinite">${heartSvg(true)}<span class="lives-inf">∞</span></div>`
+      : `<div class="lives-hud">${[1, 2, 3].map(i => heartSvg(i <= this.lives)).join('')}</div>`
 
     // ── Leaderboard rows HTML ──────────────────────────────────────────────
     // Compact view: top 5, plus a small window around the current player if they
@@ -3414,7 +3417,7 @@ class Game {
       </div>` : ''
 
     this.ui.innerHTML = `
-      ${isGameActive ? `<div class="lives-hud">${heartsHTML}</div>` : ''}
+      ${isGameActive ? livesHud : ''}
       <div class="hud-panel hud-stats">
         <div><span>STATE</span><strong>${phaseText}</strong></div>
         <div><span>SCORE</span><strong>${score}</strong></div>
@@ -3594,10 +3597,19 @@ class Game {
 
       <div class="action-hint ${showBoostButton && !this.isPaused ? 'is-above-boost' : ''}">${action}</div>
 
+      ${this._devItemButtons && isGameActive ? (() => {
+        const playing = this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)
+        const dis = playing ? '' : 'disabled'
+        return `
+        <div class="dev-item-bar">
+          <button type="button" class="clickable dev-item-btn rocket" data-action="dev-item-rocket" ${dis}>🚀</button>
+          <button type="button" class="clickable dev-item-btn boost" data-action="dev-item-boost" ${dis}>⚡</button>
+          <button type="button" class="clickable dev-item-btn heart" data-action="dev-item-heart" ${dis}>❤</button>
+        </div>`
+      })() : ''}
+
       ${this._devPanelOpen ? (() => {
         const canToggle = this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)
-        const playing = this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)
-        const dis = (ok) => ok ? '' : 'disabled'
         return `
         <div class="dev-panel">
           <div class="dev-head">
@@ -3605,24 +3617,20 @@ class Game {
             <button type="button" class="clickable dev-x" data-action="dev-close">✕</button>
           </div>
           <div class="dev-row">
-            <span class="dev-label">Infinite lives</span>
-            <button type="button" class="clickable dev-btn ${this._infiniteLives ? 'is-on' : ''}" data-action="dev-toggle-infinite" ${dis(canToggle)}>${this._infiniteLives ? 'ON' : 'OFF'}</button>
+            <span class="dev-label">목숨 무한 모드</span>
+            <button type="button" class="clickable dev-btn ${this._infiniteLives ? 'is-on' : ''}" data-action="dev-toggle-infinite" ${canToggle ? '' : 'disabled'}>${this._infiniteLives ? 'ON' : 'OFF'}</button>
           </div>
-          ${!canToggle ? `<div class="dev-note">Changeable only on the title / result screen</div>` : ''}
-          <div class="dev-sep"></div>
-          <div class="dev-label">Item effects</div>
-          <div class="dev-items">
-            <button type="button" class="clickable dev-btn" data-action="dev-item-rocket" ${dis(playing)}>🚀 Rocket</button>
-            <button type="button" class="clickable dev-btn" data-action="dev-item-boost" ${dis(playing)}>⚡ Boost</button>
-            <button type="button" class="clickable dev-btn" data-action="dev-item-heart" ${dis(playing)}>❤ Heart</button>
+          ${!canToggle ? `<div class="dev-note">시작 화면 / 결과 화면에서만 변경 가능</div>` : ''}
+          <div class="dev-row">
+            <span class="dev-label">아이템 효과 테스트 버튼</span>
+            <button type="button" class="clickable dev-btn ${this._devItemButtons ? 'is-on' : ''}" data-action="dev-toggle-itembtns">${this._devItemButtons ? 'ON' : 'OFF'}</button>
           </div>
-          ${!playing ? `<div class="dev-note">Available while flying / rolling</div>` : ''}
           <div class="dev-sep"></div>
           <div class="dev-row">
-            <span class="dev-label">Leaderboard</span>
+            <span class="dev-label">리더보드 초기화</span>
             ${this._devResetArmed
-              ? `<span class="dev-confirm"><button type="button" class="clickable dev-btn danger" data-action="dev-reset-lb-confirm">Confirm</button><button type="button" class="clickable dev-btn" data-action="dev-reset-lb-cancel">Cancel</button></span>`
-              : `<button type="button" class="clickable dev-btn" data-action="dev-reset-lb">Reset</button>`}
+              ? `<span class="dev-confirm"><button type="button" class="clickable dev-btn danger" data-action="dev-reset-lb-confirm">확인</button><button type="button" class="clickable dev-btn" data-action="dev-reset-lb-cancel">취소</button></span>`
+              : `<button type="button" class="clickable dev-btn" data-action="dev-reset-lb">초기화</button>`}
           </div>
         </div>`
       })() : ''}

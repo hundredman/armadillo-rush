@@ -1054,3 +1054,54 @@ button {
   border-color: #5a1c14;
   color: #ffe9e2;
 }
+
+/* ── Dev: infinite-lives indicator ──────────────────────────────────────── */
+.lives-hud.lives-infinite {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lives-inf {
+  font-size: 26px;
+  font-weight: 1000;
+  line-height: 1;
+  color: #ffd54f;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* ── Dev: on-screen item test buttons (right side) ──────────────────────── */
+.dev-item-bar {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.dev-item-btn {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--wood-edge);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(214, 162, 110, 0.10), rgba(0, 0, 0, 0) 50%),
+    linear-gradient(180deg, var(--wood-dark) 0%, var(--wood-darker) 100%);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--wood-edge-hi);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 80ms ease, filter 80ms ease;
+}
+
+.dev-item-btn:hover { filter: brightness(1.1); }
+.dev-item-btn:active { transform: translateY(2px); }
+.dev-item-btn:disabled { opacity: 0.35; cursor: default; filter: none; transform: none; }
+
+.dev-item-btn.rocket { box-shadow: 0 6px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,109,0,0.35); }
+.dev-item-btn.boost  { box-shadow: 0 6px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,214,0,0.35); }
+.dev-item-btn.heart  { box-shadow: 0 6px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,23,68,0.35); }
