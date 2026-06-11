@@ -1397,25 +1397,18 @@ class Game {
   }
 
 
-  _resetRun() {
-    this._tipIndex = Math.floor(Math.random() * TIPS.length)
+  // Run-state reset shared by _resetRun and _restartToTitle.  ONLY fields/effects
+  // that are reset IDENTICALLY in both belong here — anything that differs stays
+  // in the individual functions so their distinct intent is preserved.
+  _resetCommonRunState() {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
     this.spinAngleVel = 0
     this._edgeFallGraceTimer = 0
-    this.pointerIsDown = false
-    this.spaceIsDown = false
     this.slingDragging = false
-    // Always consume the next pointerup so any lingering tutorial/UI click
-    // cannot bleed into sling drag or boost actions on the first game frame.
-    this._pendingPointerClear = true
     this._slingReady = false
-    // Block sling for 300 ms after game start — absorbs double-click from title button
-    this._slingBlockUntil = performance.now() + 300
     this._tutorialRendered = false
     this._lastGameOverKey = null
-    this._spawnGraceTimer = 0
-    this._pendingTerrainRebuild.clear()
     this._respawnWaiting = false
     this._respawnPos = null
     this.slingPull.set(0, 0)
@@ -1451,53 +1444,29 @@ class Game {
     this._setArmadilloCurled(false)
     this._updateSlingVisuals()
     this._syncMotionToArmadillo()
+  }
+
+  _resetRun() {
+    // Run-start specifics (NOT shared with title restart): fresh tip, hard-clear
+    // physical input, arm the pointer-clear + 300 ms sling dead-zone so the
+    // start-button gesture can't bleed into gameplay, and drop any pending
+    // terrain-rebuild / spawn grace.  Set before the common reset so they precede
+    // _restoreTerrain() exactly as in the original ordering.
+    this._tipIndex = Math.floor(Math.random() * TIPS.length)
+    this.pointerIsDown = false
+    this.spaceIsDown = false
+    this._pendingPointerClear = true
+    this._slingBlockUntil = performance.now() + 300
+    this._spawnGraceTimer = 0
+    this._pendingTerrainRebuild.clear()
+    this._resetCommonRunState()
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.TITLE)
   }
 
   _restartToTitle() {
-    this.velocity.set(0, 0)
-    this.speedRatio = 0.75
-    this.spinAngleVel = 0
-    this._edgeFallGraceTimer = 0
-    this.slingDragging = false
-    this._slingReady = false
-    this._tutorialRendered = false
-    this._lastGameOverKey = null
-    this.slingPull.set(0, 0)
-    this.slingPower = 0
-    this.slingAngle = Math.PI / 4
-    this.boostHeld = false
-    this.boostHoldSource = null
-    this.currentIsland = null
-    this.physics.setGravity(GRAVITY)
-    this._restoreTerrain()
-    this._clearParticles()
-    this.bestHeightPx = 0
-    this.bestDistancePx = 0
-    this.lastRating = 'READY'
-    this.stallTime = 0
-    this.trauma = 0
-    this.flashTime = 0
-    this.slowmoTime = 0
-    this.splashGameOverTimer = 0
-    this.splashStarted = false
-    this.flightPeakY = 0
-    this.isPaused = false
-    this.lives = 3
-    this.preBoostSource = null
-    this.activeRocket = null
-    this._rocketCoasting = false
-    this.activeBoost = null
-    this._respawnWaiting = false
-    this._respawnPos = null
-    this.armadillo.visible = true
-    const pocket = this._getSlingArmadilloPosition()
-    this.armadillo.position.set(pocket.x, pocket.y, 0)
-    this.armadillo.rotation.z = 0
-    this._setArmadilloColor(0xff1744)
-    this._setArmadilloCurled(false)
-    this._updateSlingVisuals()
-    this._syncMotionToArmadillo()
+    // Title restart differs only in the ending: force the state straight to
+    // TITLE (the run is being abandoned, not started).
+    this._resetCommonRunState()
     this.sm.current = State.TITLE
   }
 
