@@ -1207,6 +1207,15 @@ class Game {
       }
 
       if (event.repeat) return
+      if (event.code === 'Enter') {
+        if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
+          event.preventDefault()
+          this._ensureAudio()
+          this._resetRun()
+          this.sm.transition(State.SLINGING)
+        }
+        return
+      }
       if (event.code === 'Space') {
         event.preventDefault()
         if (this.sm.is(State.TITLE)) return
@@ -3668,7 +3677,7 @@ class Game {
     const action = this.splashGameOverTimer > 0
       ? (hintKo ? '가라앉는 중...' : 'Sinking...')
       : this.sm.is(State.TITLE)
-      ? (hintKo ? '클릭하여 시작' : 'Click to start')
+      ? (hintKo ? '클릭 또는 Enter로 시작' : 'Click or Enter to start')
       : this.sm.is(State.SLINGING)
         ? (this.slingDragging ? (hintKo ? '놓아서 발사!' : 'Release to launch!') : (hintKo ? '드래그 또는 Space 충전' : 'Drag or hold Space'))
       : this.sm.is(State.ROLLING)
