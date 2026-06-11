@@ -113,7 +113,10 @@ const ZONE_BANNERS = [
   { at: 0.70, ko: '여기는 별들 사이야. 조금만 더.',      en: 'I am among the stars now. Just a little more.' },
   { at: 0.88, ko: '달빛이 점점 가까워지고 있어.',        en: 'The moonlight is getting closer and closer.' },
 ]
-const MOON_ARRIVAL_SEC = 1.6   // short cinematic before the clear screen
+// Ending cinematic: descend → land on the moon surface → linger, then clear screen.
+const MOON_ARRIVAL_SEC = 5.0
+const MOON_DESCENT_END = 1.7    // elapsed sec: hover-descent onto the surface
+const MOON_LANDED_END  = 3.4    // elapsed sec: planted on the surface (settle)
 
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
@@ -256,6 +259,7 @@ class Game {
     this._introBannerShown = false
     this._moonArrivalTimer = 0
     this._moonArrivalPos = null
+    this._moonGround = null
 
     // Respawn state — armadillo hovers at spawn position until player inputs
     this._respawnWaiting = false
@@ -1520,6 +1524,7 @@ class Game {
     this._introBannerShown = false
     this._moonArrivalTimer = 0
     this._moonArrivalPos = null
+    this._removeMoonGround()
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -2155,52 +2160,130 @@ class Game {
   }
 
   // ── Moon arrival cinematic ──────────────────────────────────────────────────
-  // Short float + sparkle + slow-mo before handing off to the clear screen, so
-  // the moon doesn't pop straight into the game-over UI.
+  // A longer ending: the armadillo descends onto the moon's surface, plants a
+  // landing, then lingers for a beat of afterglow before the clear screen.
   _beginMoonArrival() {
     if (this._moonArrivalTimer > 0 || this.sm.is(State.GAMEOVER)) return
     this._moonArrivalTimer = MOON_ARRIVAL_SEC
     const ax = this.armadillo.position.x
-    const ay = Math.min(this.armadillo.position.y, MOON_TARGET_Y)
-    this._moonArrivalPos = new THREE.Vector2(ax, ay)
+    const surfaceTopY = Math.min(this.armadillo.position.y, MOON_TARGET_Y)
+    this._moonLandX = ax
+    this._moonSurfaceY = surfaceTopY                    // top of the moon ground
+    this._moonStartY = surfaceTopY + ARMADILLO_SIZE / 2 + 170   // hover height before descent
+    this._moonLandedPuffed = false
+    this._moonArrivalPos = new THREE.Vector2(ax, surfaceTopY)
+
+    this.armadillo.position.set(ax, this._moonStartY, 0)
     this.velocity.set(0, 0)
+    this.physics.setArmadilloPos(ax, this._moonStartY)
     this.physics.setArmadilloVelocity(0, 0)
+    this._syncMotionToArmadillo()
     this.activeRocket = null
     this.lastRating = 'MOON'
-    this.slowmoTime = Math.max(this.slowmoTime, 0.55)
-    this.trauma = Math.min(1, this.trauma + 0.35)
-    this.flashTime = Math.max(this.flashTime, 0.28)
-    this._showBannerText(this._tutorialLang === 'ko' ? '내 꿈에 닿았어.' : 'I reached my dream.')
-    this.particleSystem.spawnBurst(ax, ay, 0xfff9c4, 40, 280)
-    this._playTone(880, 0.3, 0.12, 'sine')
+    this.slowmoTime = Math.max(this.slowmoTime, 0.9)    // cinematic slow descent
+    this.trauma = Math.min(1, this.trauma + 0.25)
+    this.flashTime = Math.max(this.flashTime, 0.22)
+
+    this._buildMoonGround(ax, surfaceTopY)
+    this._showBannerText(this._tutorialLang === 'ko' ? '드디어 달에 왔어...' : 'I am finally on the moon...')
+    this.particleSystem.spawnBurst(ax, surfaceTopY + 120, 0xfff9c4, 30, 220)
+    this._playTone(740, 0.3, 0.10, 'sine')
   }
 
   _updateMoonArrival(dt) {
     this._moonArrivalTimer -= dt
-    const p = this._moonArrivalPos
-    const bob = Math.sin(this.time * 3) * 6
-    this.armadillo.position.set(p.x, p.y + bob, 0)
-    this.physics.setArmadilloPos(p.x, p.y + bob)
-    this.velocity.set(0, 0)
-    this.armadillo.rotation.z -= 2 * dt
-    this._syncMotionToArmadillo()
-    // trailing sparkles
-    if (Math.random() < 0.6) {
-      this.particleSystem.spawnBurst(
-        p.x + (Math.random() - 0.5) * 60,
-        p.y + (Math.random() - 0.5) * 60,
-        Math.random() < 0.5 ? 0xfff9c4 : 0x80deea, 2, 90,
-      )
+    const elapsed = MOON_ARRIVAL_SEC - this._moonArrivalTimer
+    const ax = this._moonLandX
+    const restY = this._moonSurfaceY + ARMADILLO_SIZE / 2   // armadillo center when planted
+    const rand = () => (Math.random() - 0.5)
+
+    if (elapsed < MOON_DESCENT_END) {
+      // 1) Hover-descent onto the surface, spin easing to a stop.
+      const k = THREE.MathUtils.smoothstep(elapsed / MOON_DESCENT_END, 0, 1)
+      const y = THREE.MathUtils.lerp(this._moonStartY, restY, k)
+      this.armadillo.position.set(ax, y, 0)
+      this.armadillo.rotation.z = THREE.MathUtils.lerp(this.armadillo.rotation.z, 0, Math.min(1, dt * 5))
+      if (Math.random() < 0.35) {
+        this.particleSystem.spawnBurst(ax + rand() * 50, y - 10, 0xfff9c4, 1, 50)
+      }
+    } else if (elapsed < MOON_LANDED_END) {
+      // 2) Touchdown: a moon-dust puff, a tiny settle, then standing still.
+      if (!this._moonLandedPuffed) {
+        this._moonLandedPuffed = true
+        this.particleSystem.spawnDirt(ax, this._moonSurfaceY, 18, 0xe8e3c8, 0xcfc8a8)
+        this.trauma = Math.min(1, this.trauma + 0.3)
+        this.flashTime = Math.max(this.flashTime, 0.18)
+        this._playTone(520, 0.14, 0.08, 'sine')
+        this._showBannerText(this._tutorialLang === 'ko' ? '내 꿈에 닿았어.' : 'I reached my dream.')
+      }
+      const settle = Math.sin(this.time * 6) * 1.6 * Math.max(0, 1 - (elapsed - MOON_DESCENT_END) / 0.45)
+      this.armadillo.position.set(ax, restY + settle, 0)
+      this.armadillo.rotation.z *= Math.pow(0.15, dt)   // settle upright
+    } else {
+      // 3) Afterglow / lingering — gentle rising sparkles before the clear screen.
+      this.armadillo.position.set(ax, restY, 0)
+      if (Math.random() < 0.5) {
+        this.particleSystem.spawnBurst(
+          ax + rand() * 140,
+          this._moonSurfaceY + 20 + Math.random() * 140,
+          Math.random() < 0.5 ? 0xfff9c4 : 0x80deea, 1, 60,
+        )
+      }
     }
+
+    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.velocity.set(0, 0)
+    this._syncMotionToArmadillo()
+
     if (this._moonArrivalTimer <= 0) {
       this._moonArrivalTimer = 0
-      this._reachMoon()
+      this._reachMoon()   // _reachMoon removes the moon ground
+    }
+  }
+
+  // Decorative moon surface shown only during the ending (a large pale disc whose
+  // top arc is the ground the armadillo lands on, with a few craters).
+  _buildMoonGround(x, surfaceTopY) {
+    this._removeMoonGround()
+    const g = new THREE.Group()
+    const R = 1700
+    const cy = surfaceTopY - R   // centre far below so the top arc sits at surfaceTopY
+    const body = new THREE.Mesh(
+      new THREE.CircleGeometry(R, 80),
+      new THREE.MeshBasicMaterial({ color: 0xe8e3c8 }),
+    )
+    body.position.set(x, cy, -0.5)
+    g.add(body)
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(R - 7, R, 80),
+      new THREE.MeshBasicMaterial({ color: 0xfffef0, transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
+    )
+    rim.position.set(x, cy, -0.49)
+    g.add(rim)
+    for (const [ox, depth, r] of [[-240, 70, 64], [200, 36, 48], [-30, 120, 40], [120, 150, 30]]) {
+      const cr = new THREE.Mesh(
+        new THREE.CircleGeometry(r, 28),
+        new THREE.MeshBasicMaterial({ color: 0xcfc8a8, transparent: true, opacity: 0.7 }),
+      )
+      cr.position.set(x + ox, surfaceTopY - depth, -0.48)
+      g.add(cr)
+    }
+    this._moonGround = g
+    this.renderer.add(g)
+  }
+
+  _removeMoonGround() {
+    if (this._moonGround) {
+      this.renderer.remove(this._moonGround)
+      this._disposeObject(this._moonGround)
+      this._moonGround = null
     }
   }
 
   _reachMoon() {
     if (this.sm.is(State.GAMEOVER)) return
     this.sm.transition(State.GAMEOVER)
+    this._removeMoonGround()
     this.velocity.set(0, 0)
     this.lastRating = 'MOON'
     // Fresh result screen — never inherit a previous run's registration state.
@@ -3397,11 +3480,13 @@ class Game {
   // tutorial subtitle and leaderboard, in the same crisp-outline style as items.
   _sceneIconSvg(type, targetH = 16) {
     if (type === 'sea') return this._pixelIconSvg(
-      ['.C.....C.', 'CCC...CCC', 'CCCCCCCCC', 'LCCCCCCCS', 'CCCCCCCCC'],
-      { C: '1597c8', L: '7fd4f0', S: '0b6e96' },
+      // Foam wave-crests (L) over a solid water body — reads clearly as a sea surface.
+      ['.L.L.L.L.', 'CCCCCCCCC', 'CCCCCCCCC', 'LCCCCCCCS', 'SSSSSSSSS'],
+      { C: '1597c8', L: '9fe8ff', S: '0b6e96' },
       '064a66', targetH)
     if (type === 'cloud') return this._pixelIconSvg(
-      ['...LCC...', '.LCCCCCS.', 'LCCCCCCCS', 'LCCCCCCCS', '.SSSSSSS.'],
+      // Two rounded bumps on a flat-bottomed body — a recognisable cloud.
+      ['..LC..CS.', '.LCCCCCCS', 'LCCCCCCCS', '.SSSSSSS.'],
       { C: 'eaf4ff', L: 'ffffff', S: 'bcd3e6' },
       '6a7f93', targetH)
     // moon (with a couple of darker craters)
@@ -3598,37 +3683,45 @@ class Game {
 
             ${ko ? `
             <div class="tutorial-section">
-              <div class="tutorial-section-title">🎯 목표</div>
-              <div class="tutorial-row">슬링샷으로 아르마딜로를 발사하여 최대한 높이, 멀리 날려보세요!</div>
+              <div class="tutorial-section-title">목표</div>
+              <div class="tutorial-row">슬링샷으로 아르마딜로를 발사해 최대한 높이, 멀리 날려보세요.</div>
             </div>
             <div class="tutorial-section">
-              <div class="tutorial-section-title">🕹️ 조작법</div>
-              <div class="tutorial-row">🖱️ <b>드래그</b>: 슬링샷 조준 및 발사</div>
-              <div class="tutorial-row">⬛ <b>Space 누르기</b>: 지형 위에서 가속 / 공중에서 회전</div>
-              <div class="tutorial-row">⬛ <b>Space 떼기</b>: 점프!</div>
-              <div class="tutorial-row">💀 <b>바다 추락</b>: 생명 1개 감소. Space/클릭으로 낙하 재시작</div>
+              <div class="tutorial-section-title">조작법</div>
+              <ul class="tutorial-list">
+                <li><b>드래그</b> — 슬링샷 조준 후 놓아서 발사</li>
+                <li><b>Space 누르기</b> — 지형 위 가속 / 공중 회전</li>
+                <li><b>Space 떼기</b> — 점프</li>
+                <li><b>바다 추락</b> — 생명 1 감소, Space·클릭으로 다시 낙하</li>
+              </ul>
             </div>
             <div class="tutorial-section">
-              <div class="tutorial-section-title">💡 팁</div>
-              <div class="tutorial-row">빠른 속도로 지형을 부수면 속도 폭발!</div>
-              <div class="tutorial-row">높이가 곧 점수 — 달까지 올라가면 보너스!</div>
+              <div class="tutorial-section-title">팁</div>
+              <ul class="tutorial-list">
+                <li>빠른 속도로 지형을 부수면 속도 폭발</li>
+                <li>높이가 곧 점수 — 달까지 오르면 보너스</li>
+              </ul>
             </div>
             ` : `
             <div class="tutorial-section">
-              <div class="tutorial-section-title">🎯 Objective</div>
-              <div class="tutorial-row">Fling the armadillo as high and far as possible — aim for the moon!</div>
+              <div class="tutorial-section-title">Objective</div>
+              <div class="tutorial-row">Fling the armadillo as high and far as possible — aim for the moon.</div>
             </div>
             <div class="tutorial-section">
-              <div class="tutorial-section-title">🕹️ Controls</div>
-              <div class="tutorial-row">🖱️ <b>Drag</b>: Aim and release the slingshot</div>
-              <div class="tutorial-row">⬛ <b>Hold Space</b>: Accelerate on terrain / spin in air</div>
-              <div class="tutorial-row">⬛ <b>Release Space</b>: Jump!</div>
-              <div class="tutorial-row">💀 <b>Sea fall</b>: Lose 1 life. Press Space/Click to drop again</div>
+              <div class="tutorial-section-title">Controls</div>
+              <ul class="tutorial-list">
+                <li><b>Drag</b> — aim and release the slingshot</li>
+                <li><b>Hold Space</b> — accelerate on terrain / spin in air</li>
+                <li><b>Release Space</b> — jump</li>
+                <li><b>Sea fall</b> — lose 1 life; press Space/Click to drop again</li>
+              </ul>
             </div>
             <div class="tutorial-section">
-              <div class="tutorial-section-title">💡 Tips</div>
-              <div class="tutorial-row">Smash terrain at high speed for a burst boost!</div>
-              <div class="tutorial-row">Altitude = score. Reach the moon for bonus points!</div>
+              <div class="tutorial-section-title">Tips</div>
+              <ul class="tutorial-list">
+                <li>Smash terrain at high speed for a burst of speed</li>
+                <li>Altitude is score — reach the moon for a bonus</li>
+              </ul>
             </div>
             `}
 
