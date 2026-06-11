@@ -139,7 +139,7 @@ Fires within 120 ms of falling off the right edge:
 
 ## Item System
 
-Three collectible item types float above terrain on a gentle bob animation. Items are placed via `ITEM_SPAWN_TABLE` (static layout, 29 entries) and `getProceduralItemSpec` (procedural islands 65+).
+Three collectible item types float above terrain on a gentle bob animation. Items are placed via `ITEM_SPAWN_TABLE` (static layout, 29 entries) and `getProceduralItemSpec` (islands beyond the static layout).
 
 | Item | Visual | Effect | Duration |
 | --- | --- | --- | --- |
@@ -153,7 +153,7 @@ Three collectible item types float above terrain on a gentle bob animation. Item
 
 ### Item icons
 
-All icons are pixel-art meshes built from rectangular blocks (`pixRect` helper, `ShapeGeometry`) with 1 pixel = P world units (P=3 for Rocket/Boost, P=2 for Heart). Each icon has a semi-transparent ring glow behind it and a gentle bob/pulse animation.
+All icons are pixel-art meshes built from a character grid via `buildPixelIcon`, which auto-wraps the whole silhouette in a clean 1px dark outline and shares the same light/core/shadow shading across all three types (1 pixel = 3 world units). The same grid + outline language is reused for the HUD effect-bar icons (rendered as inline SVG). Each in-world icon has a semi-transparent ring glow behind it and a gentle bob/pulse animation.
 
 ### Item positions
 
@@ -161,7 +161,7 @@ Items float 24–42 px above terrain top (`offsetY` in `ITEM_SPAWN_TABLE`). Proc
 
 ### Rocket effect
 
-Fires immediately on collect. If ROLLING, transitions to FALLING first. While active, Planck physics is bypassed every frame — the armadillo moves at constant (ROCKET_VX, ROCKET_VY) ≈ (779, 364) px/s at 25°; gravity is ignored. Orange flame particles trail behind. On expiry, `speedRatio += 0.35` and normal physics resumes.
+Fires immediately on collect. If ROLLING, transitions to FALLING first. While active, Planck physics is bypassed every frame — the armadillo moves at constant (ROCKET_VX, ROCKET_VY) ≈ (779, 364) px/s at 25°; gravity is ignored. Orange flame particles trail behind. On expiry, `speedRatio += 0.35` and normal physics resumes. While coasting down from the rocket (`_rocketCoasting` and descending), terrain destruction is suppressed so the high horizontal exit speed cannot tunnel through terrain — collision and landing work normally on the way down. The flag clears on the next landing, sea bounce or reset.
 
 ### Boost effect
 
@@ -182,15 +182,15 @@ Active Rocket and Boost bars appear in a standalone `.item-effects-panel` fixed 
 Destruction is fully self-contained in `_tryDestroyTerrain`. When it fires:
 
 1. Sweep the predicted path in steps; collect all un-damaged hit (island, x) pairs.
-2. Direction gate: skip steep downward impacts (|vy| > |vx| × 1.4) — those should land normally.
-3. For each hit: compute damage profile from speed; call `damageTerrain(island, x, radius, depth)`.
-4. Rebuild Planck fixtures for touched islands (`addTerrain`).
+2. Landing-vs-smash gate: a ball whose underside started this frame at or above the surface is **landing** and is skipped (`prevLower ≥ topY`). Of the rest, only a forward-dominant smash (`vx > 0`, `|vx| > |vy|`, `|vx| ≥ ~144 px/s`) or an upward punch-through from below (`vy > 0`) breaks terrain — plain falls and steep descents land normally.
+3. For each hit: compute damage profile from speed; call `damageTerrain(island, x, radius, depth)` and spawn debris tinted with that island's own soil/grass colors.
+4. Remove the touched islands' Planck bodies immediately (no fixture = no push-out) and queue them in `_pendingTerrainRebuild` for deferred rebuild. Islands that end up almost entirely cratered are flagged `destroyed`, hidden, and never rebuilt.
 5. Advance armadillo to exit position above the newly damaged zone.
-6. **Clamp exit vy to ≥ 0** — ball never exits pointing back into terrain.
+6. **Clamp exit vy to ≥ 0** for forward/downward hits — ball never exits pointing back into terrain (upward punch-throughs keep their vy).
 7. `speedRatio += 0.15`; exit speed = `speed × 1.05 + 40`.
 8. Call `flushContacts()` — puts ball body to sleep and wakes it to drop all Planck contact pairs.
-9. Set `_spawnGraceTimer = 2` — for 2 frames the Planck step is skipped entirely; position is manually integrated under gravity. This makes push-out impossible even if a rebuilt fixture overlaps the ball.
-10. Dirt particles and camera shake (no slowdown).
+9. Set `_spawnGraceTimer` to 5 frames (7 for upward hits) — while it counts down the Planck step is skipped entirely and position is manually integrated under gravity; queued fixtures are restored one frame before it expires. This makes push-out impossible even if a rebuilt fixture overlaps the ball.
+10. Terrain-colored debris particles and camera shake (no slowdown).
 
 ### No slowdown on destruction
 
@@ -218,7 +218,7 @@ Impulse magnitude = `baseGravity × FALL_ACCEL_MAX_MULT × ramp × altBlend`, wh
 
 ### Static layout (`src/game/terrain.js DEFAULT_ISLAND_LAYOUT`)
 
-105 hand-authored islands from x≈240 to x≈42540:
+100 hand-authored islands from x≈240 to x≈42540:
 
 | Section | Islands | Theme |
 | --- | --- | --- |
@@ -228,12 +228,12 @@ Impulse magnitude = `baseGravity × FALL_ACCEL_MAX_MULT × ramp × altBlend`, wh
 | 4 – Mid climb | 24–31 | Increasing height, more crests |
 | 5 – Pre-cloud | 32–39 | Destructible terrain, big hills |
 | 6 – Cloud entry | 40–47 | Wider platforms, valley chains |
-| 7 – High cloud | 48–64 | Big gaps, large hills, long runs |
-| 8 – Upper cloud | 65–76 | Broader platforms, gentler gaps |
-| 9 – Cloud–space transition | 77–92 | Tall steps, very wide platforms |
-| 10 – Deep space | 93–104 | Meteor-style, reduced gravity zone |
+| 7 – High cloud | 48–63 | Big gaps, large hills, long runs |
+| 8 – Upper cloud | 64–75 | Broader platforms, gentler gaps |
+| 9 – Cloud–space transition | 76–91 | Tall steps, very wide platforms |
+| 10 – Deep space | 92–99 | Meteor-style, reduced gravity zone |
 
-Procedural generation continues from island 105 onward using `generateNextIslandSpec`.
+Procedural generation continues from island 100 onward using `generateNextIslandSpec`.
 
 ### Shape variety
 
@@ -253,6 +253,10 @@ Four shape types — hill, valley, slope, bowl — are mixed within each section
 ### Top-surface collision
 
 Only the top surface counts as valid ground. Right-edge boundary (`bounds.right`) is enforced in both `_findGroundedIsland` and `_findLandingIsland` — past the right edge is rejected, preventing wall-riding on vertical side faces. When the armadillo crosses the right edge it is displaced outward with an upward velocity kick and `clearContacts()` is called to flush stale Planck contact events.
+
+### Left-entry ramp (auxiliary terrain)
+
+Each island extends a short rounded ramp to the left (`rampLeft = left − 60`) so the entry reads as one continuous surface. The ramp is part of the world, not just decoration: the Planck collision chain includes ramp samples (`_withRampPoints`, taken from `getTerrainTopY` so they match the visual exactly), so the armadillo lands on it instead of dropping through, and `getTerrainSlopeAngle` samples the actual ramp surface there — so the ramp obeys the same slope/friction/roll-back physics as normal ground rather than auto-pulling the ball uphill.
 
 ### Biomes
 
@@ -359,38 +363,43 @@ Displays final score, distance, and height. Contains:
 
 - Three.js `WebGLRenderer` with `OrthographicCamera`.
 - Fixed-timestep accumulator game loop (1/60 s) with position interpolation.
-- Procedural sky shader (sea blue → cloud white → space black).
+- Procedural sky shader (sea blue → cloud white → space black) plus parallax scenery (sun, mountains, clouds) and an animated foam sea.
 - Bloom, chromatic aberration, vignette via `postprocessing`.
-- Instanced particles (dirt, burst, flame, rating text, splash, ripple).
+- Instanced particles (dirt/debris with per-terrain colors, burst, flame, rating text, splash, ripple); animated terrain debris chunks on destruction.
+- Terrain-clipped contact shadow: a strip rebuilt each frame to follow the ground surface directly beneath the armadillo, drawn only where it overlaps terrain.
 
 ## Implementation Map
 
 ```text
 src/main.js
   Game state machine, input isolation, slingshot drag, armadillo physics,
-  rolling, flight, open-air fall acceleration, terrain destruction
-  (_tryDestroyTerrain, _breakTerrainAt, _carveLaunchPath),
+  rolling, gravity-based slope physics, flight, open-air fall acceleration,
+  terrain destruction (_tryDestroyTerrain, _carveLaunchPath),
+  rocket coast handling (_rocketCoasting descent destruction-suppression),
   sea bounce + respawn (_doSeaBounce, _activateRespawn, _respawnWaiting),
   right-edge escape (_fallOff with fromRightEdge flag),
+  off-screen island/item culling (_cullBehind), terrain-clipped contact shadow,
   camera follow, HUD (_renderHud — tutorial / game / game-over screens),
   scoreboard wiring (_saveScoreWithName), item collection + effects
 
 src/game/terrain.js
   Shape generation (hill/valley/slope/bowl), biome config,
-  105-island static layout, procedural continuation,
-  damage system (damageTerrain, isTerrainDamagedAt, getTerrainTopY)
+  100-island static layout, procedural continuation,
+  left-entry ramp surface/slope (getTerrainTopY, getTerrainSlopeAngle),
+  damage system (damageTerrain, isTerrainDamagedAt, isTerrainFullyDestroyed)
 
 src/game/physics.js
-  Planck.js world, ChainShape terrain fixtures, bullet CCD,
-  gravity scaling by altitude, flushContacts() (sleep/wake trick),
+  Planck.js world, ChainShape terrain fixtures (incl. ramp via _withRampPoints),
+  bullet CCD, gravity scaling by altitude, flushContacts() (sleep/wake trick),
   clearContacts(), setArmadilloPos(), setArmadilloVelocity()
 
 src/game/particles.js
-  Instanced geometry particle system (dirt, burst, flame, splash, ripple, rating)
+  Instanced geometry particle system (dirt/debris with per-terrain colors,
+  burst, flame, splash, ripple, rating)
 
 src/game/items.js
-  Item types (rocket/boost/heart), ITEM_SPAWN_TABLE, pixel-art mesh builders
-  (pixRect helper, ShapeGeometry blocks, P=3 for rocket/boost, P=2 for heart),
+  Item types (rocket/boost/heart), ITEM_SPAWN_TABLE, grid-based pixel-art
+  mesh builder (buildPixelIcon — auto 1px outline, P=3 for all),
   createItem, updateItems, checkItemCollection, markCollected,
   getProceduralItemSpec
 
@@ -416,14 +425,16 @@ Implemented:
 - Wooden arcade slingshot visual (Y-shape, knots, rubber bands)
 - Curled armadillo with spin identity
 - Procedural terrain (hill/valley/slope/bowl) with biomes
-- 105-island hand-authored static layout + unlimited procedural continuation
-- Terrain destruction: momentum-preserving, push-out-free (2-frame Planck bypass grace window, flushContacts)
+- 100-island hand-authored static layout + unlimited procedural continuation
+- Terrain destruction: momentum-preserving, push-out-free (5–7 frame Planck bypass grace window, flushContacts), debris tinted to the broken terrain's own soil/grass colors, fully-cratered islands dropped entirely
+- Rocket coast safety: while descending after a rocket, destruction is suppressed so the high horizontal exit speed can't tunnel through terrain — landing works normally
+- Gravity-based slope physics: without input the ball coasts under real gravity + friction (uphill decelerate → stop → roll back, downhill accelerate); the left-entry ramp obeys the same rules
 - Sea splash failure with 3-life bounce system + hover-wait respawn (straight-down drop on Space/Click)
 - Right-edge escape: upward kick + clearContacts prevents wall-sliding
 - Item system: Rocket, Boost, Heart — pixel-art collectible pickups with immediate and timed effects
   - Rocket: 25°, 860 px/s, 2.0 s thrust
   - Boost: 10 s passive speed gain (+0.22/s rolling), repeating jump bonus (+320 vy), not consumed on jump
-  - Item icons redesigned as pixel-art meshes (rectangular block segments)
+  - Item icons built from a character grid with auto 1px outline; HUD effect-bar icons share the same pixel-art look (inline SVG)
   - Item positions lowered ~20 px (offsetY 24–42 px above terrain)
 - Cloud speed bonus and meteor reduced gravity
 - Open-air fall acceleration (cloud/space layers, terrain-aware suppression)
@@ -440,5 +451,9 @@ Implemented:
 - Input isolation: UI clicks never bleed into gameplay; start-game button consumes its own pointerup; 300 ms `_slingBlockUntil` dead zone prevents double-click from triggering sling drag
 - Item effects panel: standalone fixed div below stats, 10 px horizontal gauge bars, 18 px icons
 - Power gauge: 22 × 168 px, shown only while actively dragging sling
-- Terrain left-entry ramp: grass mesh extended over ramp area for continuous visual (rampLeft = left − 60)
+- Terrain left-entry ramp (auxiliary terrain): grass/soil mesh, Planck collision chain, and slope physics all extended over the ramp (rampLeft = left − 60) so it lands and rolls like normal ground
+- Off-screen culling: islands/items the camera has long passed are removed (bodies + GPU resources freed) so long runs stay bounded
+- Terrain-clipped contact shadow: a strip rebuilt each frame to ride the ground surface directly below the armadillo (only shown where it overlaps terrain)
+- Wood-themed menus (result / leaderboard / restart / best-record badge) and wooden SPACE keycap
+- Low-speed prompt while rolling (no fake game-over countdown — stalling never ends the run)
 - GitHub Pages deployment at https://hundredman.github.io/armadillo-rush/

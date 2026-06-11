@@ -12,9 +12,20 @@ Armadillo Rush is a 2D arcade physics game built with Three.js and Planck.js.
 
 The player launches a curled armadillo from a wooden slingshot, lands on floating terrain islands, and uses hold-and-release timing to build speed and jump between islands. The world climbs from bright sea and sky through cloud terrain into low-gravity space toward the moon.
 
+It runs on the desktop (mouse + keyboard); nearly all visuals are generated in code rather than drawn as sprites.
+
+## Graphics & Implementation Highlights
+
+- **Physics-based movement** — Planck.js (bullet CCD) drives flight and landings; rolling uses a gravity-projected slope model so the armadillo coasts, stalls and rolls back naturally on inclines instead of being scripted forward.
+- **Destructible terrain** — the armadillo smashes through soft soil; craters are carved into the live mesh, debris chunks are flung and tinted to the broken terrain's own soil/grass colors (brown earth, white cloud, grey meteor), and the Planck collision is rebuilt to match — including for the left-entry "ramp" auxiliary terrain.
+- **Terrain-clipped contact shadow** — the shadow geometry is rebuilt each frame to ride the ground surface directly beneath the armadillo and is drawn only where it actually overlaps terrain, so it reads as a real dropped shadow rather than a floating disc.
+- **Layered sky & parallax** — a procedural sky shader blends sea → cloud → space by altitude, with parallax scenery (sun, mountains, drifting clouds) and an animated foam sea; bloom, chromatic aberration and vignette are applied as post effects.
+- **Pixel-art & themed UI** — item icons (rocket / boost / heart) are built from character grids with an automatic crisp outline and consistent shading, reused as inline SVG in the HUD; menus, the best-record badge and the on-screen SPACE key share a wooden/arcade theme matching the slingshot.
+- **Instanced particle system** — dirt, bursts, rocket flame trails, sea splash and ripple rings run through a single instanced geometry pass.
+
 ## Gameplay
 
-1. **Read the tutorial** — shown on the start screen in Korean and English. Click **시작하기 / Start Game** to begin.
+1. **Read the tutorial** — shown on the start screen in one language at a time (Korean by default). A **한국어 / English** pill toggle switches the whole card; click the **시작하기** (or **Start Game**) button to begin.
 2. **Drag the slingshot pouch** and release to launch. A vertical power bar on the left shows pull strength.
 3. **Land on terrain** — the armadillo rolls freely.
 4. **Hold** Space → accelerate while rolling.
@@ -70,10 +81,10 @@ Key rules:
 The armadillo punches through soft terrain above a minimum speed threshold:
 
 - Planck physics is bypassed entirely for the impact frame — no bounce-back.
-- After destruction the armadillo coasts through a 2-frame grace window (pure JS integration, Planck fully off) so no push-out impulse is possible.
-- Dirt particles burst from the impact point.
+- After destruction the armadillo coasts through a short grace window (5 frames, 7 for upward punch-throughs) of pure JS integration with the Planck step off, so no push-out impulse is possible; the cleared fixtures are rebuilt just before it ends.
+- Debris particles burst from the impact point, tinted to the broken terrain's own soil/grass colors.
 - Speed is preserved and receives a small forward bonus.
-- Destruction is continuous: successive frames keep breaking until the ball exits.
+- Destruction is continuous: successive frames keep breaking until the ball exits. A simple top-down landing is **not** treated as a smash, and an island that ends up fully cratered is dropped entirely (no leftover collision).
 
 Thresholds:
 - Soft-break entry: ~176 px/s
@@ -142,10 +153,10 @@ src/
 │                         #   vertical power gauge
 ├── game/
 │   ├── terrain.js        # Terrain generation (hill/valley/slope/bowl), biomes,
-│   │                     #   105-island static layout + procedural continuation,
-│   │                     #   damage system (damageTerrain, getTerrainTopY)
-│   ├── items.js          # Rocket / Boost / Heart: spawn table, meshes,
-│   │                     #   collection, animation, effect constants
+│   │                     #   100-island static layout + procedural continuation,
+│   │                     #   left-entry ramp surface/slope, damage system
+│   ├── items.js          # Rocket / Boost / Heart: spawn table, grid-based
+│   │                     #   pixel-art icons, collection, effect constants
 │   ├── particles.js      # Instanced particle effects (dirt, burst, flame, splash)
 │   ├── physics.js        # Planck.js world: terrain fixtures, gravity, flushContacts
 │   └── scoreboard.js     # Local leaderboard (localStorage), player name storage
@@ -164,6 +175,9 @@ scripts/
 
 ## Assets and License
 
-- Kenney assets in `src/assets/kenney/` are CC0. See [ATTRIBUTION.md](ATTRIBUTION.md).
-- Game-icons assets in `src/assets/game-icons/` are CC BY 3.0.
-- Elthen sprite sheet in `src/assets/elthen/` is used with permission per itch.io listing terms.
+Most of the visuals are generated in code (procedural terrain meshes, the wooden slingshot, pixel-art item icons, particles, shaders). The only external image assets are:
+
+- Elthen armadillo sprite sheet in `src/assets/elthen/` — used for the armadillo, per the itch.io listing terms.
+- Slingshot icon in `src/assets/game-icons/` — Delapouite, CC BY 3.0.
+
+Full attribution: [ATTRIBUTION.md](ATTRIBUTION.md).
