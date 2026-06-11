@@ -1085,17 +1085,23 @@ button {
 .dev-item-btn {
   width: 48px;
   height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--wood-edge);
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgba(214, 162, 110, 0.10), rgba(0, 0, 0, 0) 50%),
     linear-gradient(180deg, var(--wood-dark) 0%, var(--wood-darker) 100%);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--wood-edge-hi);
-  color: #fff;
-  font-size: 22px;
   line-height: 1;
   cursor: pointer;
   transition: transform 80ms ease, filter 80ms ease;
+}
+
+.dev-item-btn svg {
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
 }
 
 .dev-item-btn:hover { filter: brightness(1.1); }
@@ -1105,3 +1111,35 @@ button {
 .dev-item-btn.rocket { box-shadow: 0 6px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,109,0,0.35); }
 .dev-item-btn.boost  { box-shadow: 0 6px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,214,0,0.35); }
 .dev-item-btn.heart  { box-shadow: 0 6px 16px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,23,68,0.35); }
+
+/* ── Atmospheric zone banner (Only-Up-style flavor text) ────────────────── */
+.zone-banner {
+  position: fixed;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 18;
+  max-width: min(560px, calc(100vw - 40px));
+  padding: 7px 18px;
+  border-radius: 999px;
+  text-align: center;
+  white-space: nowrap;
+  color: #fff;
+  font-size: clamp(15px, 2.4vw, 22px);
+  font-weight: 1000;
+  letter-spacing: 0.01em;
+  background: rgba(5, 7, 19, 0.42);
+  border: 1px solid rgba(255, 213, 79, 0.30);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7), 0 0 14px rgba(255, 213, 79, 0.35);
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+/* Inline pixel scene icons (sea/cloud/moon) replacing emoji in the tutorial
+   subtitle and leaderboard rows — keep them aligned with the text baseline. */
+.tutorial-subtitle svg,
+.lb-name svg {
+  vertical-align: middle;
+  margin-bottom: 2px;
+}
+.tutorial-subtitle svg { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45)); }

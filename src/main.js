@@ -99,6 +99,22 @@ const CULL_BEHIND_PX = 2800
 // Deliberately an uncommon sequence so a normal player won't trigger it.
 const DEV_CODE = 'armadev'
 
+// ── Atmospheric zone banners (Only-Up-style flavor text) ─────────────────────
+// Shown once each, in order, as the armadillo's altitude (heightRatio 0→1)
+// crosses each threshold.  Intentionally a bit over-the-top / "jank-game" vibe.
+const BANNER_SEC = 2.8
+// Armadillo's first-person climb toward its dream of reaching the moon.
+// No emoji; a little earnest and clumsy, but heartfelt — and the moon feels
+// closer at every altitude band.
+const ZONE_BANNERS = [
+  { at: 0.16, ko: '땅보다 하늘이 더 가까워졌어.',        en: 'The sky feels closer than the ground now.' },
+  { at: 0.34, ko: '구름 위에서도 달은 잘 보여.',         en: 'Even above the clouds, I can still see the moon.' },
+  { at: 0.55, ko: '등껍질은 무겁지만, 벌써 절반은 왔어.', en: 'My shell is heavy, but I am already halfway there.' },
+  { at: 0.70, ko: '여기는 별들 사이야. 조금만 더.',      en: 'I am among the stars now. Just a little more.' },
+  { at: 0.88, ko: '달빛이 점점 가까워지고 있어.',        en: 'The moonlight is getting closer and closer.' },
+]
+const MOON_ARRIVAL_SEC = 1.6   // short cinematic before the clear screen
+
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
 const UNDER_BREAK_SPEED = 320
@@ -232,6 +248,14 @@ class Game {
     this._infiniteLives = false   // when ON, lives never drop and the sea never ends the run
     this._devItemButtons = false  // when ON, show on-screen rocket/boost/heart test buttons
     this._devCodeBuf = ''
+
+    // Zone banner + moon-arrival state (also reset each run in _resetCommonRunState)
+    this._zoneShown = -1
+    this._bannerText = ''
+    this._bannerTimer = 0
+    this._introBannerShown = false
+    this._moonArrivalTimer = 0
+    this._moonArrivalPos = null
 
     // Respawn state — armadillo hovers at spawn position until player inputs
     this._respawnWaiting = false
@@ -1489,6 +1513,13 @@ class Game {
     this.activeRocket = null
     this._rocketCoasting = false
     this.activeBoost = null
+    // Zone banners + moon-arrival cinematic state
+    this._zoneShown = -1
+    this._bannerText = ''
+    this._bannerTimer = 0
+    this._introBannerShown = false
+    this._moonArrivalTimer = 0
+    this._moonArrivalPos = null
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
     this.armadillo.position.set(pocket.x, pocket.y, 0)
@@ -1640,6 +1671,12 @@ class Game {
     this._carveLaunchPath()
     this._triggerLaunchImpact()
     this._playTone(220 + power * 260, 0.12, 0.08 + power * 0.06, 'square')
+
+    // First launch of the run — the armadillo sets out toward its dream.
+    if (!this._introBannerShown) {
+      this._introBannerShown = true
+      this._showBannerText(this._tutorialLang === 'ko' ? '달까지 날아갈 거야.' : 'I am going to fly all the way to the moon.')
+    }
   }
 
   // ── Shared jump/launch helpers ────────────────────────────────────────────
@@ -1841,7 +1878,10 @@ class Game {
     this.time += simDt
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this._setArmadilloSprite('jump')
-      if (this._respawnWaiting) {
+      if (this._moonArrivalTimer > 0) {
+        // Moon arrival cinematic — float in place until it hands off to the clear screen.
+        this._updateMoonArrival(dt)
+      } else if (this._respawnWaiting) {
         // Freeze at respawn position until player presses Space / Click
         const rp = this._respawnPos
         this.armadillo.position.set(rp.x, rp.y, 0)
@@ -1875,6 +1915,12 @@ class Game {
     this._updateEffects(dt)
     this._tickSlingSnap(dt)
     this._updateScenery()
+
+    // Atmospheric zone banners — only during active flight/roll, real-time fade.
+    if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)) {
+      this._updateZoneBanners()
+    }
+    if (this._bannerTimer > 0) this._bannerTimer = Math.max(0, this._bannerTimer - dt)
 
     this.bestHeightPx = Math.max(this.bestHeightPx, this.armadillo.position.y - SLING_POS.y)
     this.bestDistancePx = Math.max(this.bestDistancePx, this.armadillo.position.x - SLING_POS.x)
@@ -1983,7 +2029,7 @@ class Game {
       }
 
       // Always check moon/sea even during rocket (player could collect one near the boundary)
-      if (this.armadillo.position.y >= MOON_TARGET_Y) { this._reachMoon(); return }
+      if (this.armadillo.position.y >= MOON_TARGET_Y) { this._beginMoonArrival(); return }
       if (this.armadillo.position.y < SEA_LEVEL_Y)    { this._beginSplashGameOver(this.armadillo.position.x); return }
       return
     }
@@ -2019,7 +2065,7 @@ class Game {
       this.physics.moveArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
       this.physics.setArmadilloVelocity(this.velocity.x, this.velocity.y)
       // Still check for moon/sea boundary
-      if (this.armadillo.position.y >= MOON_TARGET_Y) { this._reachMoon(); return }
+      if (this.armadillo.position.y >= MOON_TARGET_Y) { this._beginMoonArrival(); return }
       if (this.armadillo.position.y < SEA_LEVEL_Y)    { this._beginSplashGameOver(this.armadillo.position.x); return }
 
       // Restore terrain fixtures one frame before grace fully expires so the ball
@@ -2071,9 +2117,9 @@ class Game {
       }
     }
 
-    // ③ moon reached — final goal
+    // ③ moon reached — final goal (short arrival cinematic, then clear screen)
     if (state.y >= MOON_TARGET_Y) {
-      this._reachMoon()
+      this._beginMoonArrival()
       return
     }
 
@@ -2086,6 +2132,69 @@ class Game {
     // ⑤ below camera view — safety net
     if (state.y < this.camPos.y - 600) {
       this._beginSplashGameOver(state.x)
+    }
+  }
+
+  // ── Zone banner ─────────────────────────────────────────────────────────────
+  _showBannerText(text) {
+    this._bannerText = text
+    this._bannerTimer = BANNER_SEC
+  }
+
+  // Show the highest altitude-zone banner the armadillo has just crossed (once each).
+  _updateZoneBanners() {
+    if (this._moonArrivalTimer > 0) return   // keep the moon-arrival banner showing
+    const hr = this._getHeightRatio()
+    let i = this._zoneShown + 1
+    while (i < ZONE_BANNERS.length && hr >= ZONE_BANNERS[i].at) {
+      this._zoneShown = i
+      const z = ZONE_BANNERS[i]
+      this._showBannerText(this._tutorialLang === 'ko' ? z.ko : z.en)
+      i++
+    }
+  }
+
+  // ── Moon arrival cinematic ──────────────────────────────────────────────────
+  // Short float + sparkle + slow-mo before handing off to the clear screen, so
+  // the moon doesn't pop straight into the game-over UI.
+  _beginMoonArrival() {
+    if (this._moonArrivalTimer > 0 || this.sm.is(State.GAMEOVER)) return
+    this._moonArrivalTimer = MOON_ARRIVAL_SEC
+    const ax = this.armadillo.position.x
+    const ay = Math.min(this.armadillo.position.y, MOON_TARGET_Y)
+    this._moonArrivalPos = new THREE.Vector2(ax, ay)
+    this.velocity.set(0, 0)
+    this.physics.setArmadilloVelocity(0, 0)
+    this.activeRocket = null
+    this.lastRating = 'MOON'
+    this.slowmoTime = Math.max(this.slowmoTime, 0.55)
+    this.trauma = Math.min(1, this.trauma + 0.35)
+    this.flashTime = Math.max(this.flashTime, 0.28)
+    this._showBannerText(this._tutorialLang === 'ko' ? '내 꿈에 닿았어.' : 'I reached my dream.')
+    this.particleSystem.spawnBurst(ax, ay, 0xfff9c4, 40, 280)
+    this._playTone(880, 0.3, 0.12, 'sine')
+  }
+
+  _updateMoonArrival(dt) {
+    this._moonArrivalTimer -= dt
+    const p = this._moonArrivalPos
+    const bob = Math.sin(this.time * 3) * 6
+    this.armadillo.position.set(p.x, p.y + bob, 0)
+    this.physics.setArmadilloPos(p.x, p.y + bob)
+    this.velocity.set(0, 0)
+    this.armadillo.rotation.z -= 2 * dt
+    this._syncMotionToArmadillo()
+    // trailing sparkles
+    if (Math.random() < 0.6) {
+      this.particleSystem.spawnBurst(
+        p.x + (Math.random() - 0.5) * 60,
+        p.y + (Math.random() - 0.5) * 60,
+        Math.random() < 0.5 ? 0xfff9c4 : 0x80deea, 2, 90,
+      )
+    }
+    if (this._moonArrivalTimer <= 0) {
+      this._moonArrivalTimer = 0
+      this._reachMoon()
     }
   }
 
@@ -3266,6 +3375,42 @@ class Game {
     return `<svg width="${w}" height="${targetH}" viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`
   }
 
+  // Pixel-art SVG for an item type, sharing the exact grids/palettes of the
+  // in-world item meshes.  Reused by the HUD effect bars and the dev item buttons.
+  _itemIconSvg(type, targetH = 18) {
+    if (type === 'rocket') return this._pixelIconSvg(
+      ['...C...', '..LCS..', '..LCS..', '..LGS..', '..LgS..', '..LCS..', '.NLCSN.', '.NLCSN.', '..LCS..', '..FFF..', '...f...'],
+      { C: 'ff6d00', L: 'ffc266', S: 'c23d00', G: '12303f', g: '9fe3ff', F: 'ffce3a', f: 'fff3b0', N: 'ff3d00' },
+      '2a1200', targetH)
+    if (type === 'boost') return this._pixelIconSvg(
+      ['...CC.', '..LCS.', '..LCS.', '.LCCC.', '.CCCS.', '..LCS.', '..LCS.', '.LCS..', '.CC...'],
+      { C: 'ffd600', L: 'fff9c4', S: 'c9a200' },
+      '3a2500', targetH)
+    // heart
+    return this._pixelIconSvg(
+      ['.LCC.CCS.', 'LLCCCCCSS', 'LCCCCCCCS', '.LCCCCCS.', '..LCCCS..', '...LCS...', '....C....'],
+      { C: 'ff1744', L: 'ff8a9a', S: 'b3122f' },
+      '4d0010', targetH)
+  }
+
+  // Small pixel-art scene icons (sea / cloud / moon) that replace emoji in the
+  // tutorial subtitle and leaderboard, in the same crisp-outline style as items.
+  _sceneIconSvg(type, targetH = 16) {
+    if (type === 'sea') return this._pixelIconSvg(
+      ['.C.....C.', 'CCC...CCC', 'CCCCCCCCC', 'LCCCCCCCS', 'CCCCCCCCC'],
+      { C: '1597c8', L: '7fd4f0', S: '0b6e96' },
+      '064a66', targetH)
+    if (type === 'cloud') return this._pixelIconSvg(
+      ['...LCC...', '.LCCCCCS.', 'LCCCCCCCS', 'LCCCCCCCS', '.SSSSSSS.'],
+      { C: 'eaf4ff', L: 'ffffff', S: 'bcd3e6' },
+      '6a7f93', targetH)
+    // moon (with a couple of darker craters)
+    return this._pixelIconSvg(
+      ['..LCC..', '.LCCCS.', 'LCCgCCS', 'LCCCCCS', 'LCgCCCS', '.LCCCS.', '..SSS..'],
+      { C: 'fff3b0', L: 'fffef0', S: 'd9c98a', g: 'cdbd86' },
+      '5c4f28', targetH)
+  }
+
   _renderHud() {
     if (!this.ui) return
     // Never destroy the nickname input while the user is actively typing —
@@ -3322,7 +3467,7 @@ class Game {
 
     // distance remaining to moon
     const moonDistM = Math.max(0, Math.floor((MOON_TARGET_Y - this.armadillo.position.y) / PX_PER_METER))
-    const moonDistText = moonDistM > 0 ? `${moonDistM}m` : '🌕 REACHED!'
+    const moonDistText = moonDistM > 0 ? `${moonDistM}m` : 'REACHED!'
 
     // sling power meter (shown only while actively dragging — hidden before pull and after launch)
     const slingMeter = this.sm.is(State.SLINGING) && this.slingDragging && this.slingPower > 0.05 ? `
@@ -3348,6 +3493,17 @@ class Game {
       ? `<div class="lives-hud lives-infinite">${heartSvg(true)}<span class="lives-inf">∞</span></div>`
       : `<div class="lives-hud">${[1, 2, 3].map(i => heartSvg(i <= this.lives)).join('')}</div>`
 
+    // Atmospheric zone banner — fades in/out over its lifetime, sits between the
+    // lives display (top) and the armadillo (centre).
+    const bt = this._bannerTimer
+    const bannerOpacity = Math.min(
+      THREE.MathUtils.clamp((BANNER_SEC - bt) / 0.25, 0, 1),
+      THREE.MathUtils.clamp(bt / 0.5, 0, 1),
+    )
+    const zoneBannerHud = (isGameActive && bt > 0)
+      ? `<div class="zone-banner" style="opacity:${bannerOpacity.toFixed(3)}">${this._bannerText}</div>`
+      : ''
+
     // ── Leaderboard rows HTML ──────────────────────────────────────────────
     // Compact view: top 5, plus a small window around the current player if they
     // rank below the top — never the whole list, so it fits without scrolling.
@@ -3365,7 +3521,7 @@ class Game {
       lbRowsHtml = lb.map(e => {
         const self = rowIsSelf(e)
         const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank
-        const moonBadge = e.moonClear ? ' 🌕' : ''
+        const moonBadge = e.moonClear ? ` ${this._sceneIconSvg('moon', 13)}` : ''
         const nm = e.name || (lbKo ? '익명' : 'Anonymous')
         const meta = lbKo ? `${e.heightM}m 높이 · ${e.distanceM}m 거리` : `${e.heightM}m high · ${e.distanceM}m far`
         const selfTag = self ? `<span class="lb-self-tag">${lbKo ? '내 기록' : 'YOU'}</span>` : ''
@@ -3386,16 +3542,8 @@ class Game {
     const boostPct = this.activeBoost
       ? Math.ceil((this.activeBoost.timeLeft / ITEM_BOOST_DURATION) * 100)
       : 0
-    const rocketIconSvg = this._pixelIconSvg(
-      ['...C...', '..LCS..', '..LCS..', '..LGS..', '..LgS..', '..LCS..', '.NLCSN.', '.NLCSN.', '..LCS..', '..FFF..', '...f...'],
-      { C: 'ff6d00', L: 'ffc266', S: 'c23d00', G: '12303f', g: '9fe3ff', F: 'ffce3a', f: 'fff3b0', N: 'ff3d00' },
-      '2a1200',
-    )
-    const boostIconSvg = this._pixelIconSvg(
-      ['...CC.', '..LCS.', '..LCS.', '.LCCC.', '.CCCS.', '..LCS.', '..LCS.', '.LCS..', '.CC...'],
-      { C: 'ffd600', L: 'fff9c4', S: 'c9a200' },
-      '3a2500',
-    )
+    const rocketIconSvg = this._itemIconSvg('rocket')
+    const boostIconSvg = this._itemIconSvg('boost')
     const itemEffectsHTML = isGameActive && (this.activeRocket || this.activeBoost) ? `
       <div class="item-effects-panel">
         ${this.activeRocket ? `
@@ -3418,6 +3566,7 @@ class Game {
 
     this.ui.innerHTML = `
       ${isGameActive ? livesHud : ''}
+      ${zoneBannerHud}
       <div class="hud-panel hud-stats">
         <div><span>STATE</span><strong>${phaseText}</strong></div>
         <div><span>SCORE</span><strong>${score}</strong></div>
@@ -3440,7 +3589,7 @@ class Game {
         <div class="tutorial-layer">
           <div class="tutorial-card">
             <div class="tutorial-game-title">ARMADILLO RUSH</div>
-            <div class="tutorial-subtitle">${ko ? '🌊 바다 → ☁️ 하늘 → 🌕 달' : '🌊 Sea → ☁️ Sky → 🌕 Moon'}</div>
+            <div class="tutorial-subtitle">${this._sceneIconSvg('sea', 18)} ${ko ? '바다' : 'Sea'} → ${this._sceneIconSvg('cloud', 18)} ${ko ? '하늘' : 'Sky'} → ${this._sceneIconSvg('moon', 18)} ${ko ? '달' : 'Moon'}</div>
 
             <div class="tutorial-lang-toggle">
               <button type="button" class="clickable lang-btn${ko ? ' is-active' : ''}" data-action="toggle-lang">한국어</button>
@@ -3513,8 +3662,8 @@ class Game {
       ${this.sm.is(State.GAMEOVER) ? (() => {
         const ko = this._tutorialLang === 'ko'
         const goTitle = isMoonClear
-          ? (ko ? '🌕 달 도달!' : '🌕 MOON REACHED!')
-          : (this.lastRating === 'SPLASH' ? (ko ? '🌊 바다에 빠졌어요!' : '🌊 SPLASH!') : (ko ? '게임 오버' : 'GAME OVER'))
+          ? (ko ? '달에 도착했다!' : 'I made it to the moon!')
+          : (this.lastRating === 'SPLASH' ? (ko ? '바다에 빠졌어...' : 'Fell into the sea...') : (ko ? '게임 오버' : 'GAME OVER'))
         const goTitleClass = isMoonClear ? 'result-title moon-clear' : 'result-title'
         return `
         <div class="modal-layer">
@@ -3602,9 +3751,9 @@ class Game {
         const dis = playing ? '' : 'disabled'
         return `
         <div class="dev-item-bar">
-          <button type="button" class="clickable dev-item-btn rocket" data-action="dev-item-rocket" ${dis}>🚀</button>
-          <button type="button" class="clickable dev-item-btn boost" data-action="dev-item-boost" ${dis}>⚡</button>
-          <button type="button" class="clickable dev-item-btn heart" data-action="dev-item-heart" ${dis}>❤</button>
+          <button type="button" class="clickable dev-item-btn rocket" data-action="dev-item-rocket" ${dis}>${this._itemIconSvg('rocket', 28)}</button>
+          <button type="button" class="clickable dev-item-btn boost" data-action="dev-item-boost" ${dis}>${this._itemIconSvg('boost', 28)}</button>
+          <button type="button" class="clickable dev-item-btn heart" data-action="dev-item-heart" ${dis}>${this._itemIconSvg('heart', 28)}</button>
         </div>`
       })() : ''}
 

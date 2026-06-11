@@ -86,6 +86,28 @@ export const ITEM_SPAWN_TABLE = [
   { islandIndex: 60, offsetX:  45, offsetY: 26, type: 'rocket' },
   { islandIndex: 62, offsetX: -20, offsetY: 30, type: 'boost'  },
   { islandIndex: 64, offsetX:  10, offsetY: 26, type: 'rocket' },
+
+  // ── Section 8 (upper cloud) — keep the climb stocked ──────────────────────
+  { islandIndex: 66, offsetX: -35, offsetY: 28, type: 'boost'  },
+  { islandIndex: 68, offsetX:  45, offsetY: 26, type: 'rocket' },
+  { islandIndex: 71, offsetX:   0, offsetY: 40, type: 'heart'  },  // fourth heart
+  { islandIndex: 73, offsetX: -25, offsetY: 28, type: 'boost'  },
+  { islandIndex: 75, offsetX:  40, offsetY: 26, type: 'rocket' },
+
+  // ── Section 9 (cloud–space transition) ────────────────────────────────────
+  { islandIndex: 77, offsetX: -30, offsetY: 30, type: 'boost'  },
+  { islandIndex: 79, offsetX:  50, offsetY: 26, type: 'rocket' },
+  { islandIndex: 82, offsetX: -20, offsetY: 28, type: 'boost'  },
+  { islandIndex: 84, offsetX:   0, offsetY: 42, type: 'heart'  },  // fifth heart
+  { islandIndex: 86, offsetX:  45, offsetY: 26, type: 'rocket' },
+  { islandIndex: 88, offsetX: -30, offsetY: 30, type: 'boost'  },
+  { islandIndex: 90, offsetX:  35, offsetY: 26, type: 'rocket' },
+
+  // ── Section 10 (deep space) — reduced gravity, reward the final push ──────
+  { islandIndex: 92, offsetX: -25, offsetY: 28, type: 'boost'  },
+  { islandIndex: 94, offsetX:  50, offsetY: 26, type: 'rocket' },
+  { islandIndex: 96, offsetX:   0, offsetY: 42, type: 'heart'  },  // sixth heart
+  { islandIndex: 98, offsetX: -30, offsetY: 30, type: 'boost'  },
 ]
 
 // Colors by item type
@@ -265,12 +287,14 @@ export function createItem(type, x, y) {
  * Returns null or { type, offsetX, offsetY }.
  */
 export function getProceduralItemSpec(islandIndex) {
-  // Rocket every 10 islands, boost every 14, heart every 28
-  const rel = islandIndex - 65
+  // The static layout ends at island 99; the endless procedural section starts at
+  // 100.  Keep items flowing here (roughly one every ~7 islands, hearts rarer) so
+  // high altitudes never run dry — earlier the cadence effectively thinned out.
+  const rel = islandIndex - 100
   if (rel < 0) return null
-  if (rel % 28 === 0) return { type: 'heart', offsetX: 0,   offsetY: 34 }
-  if (rel % 14 === 0) return { type: 'boost', offsetX: -30, offsetY: 28 }
-  if (rel % 10 === 0) return { type: 'rocket', offsetX: 40, offsetY: 26 }
+  if (rel % 23 === 0) return { type: 'heart',  offsetX: 0,   offsetY: 34 }
+  if (rel % 11 === 0) return { type: 'boost',  offsetX: -30, offsetY: 28 }
+  if (rel % 7 === 0)  return { type: 'rocket', offsetX: 40,  offsetY: 26 }
   return null
 }
 

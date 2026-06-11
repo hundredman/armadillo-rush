@@ -751,23 +751,24 @@ export function generateNextIslandSpec(lastIsland, index) {
   const depth = Math.round(THREE.MathUtils.lerp(50, 110, Math.random()) + progress * 20)
   const rimH  = Math.round(THREE.MathUtils.lerp(20, 50, Math.random()) + progress * 10)
 
-  // Tighter gaps so the ball can carry momentum between islands
+  // Tighter gaps so the ball can carry momentum between islands.  Keep the late
+  // game from feeling empty by not letting horizontal gaps grow too wide.
   const minGap = THREE.MathUtils.lerp(8, 14, progress)
-  const maxGap = THREE.MathUtils.lerp(20, 40, progress)
+  const maxGap = THREE.MathUtils.lerp(20, 34, progress)
   const gap = Math.round(THREE.MathUtils.lerp(minGap, maxGap, Math.random()))
 
   const newLeft = lastIsland.bounds.right + gap
   const newX    = newLeft + w / 2
 
-  // Vertical placement: gentle upward climb with occasional small drops
-  const verticalRange = THREE.MathUtils.lerp(
-    VIEWPORT_SAFE_HEIGHT * 0.12,
-    VIEWPORT_SAFE_HEIGHT * 0.22,
-    progress,
-  )
-  const verticalJitter = THREE.MathUtils.lerp(-verticalRange * 0.25, verticalRange, Math.random())
-  const climbBias = THREE.MathUtils.lerp(80, 120, progress)
-  const newY = Math.max(-300, lastIsland.bowlFloor + verticalJitter + climbBias)
+  // Vertical placement: a net upward climb, but with SMALLER, CAPPED steps and an
+  // occasional dip so the high-altitude section has real up/down terrain and a
+  // continuous route — instead of one relentless (and sometimes unreachably
+  // steep) ascent that leaves big empty gaps.
+  const climbBias = THREE.MathUtils.lerp(80, 95, progress)
+  const verticalRange = THREE.MathUtils.lerp(70, 130, progress)
+  const verticalJitter = THREE.MathUtils.lerp(-verticalRange, verticalRange, Math.random())
+  const dy = THREE.MathUtils.clamp(climbBias + verticalJitter, -130, 200)
+  const newY = Math.max(-300, lastIsland.bowlFloor + dy)
   const biome = getBiomeForY(newY)
 
   let shapeType = SHAPE_SEQUENCE[(index + Math.floor(Math.random() * 2)) % SHAPE_SEQUENCE.length]
