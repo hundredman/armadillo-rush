@@ -526,6 +526,52 @@ button {
   transform: translateX(-50%);
 }
 
+.tutorial-sea-icon {
+  position: relative;
+  width: 58px;
+  height: 38px;
+  display: block;
+  overflow: hidden;
+  border: 2px solid rgba(216, 195, 160, 0.9);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(120, 205, 232, 0.95) 0 46%, rgba(24, 111, 164, 0.98) 47% 100%);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 248, 235, 0.45);
+}
+
+.tutorial-sea-icon::before {
+  content: "";
+  position: absolute;
+  right: 7px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 3px rgba(255, 211, 92, 0.25);
+}
+
+.tutorial-sea-icon::after,
+.tutorial-sea-icon span {
+  content: "";
+  position: absolute;
+  left: -7px;
+  width: 72px;
+  height: 9px;
+  border-top: 3px solid rgba(255, 248, 235, 0.92);
+  border-radius: 50%;
+}
+
+.tutorial-sea-icon::after {
+  bottom: 10px;
+}
+
+.tutorial-sea-icon span {
+  bottom: 1px;
+  opacity: 0.75;
+  transform: translateX(11px);
+}
+
 .tutorial-control-icons {
   display: flex;
   align-items: center;

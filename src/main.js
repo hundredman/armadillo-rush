@@ -1754,6 +1754,7 @@ class Game {
     this.slingPower = 0
     this._slingChargeSource = null
     this._slingKeyboardChargeTime = 0
+    this._updateSlingVisuals()
 
     this._carveLaunchPath()
     this._triggerLaunchImpact()
@@ -2069,6 +2070,7 @@ class Game {
   _tickSlingSnap(dt) {
     if (this.slingSnapTime > 0) {
       this.slingSnapTime = Math.max(0, this.slingSnapTime - dt)
+      this._updateSlingVisuals()
     }
   }
 
@@ -3839,7 +3841,7 @@ class Game {
                   <div><b>지형 위에서 떼기</b><span>점프</span></div>
                 </div>
                 <div class="tutorial-control">
-                  <span class="tutorial-control-icons"><span class="tutorial-control-icon tutorial-space-key mini">SPACE</span><span class="tutorial-control-icon tutorial-mouse mini"><span></span></span></span>
+                  <span class="tutorial-control-icon tutorial-sea-icon" aria-hidden="true"><span></span></span>
                   <div><b>바다 추락</b><span>생명 1 감소, Space 또는 클릭으로 다시 낙하</span></div>
                 </div>
               </div>
@@ -3876,7 +3878,7 @@ class Game {
                   <div><b>Release on terrain</b><span>Jump</span></div>
                 </div>
                 <div class="tutorial-control">
-                  <span class="tutorial-control-icons"><span class="tutorial-control-icon tutorial-space-key mini">SPACE</span><span class="tutorial-control-icon tutorial-mouse mini"><span></span></span></span>
+                  <span class="tutorial-control-icon tutorial-sea-icon" aria-hidden="true"><span></span></span>
                   <div><b>Sea fall</b><span>Lose 1 life; Space or click to drop again</span></div>
                 </div>
               </div>
