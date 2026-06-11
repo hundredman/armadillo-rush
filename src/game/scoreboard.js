@@ -88,6 +88,16 @@ export async function fetchLeaderboard(limit = 15) {
     .map((e, i) => ({ ...e, rank: i + 1 }))
 }
 
+/**
+ * Synchronous read of the #1 leaderboard entry (or null if empty).  Used by the
+ * title-screen best-record badge so it shows EXACTLY the same name + score as the
+ * leaderboard's top row — one data source, no mixing across runs.
+ */
+export function getTopEntry() {
+  const all = loadLocal().sort(byRank)
+  return all.length ? { ...all[0], rank: 1 } : null
+}
+
 // ── Player name persistence ───────────────────────────────────────────────────
 
 export function getSavedPlayerName() {

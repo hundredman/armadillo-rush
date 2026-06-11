@@ -714,6 +714,7 @@ button {
 }
 
 .leaderboard-title {
+  flex-shrink: 0;
   font-size: 20px;
   font-weight: 1000;
   color: #ffd54f;
@@ -721,7 +722,13 @@ button {
   letter-spacing: 0.04em;
 }
 
+/* The list takes the flexible middle and may scroll on a very short screen, so
+   the title (top) and actions (Close button, bottom) are always pinned and
+   visible — the compact top-5 list fits without scrolling on normal screens. */
 .leaderboard-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   gap: 6px;
 }
@@ -784,6 +791,7 @@ button {
 }
 
 .leaderboard-actions {
+  flex-shrink: 0;
   display: grid;
   gap: 8px;
 }

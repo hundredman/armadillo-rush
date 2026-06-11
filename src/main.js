@@ -11,6 +11,7 @@ import { PhysicsWorld } from './game/physics.js'
 import {
   submitScore,
   fetchLeaderboard,
+  getTopEntry,
   getSavedPlayerName,
   savePlayerName,
 } from './game/scoreboard.js'
@@ -2934,15 +2935,6 @@ class Game {
     this.playerName = (trimmed === '' || trimmed === 'Anonymous') ? '' : trimmed
     savePlayerName(this.playerName)
     this._submitRunScore()
-    // If this run owns the current best record (saved at game-over with no name
-    // yet), attach the entered name now.  This keeps the best-record badge's name
-    // and score from the SAME run — never mixing a name from a different run.
-    if (this._getScore() === this.bestRecord.score && !this.bestRecord.name) {
-      this.bestRecord = { ...this.bestRecord, name: this.playerName || '' }
-      try {
-        localStorage.setItem('armadillo-rush-best', JSON.stringify(this.bestRecord))
-      } catch { /* storage failure must not interrupt play */ }
-    }
     // Open leaderboard after saving
     this._openLeaderboard()
   }
@@ -3289,13 +3281,19 @@ class Game {
               <span class="lb-meta">${meta}</span>
             </div>`
       }
+      const divider = '<div class="lb-divider">⋯</div>'
       let html = lb.slice(0, TOP).map(renderRow).join('')
+      let lastShownRank = Math.min(TOP, lb.length)
       if (userRank != null && userRank > TOP) {
         const startRank = Math.max(TOP + 1, userRank - 1)   // window: user−1 … user+1
         const endRank = Math.min(lb.length, userRank + 1)
-        if (startRank > TOP + 1) html += '<div class="lb-divider">⋯</div>'
+        if (startRank > lastShownRank + 1) html += divider  // hidden gap before the window
         html += lb.slice(startRank - 1, endRank).map(renderRow).join('')
+        lastShownRank = endRank
       }
+      // Trailing marker when more records exist below the last shown row — so a
+      // top-5-only view doesn't look like the list was simply cut off.
+      if (lastShownRank < lb.length) html += divider
       lbRowsHtml = html
     }
 
@@ -3410,21 +3408,25 @@ class Game {
         </div>
         `
       })() : ''}
-      ${this.sm.is(State.TITLE) && this.bestRecord.score > 0 ? (() => {
+      ${(() => {
+        if (!this.sm.is(State.TITLE)) return ''
+        // Badge is the leaderboard's #1 entry — same data source as the
+        // leaderboard top row, so its name and score always belong to the same
+        // run (never a current/previous nickname from a different run).
+        const top = getTopEntry()
+        if (!top) return ''
         const ko = this._tutorialLang === 'ko'
-        // Name comes from the best record itself (the run that set it), not the
-        // current player name — so the badge never mixes names across runs.
-        const name = this.bestRecord.name || (ko ? '익명' : 'Anonymous')
+        const name = top.name || (ko ? '익명' : 'Anonymous')
         return `
         <div class="best-badge">
           <div class="best-badge-label">${ko ? '최고 기록' : 'BEST'}</div>
-          <div class="best-badge-score">${this.bestRecord.score.toLocaleString()}</div>
+          <div class="best-badge-score">${top.score.toLocaleString()}</div>
           <div class="best-badge-meta">
             <span class="best-badge-name">${name}</span>
-            <span class="best-badge-stats">${this.bestRecord.heightM ?? 0}m · ${this.bestRecord.distanceM ?? 0}m</span>
+            <span class="best-badge-stats">${top.heightM ?? 0}m · ${top.distanceM ?? 0}m</span>
           </div>
         </div>`
-      })() : ''}
+      })()}
       ${this.flashTime > 0 ? `<div class="flash-layer" style="opacity:${this.flashTime * 1.6}"></div>` : ''}
       ${this.sm.is(State.GAMEOVER) ? (() => {
         const ko = this._tutorialLang === 'ko'
