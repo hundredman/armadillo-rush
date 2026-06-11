@@ -9,5 +9,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     target: 'es2020',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three')) return 'vendor-three'
+          if (id.includes('node_modules/postprocessing')) return 'vendor-postfx'
+          if (id.includes('node_modules/planck')) return 'vendor-physics'
+        },
+      },
+    },
   },
 })
