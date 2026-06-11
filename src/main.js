@@ -12,6 +12,7 @@ import {
   submitScore,
   fetchLeaderboard,
   getTopEntry,
+  clearLeaderboard,
   getSavedPlayerName,
   savePlayerName,
 } from './game/scoreboard.js'
@@ -93,6 +94,10 @@ const ISLANDS_PER_SPAWN_TICK = 36
 // Far larger than the viewport half-width and the respawn look-back (~400px),
 // so culling can never remove anything still relevant to gameplay.
 const CULL_BEHIND_PX = 2800
+
+// Hidden developer-mode unlock: type this code (letters only) to toggle the panel.
+// Deliberately an uncommon sequence so a normal player won't trigger it.
+const DEV_CODE = 'armadev'
 
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
@@ -220,6 +225,12 @@ class Game {
     this.leaderboardEntries = []   // cached from last fetchLeaderboard() call
     this.pendingScoreEntry = null  // set after game over, cleared after submission
     this._lbScrollPending = false  // when true, scroll the leaderboard to the self row on next render
+
+    // ── Hidden developer mode (type the secret code to toggle the panel) ──
+    this._devPanelOpen = false
+    this._devResetArmed = false   // two-step confirm for leaderboard reset
+    this._infiniteLives = false   // when ON, lives never drop and the sea never ends the run
+    this._devCodeBuf = ''
 
     // Respawn state — armadillo hovers at spawn position until player inputs
     this._respawnWaiting = false
@@ -1064,6 +1075,21 @@ class Game {
       if (action === 'toggle-lang') {
         this._tutorialLang = this._tutorialLang === 'ko' ? 'en' : 'ko'
       }
+      // ── Developer-mode actions ──────────────────────────────────────────
+      if (action === 'dev-toggle-infinite') {
+        // Only changeable before a run begins (title / result screen).
+        if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
+          this._infiniteLives = !this._infiniteLives
+        }
+        this._forceHudRebuild()
+      }
+      if (action === 'dev-reset-lb')         { this._devResetArmed = true; this._forceHudRebuild() }
+      if (action === 'dev-reset-lb-cancel')  { this._devResetArmed = false; this._forceHudRebuild() }
+      if (action === 'dev-reset-lb-confirm') { this._devResetLeaderboard(); this._forceHudRebuild() }
+      if (action === 'dev-item-rocket')      this._devApplyItem('rocket')
+      if (action === 'dev-item-boost')       this._devApplyItem('boost')
+      if (action === 'dev-item-heart')       this._devApplyItem('heart')
+      if (action === 'dev-close')            { this._devPanelOpen = false; this._devResetArmed = false; this._forceHudRebuild() }
       return true
     }
 
@@ -1161,6 +1187,21 @@ class Game {
         this._endHold('keyboard')
       }
     }, { capture: true })
+
+    // Hidden developer-mode unlock — type DEV_CODE (letters only).  Ignored while
+    // typing in a text input and when modifier keys are held, so it can't be hit
+    // by accident.  No visible button exposes this.
+    window.addEventListener('keydown', (event) => {
+      if (event.target instanceof HTMLInputElement) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      const k = event.key && event.key.length === 1 ? event.key.toLowerCase() : ''
+      if (!k) return
+      this._devCodeBuf = (this._devCodeBuf + k).slice(-DEV_CODE.length)
+      if (this._devCodeBuf === DEV_CODE) {
+        this._devCodeBuf = ''
+        this._toggleDevPanel()
+      }
+    })
   }
 
   /** Convert screen coordinates to world coordinates. */
@@ -2657,10 +2698,12 @@ class Game {
 
     this._triggerSplashEffect(x)
     this.splashStarted = true
-    this.lives = Math.max(0, this.lives - 1)
+    // Dev "infinite lives": never lose a life and never end the run on the sea —
+    // always bounce back.  Normal mode decrements lives as before.
+    if (!this._infiniteLives) this.lives = Math.max(0, this.lives - 1)
 
-    if (this.lives > 0) {
-      // still have lives — bounce back up automatically
+    if (this._infiniteLives || this.lives > 0) {
+      // still have lives (or infinite) — bounce back up automatically
       this._doSeaBounce(x)
       this.splashStarted = false  // allow future splashes
     } else {
@@ -2924,6 +2967,42 @@ class Game {
   _closeLeaderboard() {
     this.showingLeaderboard = false
     this._lbScrollPending = false
+  }
+
+  // ── Developer mode ──────────────────────────────────────────────────────────
+  // Invalidate the cached HUD so a rebuild happens on the next render (the TITLE
+  // and GAMEOVER screens are otherwise only rebuilt when their content changes).
+  _forceHudRebuild() {
+    this._tutorialRendered = false
+    this._lastGameOverKey = null
+  }
+
+  _toggleDevPanel() {
+    this._devPanelOpen = !this._devPanelOpen
+    this._devResetArmed = false
+    this._forceHudRebuild()
+  }
+
+  // Wipe leaderboard entries AND the best-record so the title badge and result
+  // screen don't keep showing stale records after a reset.
+  _devResetLeaderboard() {
+    clearLeaderboard()
+    try { localStorage.removeItem('armadillo-rush-best') } catch { /* ignore */ }
+    this.bestRecord = this._loadBestRecord()   // → defaults (cleared)
+    this.pendingScoreEntry = null
+    this.leaderboardEntries = []
+    this.showingLeaderboard = false
+    this._devResetArmed = false
+  }
+
+  // Apply a real item effect via the SAME path as picking the item up, so test
+  // and real effects can't diverge.  Rocket/Boost need an active run (physics in
+  // flight/roll); outside those states the call is safely ignored (the panel
+  // disables the buttons and shows a hint).
+  _devApplyItem(type) {
+    const playing = this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)
+    if (!playing) return
+    this._applyItemEffect({ type, x: this.armadillo.position.x, y: this.armadillo.position.y })
   }
 
   // Called when user input is received while waiting for respawn after sea bounce.
@@ -3512,6 +3591,39 @@ class Game {
       ` : ''}
 
       <div class="action-hint ${showBoostButton && !this.isPaused ? 'is-above-boost' : ''}">${action}</div>
+
+      ${this._devPanelOpen ? (() => {
+        const canToggle = this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)
+        const playing = this.sm.is(State.FLYING) || this.sm.is(State.FALLING) || this.sm.is(State.ROLLING)
+        const dis = (ok) => ok ? '' : 'disabled'
+        return `
+        <div class="dev-panel">
+          <div class="dev-head">
+            <span class="dev-title">DEV MODE</span>
+            <button type="button" class="clickable dev-x" data-action="dev-close">✕</button>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">Infinite lives</span>
+            <button type="button" class="clickable dev-btn ${this._infiniteLives ? 'is-on' : ''}" data-action="dev-toggle-infinite" ${dis(canToggle)}>${this._infiniteLives ? 'ON' : 'OFF'}</button>
+          </div>
+          ${!canToggle ? `<div class="dev-note">Changeable only on the title / result screen</div>` : ''}
+          <div class="dev-sep"></div>
+          <div class="dev-label">Item effects</div>
+          <div class="dev-items">
+            <button type="button" class="clickable dev-btn" data-action="dev-item-rocket" ${dis(playing)}>🚀 Rocket</button>
+            <button type="button" class="clickable dev-btn" data-action="dev-item-boost" ${dis(playing)}>⚡ Boost</button>
+            <button type="button" class="clickable dev-btn" data-action="dev-item-heart" ${dis(playing)}>❤ Heart</button>
+          </div>
+          ${!playing ? `<div class="dev-note">Available while flying / rolling</div>` : ''}
+          <div class="dev-sep"></div>
+          <div class="dev-row">
+            <span class="dev-label">Leaderboard</span>
+            ${this._devResetArmed
+              ? `<span class="dev-confirm"><button type="button" class="clickable dev-btn danger" data-action="dev-reset-lb-confirm">Confirm</button><button type="button" class="clickable dev-btn" data-action="dev-reset-lb-cancel">Cancel</button></span>`
+              : `<button type="button" class="clickable dev-btn" data-action="dev-reset-lb">Reset</button>`}
+          </div>
+        </div>`
+      })() : ''}
     `
     // Store the rendered lang key — if lang toggles, cache miss forces a rebuild.
     this._tutorialRendered = this.sm.is(State.TITLE) ? this._tutorialLang : false
@@ -3522,7 +3634,13 @@ class Game {
       const list = this.ui.querySelector('.leaderboard-list')
       const self = list?.querySelector('.lb-self')
       if (list && self) {
-        list.scrollTop = self.offsetTop - list.clientHeight / 2 + self.clientHeight / 2
+        // Centre the row in the scroll area, then clamp to the scrollable range so
+        // it is never cut off at the top or bottom (and near-top/near-bottom rows
+        // settle at the closest fully-visible position instead of forcing centre).
+        // .leaderboard-list is position:relative, so offsetTop is relative to it.
+        const centred = self.offsetTop - (list.clientHeight - self.offsetHeight) / 2
+        const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight)
+        list.scrollTop = Math.max(0, Math.min(centred, maxScroll))
         this._lbScrollPending = false
       }
     }

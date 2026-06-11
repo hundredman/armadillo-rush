@@ -98,6 +98,11 @@ export function getTopEntry() {
   return all.length ? { ...all[0], rank: 1 } : null
 }
 
+/** Dev/test helper: wipe all stored leaderboard entries. */
+export function clearLeaderboard() {
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+}
+
 // ── Player name persistence ───────────────────────────────────────────────────
 
 export function getSavedPlayerName() {
