@@ -122,9 +122,11 @@ export class ParticleSystem {
   }
 
   /** Terrain destruction dirt — spreads upward. */
-  spawnDirt(x, y, count = 28) {
-    // brown dirt chunks
-    this.spawn(x, y, 0x6d4c41, Math.floor(count * 0.55), 150, {
+  // soilColor / debrisColor default to earthy brown but can be overridden so the
+  // debris matches the terrain that's actually breaking (cloud, meteor, etc.).
+  spawnDirt(x, y, count = 28, soilColor = 0x6d4c41, debrisColor = 0xbcaaa4) {
+    // soil chunks
+    this.spawn(x, y, soilColor, Math.floor(count * 0.55), 150, {
       spreadAngle: Math.PI,
       sizeMin: 6,
       sizeMax: 22,
@@ -133,7 +135,7 @@ export class ParticleSystem {
       biasAngle: Math.PI / 2,
     })
     // bright debris (fast, small)
-    this.spawn(x, y, 0xbcaaa4, Math.floor(count * 0.45), 260, {
+    this.spawn(x, y, debrisColor, Math.floor(count * 0.45), 260, {
       spreadAngle: Math.PI * 0.9,
       sizeMin: 3,
       sizeMax: 9,

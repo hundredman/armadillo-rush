@@ -1,5 +1,6 @@
 import { World, Vec2, Circle, Chain } from 'planck'
 import { PX_PER_METER } from '../config.js'
+import { getTerrainTopY } from './terrain.js'
 
 // Planck unit system: 1 planck-unit = PX_PER_METER px
 // px → m: / PX_PER_METER,   m → px: * PX_PER_METER
@@ -88,6 +89,12 @@ export class PhysicsWorld {
     const segments = []
     let current = []
 
+    // Include the left-entry ramp (rampLeft → first surface point) in the
+    // collision chain.  The ramp is rendered as terrain, so it must also collide
+    // and be landable — otherwise the armadillo drops straight through it.  Ramp
+    // samples follow the exact same curve as getTerrainTopY / the visual mesh.
+    const points = this._withRampPoints(terrain)
+
     const isDamagedEdge = (a, b) => {
       if (!terrain.damageZones?.length) return false
       const edgeLeft  = Math.min(a.x, b.x)
@@ -100,9 +107,9 @@ export class PhysicsWorld {
       )
     }
 
-    for (let i = 0; i < terrain.points.length - 1; i++) {
-      const a = terrain.points[i]
-      const b = terrain.points[i + 1]
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i]
+      const b = points[i + 1]
       if (isDamagedEdge(a, b)) {
         if (current.length >= 2) segments.push(current)
         current = []
@@ -114,6 +121,22 @@ export class PhysicsWorld {
 
     if (current.length >= 2) segments.push(current)
     return segments
+  }
+
+  // Returns the surface points with the left-entry ramp prepended (if any), so
+  // the physics chain covers the visual ramp.  Samples come from getTerrainTopY
+  // to stay perfectly aligned with the rendered ramp and landing probes.
+  _withRampPoints(terrain) {
+    const rampLeft = terrain.bounds?.rampLeft
+    const p0 = terrain.points[0]
+    if (rampLeft == null || !p0 || rampLeft >= p0.x) return terrain.points
+    const ramp = []
+    const SAMPLES = 4
+    for (let i = 0; i < SAMPLES; i++) {
+      const x = rampLeft + (p0.x - rampLeft) * (i / SAMPLES)
+      ramp.push({ x, y: getTerrainTopY(terrain, x) })
+    }
+    return [...ramp, ...terrain.points]
   }
 
   removeTerrain(terrain) {

@@ -2225,7 +2225,8 @@ class Game {
         : this._getTerrainDamageProfile(impactSpeed)
       damageTerrain(hit.island, hit.x, damage.radius, damage.depth)
       touched.add(hit.island)
-      this.particleSystem.spawnDirt(hit.x, hit.y, 28 + Math.floor(damage.force * 20))
+      const { soil, debris } = this._terrainParticleColors(hit.island)
+      this.particleSystem.spawnDirt(hit.x, hit.y, 28 + Math.floor(damage.force * 20), soil, debris)
     }
 
     // Remove physics bodies immediately — no fixture = no push-out possible.
@@ -2298,8 +2299,17 @@ class Game {
     this._spawnGraceTimer = Math.max(this._spawnGraceTimer, graceFrames)
 
     this._setArmadilloColor(0xffd54f)
-    this._triggerDestructionImpact(0.35, 0x6d4c41, exitX, exitY)
+    this._triggerDestructionImpact(0.35, this._terrainParticleColors(hits[0].island).soil, exitX, exitY)
     return true
+  }
+
+  // Particle colors for a terrain's destruction debris, taken straight from the
+  // island's own soil/grass materials so cloud (white) and meteor (grey) terrain
+  // don't shed brown dirt.  Falls back to earthy brown if a material is missing.
+  _terrainParticleColors(island) {
+    const soil = island?.visuals?.soil?.material?.color?.getHex?.() ?? 0x6d4c41
+    const debris = island?.visuals?.grass?.material?.color?.getHex?.() ?? 0xbcaaa4
+    return { soil, debris }
   }
 
   _getTerrainDamageProfile(speed) {
@@ -2384,10 +2394,13 @@ class Game {
     this.lastRating = 'ROLL'
 
     const dirtCount = impactSpeed > 700 ? 22 : 12
+    const landColors = this._terrainParticleColors(island)
     this.particleSystem.spawnDirt(
       this.armadillo.position.x,
       this.armadillo.position.y - ARMADILLO_SIZE / 2,
       dirtCount,
+      landColors.soil,
+      landColors.debris,
     )
 
     // landing shockwave ripple
