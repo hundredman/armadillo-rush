@@ -113,10 +113,12 @@ const ZONE_BANNERS = [
   { at: 0.70, ko: '여기는 별들 사이야. 조금만 더.',      en: 'I am among the stars now. Just a little more.' },
   { at: 0.88, ko: '달빛이 점점 가까워지고 있어.',        en: 'The moonlight is getting closer and closer.' },
 ]
-// Ending cinematic: descend → land on the moon surface → linger, then clear screen.
-const MOON_ARRIVAL_SEC = 5.0
-const MOON_DESCENT_END = 1.7    // elapsed sec: hover-descent onto the surface
-const MOON_LANDED_END  = 3.4    // elapsed sec: planted on the surface (settle)
+// Ending cinematic phases (elapsed seconds): auto-fly toward the moon → approach
+// and decelerate → soft landing → linger, then hand off to the clear screen.
+const MOON_ARRIVAL_SEC  = 11.0
+const MOON_AUTOFLY_END  = 4.8   // automatic fixed-angle flight toward the moon
+const MOON_APPROACH_END = 7.6   // approach + deceleration near the surface
+const MOON_LANDED_END   = 9.2   // soft touchdown + settle (then afterglow to 11.0)
 
 const EXIT_LAUNCH_MIN_ANGLE = THREE.MathUtils.degToRad(40)
 const EXIT_LAUNCH_MAX_ANGLE = THREE.MathUtils.degToRad(58)
@@ -258,7 +260,6 @@ class Game {
     this._bannerTimer = 0
     this._introBannerShown = false
     this._moonArrivalTimer = 0
-    this._moonArrivalPos = null
     this._moonGround = null
 
     // Respawn state — armadillo hovers at spawn position until player inputs
@@ -1523,7 +1524,6 @@ class Game {
     this._bannerTimer = 0
     this._introBannerShown = false
     this._moonArrivalTimer = 0
-    this._moonArrivalPos = null
     this._removeMoonGround()
     this.armadillo.visible = true
     const pocket = this._getSlingArmadilloPosition()
@@ -1752,7 +1752,7 @@ class Game {
     const minVx = Math.max(horizontalSpeed * 0.4, 120)
     const vx = Math.max(launchVx, minVx)
     // Ensure vy is always upward — corner geometry can produce a downward normal
-    const vyRaw = sinComponent + (BOOST_RELEASE_VERTICAL_KICK + edgeVerticalBonus) * inputStrength + boostVyBonus
+    const vyRaw = sinComponent + (BOOST_RELEASE_VERTICAL_KICK * this._climbPower() + edgeVerticalBonus) * inputStrength + boostVyBonus
     const vy = Math.max(vyRaw, 200)
 
     // sync velocity to Planck body (prevents using stale landing velocity)
@@ -1788,7 +1788,7 @@ class Game {
     // keeps its softer exit), and the full vertical kick always applies.
     const { hasBoost, vx, sinComponent, boostVyBonus } =
       this._computeBoostedLaunch(launchAngle, horizontalSpeed)
-    const vy = Math.abs(sinComponent) + BOOST_RELEASE_VERTICAL_KICK + boostVyBonus
+    const vy = Math.abs(sinComponent) + BOOST_RELEASE_VERTICAL_KICK * this._climbPower() + boostVyBonus
     this._commitLaunchVelocity(vx, vy)
     this._edgeFallGraceTimer = 0
     if (hasBoost) {
@@ -1816,7 +1816,7 @@ class Game {
     const launchAngle   = THREE.MathUtils.degToRad(52)        // steeper than edge jump — hill pops up
     const horizontalSpeed = this.speedRatio * MAX_SPEED
     // Crest keeps its own speed-scaled vertical kick on top of the shared math.
-    const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio
+    const crestKick     = BOOST_RELEASE_VERTICAL_KICK * 0.55 * crestBonus * this.speedRatio * this._climbPower()
     const { hasBoost, vx, sinComponent, boostVyBonus } =
       this._computeBoostedLaunch(launchAngle, horizontalSpeed)
     const vy            = Math.abs(sinComponent) + crestKick + boostVyBonus
@@ -1992,6 +1992,12 @@ class Game {
     return THREE.MathUtils.lerp(GRAVITY, GRAVITY * SPACE_GRAVITY_RATIO, spaceT)
   }
 
+  // Gradual growth of rolling acceleration and jump strength with altitude, so
+  // each terrain/background stage feels a little stronger — never a sudden spike.
+  _climbPower() {
+    return THREE.MathUtils.lerp(1.0, 1.3, this._getHeightRatio())
+  }
+
   _updateFlight(dt) {
     const prevX    = this.armadillo.position.x
     const prevY    = this.armadillo.position.y
@@ -2159,79 +2165,99 @@ class Game {
     }
   }
 
-  // ── Moon arrival cinematic ──────────────────────────────────────────────────
-  // A longer ending: the armadillo descends onto the moon's surface, plants a
-  // landing, then lingers for a beat of afterglow before the clear screen.
+  // ── Moon ending cinematic ───────────────────────────────────────────────────
+  // Reaching the goal triggers an automatic fixed-angle flight toward the moon;
+  // the armadillo then decelerates, lands softly on the surface and lingers
+  // before the clear screen.  Lasts > 10 s.
   _beginMoonArrival() {
     if (this._moonArrivalTimer > 0 || this.sm.is(State.GAMEOVER)) return
     this._moonArrivalTimer = MOON_ARRIVAL_SEC
-    const ax = this.armadillo.position.x
-    const surfaceTopY = Math.min(this.armadillo.position.y, MOON_TARGET_Y)
-    this._moonLandX = ax
-    this._moonSurfaceY = surfaceTopY                    // top of the moon ground
-    this._moonStartY = surfaceTopY + ARMADILLO_SIZE / 2 + 170   // hover height before descent
+    const sx = this.armadillo.position.x
+    const sy = this.armadillo.position.y
+    this._endStart = new THREE.Vector2(sx, sy)
+    // The moon sits above the goal altitude; the auto-flight carries the ball up
+    // to it at a fixed angle.
+    const surfaceTopY = MOON_TARGET_Y + 1300
+    this._moonSurfaceY = surfaceTopY
+    const restY = surfaceTopY + ARMADILLO_SIZE / 2
+    const hoverY = restY + 180
+    const angle = THREE.MathUtils.degToRad(72)          // steep, deliberate ascent
+    const climb = Math.max(300, hoverY - sy)
+    const forward = climb / Math.tan(angle)
+    const moonX = sx + forward
+    this._moonLandX = moonX
+    this._endApproach = new THREE.Vector2(moonX, hoverY)
+    this._endLand = new THREE.Vector2(moonX, restY)
     this._moonLandedPuffed = false
-    this._moonArrivalPos = new THREE.Vector2(ax, surfaceTopY)
 
-    this.armadillo.position.set(ax, this._moonStartY, 0)
     this.velocity.set(0, 0)
-    this.physics.setArmadilloPos(ax, this._moonStartY)
     this.physics.setArmadilloVelocity(0, 0)
-    this._syncMotionToArmadillo()
     this.activeRocket = null
     this.lastRating = 'MOON'
-    this.slowmoTime = Math.max(this.slowmoTime, 0.9)    // cinematic slow descent
-    this.trauma = Math.min(1, this.trauma + 0.25)
-    this.flashTime = Math.max(this.flashTime, 0.22)
+    this.flashTime = Math.max(this.flashTime, 0.2)
 
-    this._buildMoonGround(ax, surfaceTopY)
-    this._showBannerText(this._tutorialLang === 'ko' ? '드디어 달에 왔어...' : 'I am finally on the moon...')
-    this.particleSystem.spawnBurst(ax, surfaceTopY + 120, 0xfff9c4, 30, 220)
-    this._playTone(740, 0.3, 0.10, 'sine')
+    this._buildMoonGround(moonX, surfaceTopY)
+    this._showBannerText(this._tutorialLang === 'ko' ? '달을 향해 날아오른다!' : 'Soaring toward the moon!')
+    this._playTone(620, 0.3, 0.10, 'sine')
   }
 
   _updateMoonArrival(dt) {
     this._moonArrivalTimer -= dt
     const elapsed = MOON_ARRIVAL_SEC - this._moonArrivalTimer
-    const ax = this._moonLandX
-    const restY = this._moonSurfaceY + ARMADILLO_SIZE / 2   // armadillo center when planted
+    const start = this._endStart
+    const app = this._endApproach
+    const land = this._endLand
     const rand = () => (Math.random() - 0.5)
+    let px, py
 
-    if (elapsed < MOON_DESCENT_END) {
-      // 1) Hover-descent onto the surface, spin easing to a stop.
-      const k = THREE.MathUtils.smoothstep(elapsed / MOON_DESCENT_END, 0, 1)
-      const y = THREE.MathUtils.lerp(this._moonStartY, restY, k)
-      this.armadillo.position.set(ax, y, 0)
-      this.armadillo.rotation.z = THREE.MathUtils.lerp(this.armadillo.rotation.z, 0, Math.min(1, dt * 5))
-      if (Math.random() < 0.35) {
-        this.particleSystem.spawnBurst(ax + rand() * 50, y - 10, 0xfff9c4, 1, 50)
+    if (elapsed < MOON_AUTOFLY_END) {
+      // 1) Automatic fixed-angle flight toward the moon (constant speed).
+      const k = elapsed / MOON_AUTOFLY_END
+      px = THREE.MathUtils.lerp(start.x, app.x, k)
+      py = THREE.MathUtils.lerp(start.y, app.y, k)
+      this.armadillo.rotation.z -= 7 * dt
+      if (Math.random() < 0.7) {
+        this.particleSystem.spawnBurst(px - 18, py - 26, Math.random() < 0.5 ? 0xff8a3c : 0xfff3b0, 2, 110)
+      }
+    } else if (elapsed < MOON_APPROACH_END) {
+      // 2) Approach + decelerate (ease-out) as the surface nears.
+      const k = THREE.MathUtils.smoothstep((elapsed - MOON_AUTOFLY_END) / (MOON_APPROACH_END - MOON_AUTOFLY_END), 0, 1)
+      px = THREE.MathUtils.lerp(app.x, land.x, k)
+      py = THREE.MathUtils.lerp(app.y, land.y, k)
+      this.slowmoTime = Math.max(this.slowmoTime, 0.12)   // a touch of slow as it brakes
+      this.armadillo.rotation.z = THREE.MathUtils.lerp(this.armadillo.rotation.z, 0, Math.min(1, dt * 3))
+      if (Math.random() < 0.3) {
+        this.particleSystem.spawnBurst(px + rand() * 40, py - 10, 0xfff9c4, 1, 50)
       }
     } else if (elapsed < MOON_LANDED_END) {
-      // 2) Touchdown: a moon-dust puff, a tiny settle, then standing still.
+      // 3) Soft touchdown: moon-dust puff, tiny settle, standing still.
       if (!this._moonLandedPuffed) {
         this._moonLandedPuffed = true
-        this.particleSystem.spawnDirt(ax, this._moonSurfaceY, 18, 0xe8e3c8, 0xcfc8a8)
-        this.trauma = Math.min(1, this.trauma + 0.3)
+        this.particleSystem.spawnDirt(land.x, this._moonSurfaceY, 18, 0xe8e3c8, 0xcfc8a8)
+        this.trauma = Math.min(1, this.trauma + 0.28)
         this.flashTime = Math.max(this.flashTime, 0.18)
         this._playTone(520, 0.14, 0.08, 'sine')
         this._showBannerText(this._tutorialLang === 'ko' ? '내 꿈에 닿았어.' : 'I reached my dream.')
       }
-      const settle = Math.sin(this.time * 6) * 1.6 * Math.max(0, 1 - (elapsed - MOON_DESCENT_END) / 0.45)
-      this.armadillo.position.set(ax, restY + settle, 0)
-      this.armadillo.rotation.z *= Math.pow(0.15, dt)   // settle upright
+      const settle = Math.sin(this.time * 6) * 1.6 * Math.max(0, 1 - (elapsed - MOON_APPROACH_END) / 0.45)
+      px = land.x
+      py = land.y + settle
+      this.armadillo.rotation.z *= Math.pow(0.15, dt)
     } else {
-      // 3) Afterglow / lingering — gentle rising sparkles before the clear screen.
-      this.armadillo.position.set(ax, restY, 0)
+      // 4) Afterglow / linger before the clear screen.
+      px = land.x
+      py = land.y
       if (Math.random() < 0.5) {
         this.particleSystem.spawnBurst(
-          ax + rand() * 140,
-          this._moonSurfaceY + 20 + Math.random() * 140,
+          land.x + rand() * 150,
+          this._moonSurfaceY + 20 + Math.random() * 150,
           Math.random() < 0.5 ? 0xfff9c4 : 0x80deea, 1, 60,
         )
       }
     }
 
-    this.physics.setArmadilloPos(this.armadillo.position.x, this.armadillo.position.y)
+    this.armadillo.position.set(px, py, 0)
+    this.physics.setArmadilloPos(px, py)
     this.velocity.set(0, 0)
     this._syncMotionToArmadillo()
 
@@ -2718,7 +2744,7 @@ class Game {
     const bounds = this.currentIsland.bounds
     if (this.boostHeld) {
       this.speedRatio = THREE.MathUtils.clamp(
-        this.speedRatio + (BOOST_ACCEL_PER_SEC - ROLLING_FRICTION_PER_SEC) * dt,
+        this.speedRatio + (BOOST_ACCEL_PER_SEC * this._climbPower() - ROLLING_FRICTION_PER_SEC) * dt,
         0,
         BOOST_SPEED_LIMIT,
       )
@@ -3480,14 +3506,14 @@ class Game {
   // tutorial subtitle and leaderboard, in the same crisp-outline style as items.
   _sceneIconSvg(type, targetH = 16) {
     if (type === 'sea') return this._pixelIconSvg(
-      // Foam wave-crests (L) over a solid water body — reads clearly as a sea surface.
-      ['.L.L.L.L.', 'CCCCCCCCC', 'CCCCCCCCC', 'LCCCCCCCS', 'SSSSSSSSS'],
-      { C: '1597c8', L: '9fe8ff', S: '0b6e96' },
+      // Two clear wave peaks with a curling crest over a water body.
+      ['..L...L..', '.LCL.LCL.', 'LCCCLCCCL', 'CCCCCCCCC', 'SCCSCCSCC'],
+      { C: '1597c8', L: 'b9efff', S: '0b6e96' },
       '064a66', targetH)
     if (type === 'cloud') return this._pixelIconSvg(
-      // Two rounded bumps on a flat-bottomed body — a recognisable cloud.
-      ['..LC..CS.', '.LCCCCCCS', 'LCCCCCCCS', '.SSSSSSS.'],
-      { C: 'eaf4ff', L: 'ffffff', S: 'bcd3e6' },
+      // Three rounded puffs merging into one cloud.
+      ['.C..C..C.', 'CCCCCCCCC', 'LCCCCCCCS', '.SSSSSSS.'],
+      { C: 'eef6ff', L: 'ffffff', S: 'c4d8ea' },
       '6a7f93', targetH)
     // moon (with a couple of darker craters)
     return this._pixelIconSvg(

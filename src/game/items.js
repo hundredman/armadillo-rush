@@ -292,9 +292,11 @@ export function getProceduralItemSpec(islandIndex) {
   // high altitudes never run dry — earlier the cadence effectively thinned out.
   const rel = islandIndex - 100
   if (rel < 0) return null
-  if (rel % 23 === 0) return { type: 'heart',  offsetX: 0,   offsetY: 34 }
-  if (rel % 11 === 0) return { type: 'boost',  offsetX: -30, offsetY: 28 }
-  if (rel % 7 === 0)  return { type: 'rocket', offsetX: 40,  offsetY: 26 }
+  // Roughly one item every ~5 islands (heart rarer) so high altitudes stay
+  // stocked without becoming trivial.
+  if (rel % 19 === 0) return { type: 'heart',  offsetX: 0,   offsetY: 34 }
+  if (rel % 9 === 0)  return { type: 'boost',  offsetX: -30, offsetY: 28 }
+  if (rel % 6 === 0)  return { type: 'rocket', offsetX: 40,  offsetY: 26 }
   return null
 }
 

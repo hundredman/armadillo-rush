@@ -21,7 +21,9 @@ function getBiomeStyle(biome) {
       soil: 0xf7fbff,
       grass: 0xd8f4ff,
       ridge: 0xffffff,
-      bottomScale: 0.72,
+      // Thicker body (was 0.72) so high-altitude cloud islands read as solid
+      // masses, not thin lines.
+      bottomScale: 1.0,
     }
   }
   if (biome === 'meteor') {
@@ -29,7 +31,7 @@ function getBiomeStyle(biome) {
       soil: 0x4c4f5a,
       grass: 0x7c6f62,
       ridge: 0xcaa46a,
-      bottomScale: 0.95,
+      bottomScale: 1.1,
     }
   }
   return {
@@ -746,15 +748,16 @@ const SHAPE_SEQUENCE = [
 export function generateNextIslandSpec(lastIsland, index) {
   const progress = Math.min(1, index / 70)
 
-  // Wider islands with more pronounced depth — Tiny Wings feel
-  const w = Math.round(THREE.MathUtils.lerp(420, 620, Math.random()) + Math.sin(index * 1.37) * 30)
-  const depth = Math.round(THREE.MathUtils.lerp(50, 110, Math.random()) + progress * 20)
-  const rimH  = Math.round(THREE.MathUtils.lerp(20, 50, Math.random()) + progress * 10)
+  // Wider islands with more pronounced depth + rim so high-altitude terrain keeps
+  // real mass, curve and height variation instead of flattening into thin lines.
+  const w = Math.round(THREE.MathUtils.lerp(470, 690, Math.random()) + Math.sin(index * 1.37) * 36)
+  const depth = Math.round(THREE.MathUtils.lerp(78, 150, Math.random()) + progress * 26)
+  const rimH  = Math.round(THREE.MathUtils.lerp(30, 64, Math.random()) + progress * 12)
 
   // Tighter gaps so the ball can carry momentum between islands.  Keep the late
   // game from feeling empty by not letting horizontal gaps grow too wide.
-  const minGap = THREE.MathUtils.lerp(8, 14, progress)
-  const maxGap = THREE.MathUtils.lerp(20, 34, progress)
+  const minGap = THREE.MathUtils.lerp(8, 12, progress)
+  const maxGap = THREE.MathUtils.lerp(18, 30, progress)
   const gap = Math.round(THREE.MathUtils.lerp(minGap, maxGap, Math.random()))
 
   const newLeft = lastIsland.bounds.right + gap
