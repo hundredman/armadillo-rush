@@ -1103,8 +1103,7 @@ class Game {
       if (action === 'leaderboard') this._openLeaderboard()
       if (action === 'leaderboard-close') this._closeLeaderboard()
       if (action === 'start-game') {
-        this._resetRun()
-        this.sm.transition(State.SLINGING)
+        this._startRunFromMenu()
         // Consume the matching pointerup so it cannot bleed into sling drag
         this._pendingPointerClear = true
       }
@@ -1211,8 +1210,7 @@ class Game {
         if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
           event.preventDefault()
           this._ensureAudio()
-          this._resetRun()
-          this.sm.transition(State.SLINGING)
+          this._startRunFromMenu()
         }
         return
       }
@@ -1301,8 +1299,7 @@ class Game {
     // TITLE / GAMEOVER: start a new run.  Mark the pointer as "used for UI"
     // so the matching pointerup cannot start a sling drag or fire any action.
     if (this.sm.is(State.TITLE) || this.sm.is(State.GAMEOVER)) {
-      this._resetRun()
-      this.sm.transition(State.SLINGING)
+      this._startRunFromMenu()
       this._pendingPointerClear = true  // consume this pointer gesture for UI only
       return
     }
@@ -1496,8 +1493,7 @@ class Game {
     if (this.sm.is(State.TITLE)) return
 
     if (this.sm.is(State.GAMEOVER)) {
-      this._resetRun()
-      this.sm.transition(State.SLINGING)
+      this._startRunFromMenu()
       return
     }
 
@@ -1568,7 +1564,7 @@ class Game {
   // Run-state reset shared by _resetRun and _restartToTitle.  ONLY fields/effects
   // that are reset IDENTICALLY in both belong here — anything that differs stays
   // in the individual functions so their distinct intent is preserved.
-  _resetCommonRunState() {
+  _resetCommonRunState({ rebuildTerrain = true } = {}) {
     this.velocity.set(0, 0)
     this.speedRatio = 0.75
     this.spinAngleVel = 0
@@ -1589,7 +1585,7 @@ class Game {
     this.boostHoldSource = null
     this.currentIsland = null
     this.physics.setGravity(GRAVITY)
-    this._restoreTerrain()
+    if (rebuildTerrain) this._restoreTerrain()
     this._clearParticles()
     this.bestHeightPx = 0
     this.bestDistancePx = 0
@@ -1624,7 +1620,7 @@ class Game {
     this._syncMotionToArmadillo()
   }
 
-  _resetRun() {
+  _resetRun({ rebuildTerrain = true } = {}) {
     // Run-start specifics (NOT shared with title restart): fresh tip, hard-clear
     // physical input, arm the pointer-clear + 300 ms sling dead-zone so the
     // start-button gesture can't bleed into gameplay, and drop any pending
@@ -1637,8 +1633,16 @@ class Game {
     this._slingBlockUntil = performance.now() + 300
     this._spawnGraceTimer = 0
     this._pendingTerrainRebuild.clear()
-    this._resetCommonRunState()
+    this._resetCommonRunState({ rebuildTerrain })
     if (this.sm.is(State.GAMEOVER)) this.sm.transition(State.TITLE)
+  }
+
+  _startRunFromMenu() {
+    // TITLE already owns a fresh prepared terrain set from construction or
+    // _restartToTitle(). Reusing it avoids a visible pause before SLINGING.
+    const rebuildTerrain = !this.sm.is(State.TITLE)
+    this._resetRun({ rebuildTerrain })
+    this.sm.transition(State.SLINGING)
   }
 
   _restartToTitle() {
