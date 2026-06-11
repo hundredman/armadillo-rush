@@ -293,7 +293,15 @@ Accumulated through the run:
 
 ### Local storage
 
-`submitScore` saves entries to `localStorage` key `armadillo-rush-scores` (max 100 entries, trimmed by score descending). All leaderboard data is local to the browser — no network requests.
+`submitScore` saves entries to `localStorage` key `armadillo-rush-scores` (max 100 entries). Ranking is by score descending, ties broken by earlier registration date so it stays stable. All leaderboard data is local to the browser — no network requests, no account, no backend.
+
+### Best-record badge
+
+The all-time best is stored separately under `armadillo-rush-best` as `{ score, heightM, distanceM, name }`. The name is captured at registration time and only when that run is the current best, so the title-screen badge always pairs the best score with the name of the run that set it (an unregistered best shows "Anonymous", and older records without a name field load safely).
+
+### Leaderboard display
+
+The leaderboard overlay is compact rather than a full scrolling list: it shows the **top 5**, and if the player ranks below that, a divider plus a small window around their rank (one above and one below). The player's own row is highlighted. Text follows the currently selected language (no slash-bilingual labels).
 
 ## UI Layout
 

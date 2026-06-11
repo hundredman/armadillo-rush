@@ -2904,7 +2904,9 @@ class Game {
   }
 
   async _openLeaderboard() {
-    this.leaderboardEntries = await fetchLeaderboard(15)
+    // Fetch the full ranked list so the view can show the top entries plus a
+    // window around the current player; the render trims it to a compact set.
+    this.leaderboardEntries = await fetchLeaderboard(100)
     this.showingLeaderboard = true
   }
 
@@ -2932,6 +2934,15 @@ class Game {
     this.playerName = (trimmed === '' || trimmed === 'Anonymous') ? '' : trimmed
     savePlayerName(this.playerName)
     this._submitRunScore()
+    // If this run owns the current best record (saved at game-over with no name
+    // yet), attach the entered name now.  This keeps the best-record badge's name
+    // and score from the SAME run — never mixing a name from a different run.
+    if (this._getScore() === this.bestRecord.score && !this.bestRecord.name) {
+      this.bestRecord = { ...this.bestRecord, name: this.playerName || '' }
+      try {
+        localStorage.setItem('armadillo-rush-best', JSON.stringify(this.bestRecord))
+      } catch { /* storage failure must not interrupt play */ }
+    }
     // Open leaderboard after saving
     this._openLeaderboard()
   }
@@ -2972,10 +2983,14 @@ class Game {
   }
 
   _loadBestRecord() {
+    const fallback = { score: 0, heightM: 0, distanceM: 0, name: '' }
     try {
-      return JSON.parse(localStorage.getItem('armadillo-rush-best')) ?? { score: 0, heightM: 0, distanceM: 0 }
+      const raw = JSON.parse(localStorage.getItem('armadillo-rush-best'))
+      if (!raw || typeof raw !== 'object') return fallback
+      // Normalize older records that may be missing fields (e.g. no name).
+      return { ...fallback, ...raw }
     } catch {
-      return { score: 0, heightM: 0, distanceM: 0 }
+      return fallback
     }
   }
 
@@ -2985,7 +3000,10 @@ class Game {
     const score = this._getScore()
     if (score <= this.bestRecord.score) return
 
-    this.bestRecord = { score, heightM, distanceM }
+    // New best — the nickname for this run isn't entered yet (registration is a
+    // separate, optional step), so store an empty name.  _saveScoreWithName fills
+    // it in if/when the player registers this run.
+    this.bestRecord = { score, heightM, distanceM, name: '' }
     try {
       localStorage.setItem('armadillo-rush-best', JSON.stringify(this.bestRecord))
     } catch {
@@ -3242,20 +3260,44 @@ class Game {
     }).join('')
 
     // ── Leaderboard rows HTML ──────────────────────────────────────────────
-    const lbRowsHtml = this.leaderboardEntries.length === 0
-      ? '<div class="leaderboard-empty">No scores yet — be the first!</div>'
-      : this.leaderboardEntries.map(e => {
-          const isSelf = e.name === this.playerName
-          const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank
-          const moonBadge = e.moonClear ? ' 🌕' : ''
-          return `
-            <div class="lb-row${isSelf ? ' lb-self' : ''}">
+    // Compact view: top 5, plus a small window around the current player if they
+    // rank below the top — never the whole list, so it fits without scrolling.
+    const lbKo = this._tutorialLang === 'ko'
+    const lb = this.leaderboardEntries
+    let lbRowsHtml
+    if (lb.length === 0) {
+      lbRowsHtml = `<div class="leaderboard-empty">${lbKo ? '아직 기록이 없어요 — 첫 기록을 남겨보세요!' : 'No scores yet — be the first!'}</div>`
+    } else {
+      const TOP = 5
+      const selfId = this.pendingScoreEntry?.id ?? null
+      const rowIsSelf = (e) => (selfId ? e.id === selfId : (!!this.playerName && e.name === this.playerName))
+      let userRank = this.pendingScoreEntry?.rank ?? null
+      if (userRank == null && this.playerName) {
+        const u = lb.find(e => e.name === this.playerName)
+        userRank = u ? u.rank : null
+      }
+      const renderRow = (e) => {
+        const medal = e.rank === 1 ? '🥇' : e.rank === 2 ? '🥈' : e.rank === 3 ? '🥉' : e.rank
+        const moonBadge = e.moonClear ? ' 🌕' : ''
+        const nm = e.name || (lbKo ? '익명' : 'Anonymous')
+        const meta = lbKo ? `${e.heightM}m 높이 · ${e.distanceM}m 거리` : `${e.heightM}m high · ${e.distanceM}m far`
+        return `
+            <div class="lb-row${rowIsSelf(e) ? ' lb-self' : ''}">
               <span class="lb-rank${e.rank <= 3 ? ' top3' : ''}">${medal}</span>
-              <span class="lb-name">${e.name}${moonBadge}</span>
+              <span class="lb-name">${nm}${moonBadge}</span>
               <span class="lb-score">${e.score.toLocaleString()}</span>
-              <span class="lb-meta">${e.heightM}m high · ${e.distanceM}m far</span>
+              <span class="lb-meta">${meta}</span>
             </div>`
-        }).join('')
+      }
+      let html = lb.slice(0, TOP).map(renderRow).join('')
+      if (userRank != null && userRank > TOP) {
+        const startRank = Math.max(TOP + 1, userRank - 1)   // window: user−1 … user+1
+        const endRank = Math.min(lb.length, userRank + 1)
+        if (startRank > TOP + 1) html += '<div class="lb-divider">⋯</div>'
+        html += lb.slice(startRank - 1, endRank).map(renderRow).join('')
+      }
+      lbRowsHtml = html
+    }
 
     // ── Active item effect indicators ─────────────────────────────────────
     const rocketPct = this.activeRocket
@@ -3370,7 +3412,9 @@ class Game {
       })() : ''}
       ${this.sm.is(State.TITLE) && this.bestRecord.score > 0 ? (() => {
         const ko = this._tutorialLang === 'ko'
-        const name = this.playerName || (ko ? '익명' : 'Anonymous')
+        // Name comes from the best record itself (the run that set it), not the
+        // current player name — so the badge never mixes names across runs.
+        const name = this.bestRecord.name || (ko ? '익명' : 'Anonymous')
         return `
         <div class="best-badge">
           <div class="best-badge-label">${ko ? '최고 기록' : 'BEST'}</div>

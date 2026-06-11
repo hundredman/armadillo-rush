@@ -103,7 +103,11 @@ On sea contact:
 
 **Score formula:** accumulated from height, distance, and event bonuses.
 
-Scores are stored in a **local leaderboard** backed by `localStorage`. No account or network connection required.
+Scores are stored in a **local leaderboard** backed by `localStorage` — no account, network, or backend. Ranking is by score, with earlier registrations winning ties.
+
+**Leaderboard view:** compact rather than a long scrolling list — the top 5 plus, if you rank below that, a small window around your own rank (with your row highlighted). Labels follow the selected language.
+
+**Best record:** the title-screen badge stores the all-time best score together with the name of the run that set it (`armadillo-rush-best`), so the name and score never come from different runs.
 
 **Nicknames:** Entered after each run when registering a score (max 16 characters). The last used name is pre-filled on the next registration. Leaving the field empty stores the run as "Anonymous".
 

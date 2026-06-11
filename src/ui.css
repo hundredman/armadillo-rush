@@ -722,10 +722,17 @@ button {
 }
 
 .leaderboard-list {
-  flex: 1;
-  overflow-y: auto;
   display: grid;
   gap: 6px;
+}
+
+.lb-divider {
+  text-align: center;
+  color: rgba(255, 213, 79, 0.55);
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  line-height: 0.6;
+  padding: 2px 0;
 }
 
 .lb-row {

@@ -38,10 +38,16 @@ function loadLocal() {
   }
 }
 
+// Higher score first; ties broken by earlier registration date so ranking is
+// deterministic and stable regardless of array order.
+function byRank(a, b) {
+  return (b.score - a.score) || (new Date(a.date ?? 0) - new Date(b.date ?? 0))
+}
+
 function saveLocal(entries) {
   try {
     const trimmed = [...entries]
-      .sort((a, b) => b.score - a.score)
+      .sort(byRank)
       .slice(0, MAX_LOCAL_ENTRIES)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed))
     return trimmed
@@ -77,7 +83,7 @@ export async function submitScore(name, score, heightM, distanceM, moonClear = f
  */
 export async function fetchLeaderboard(limit = 15) {
   return loadLocal()
-    .sort((a, b) => b.score - a.score)
+    .sort(byRank)
     .slice(0, limit)
     .map((e, i) => ({ ...e, rank: i + 1 }))
 }
