@@ -136,6 +136,8 @@ const BOOST_RELEASE_SPEED_KICK = 0.28  // reduced from 0.50 — less abrupt spee
 const BOOST_RELEASE_VERTICAL_KICK = 820  // reduced from 980 — softer upward launch
 const ROLLING_FRICTION_PER_SEC = 0.28 // speedRatio/s lost to friction when no input
 const LANDING_SETTLE_SEC = 0.08       // brief guard against instant crest re-launch on touchdown
+const LANDING_CREST_GUARD_SEC = 0.22  // prevents contact bounce/snap from auto-firing crest launch
+const LANDING_CREST_MIN_TRAVEL = 42   // px rolled after landing before crest launch is allowed
 const SPACE_GRAVITY_RATIO = 0.28
 const SPACE_GRAVITY_START = 0.62
 const SPACE_GRAVITY_FULL = 0.86
@@ -226,6 +228,8 @@ class Game {
     this.boostHoldSource = null
     this.spinAngleVel = 0        // rad/s, positive = clockwise; persists across state transitions
     this._landingSettleTimer = 0
+    this._landingCrestGuardTimer = 0
+    this._landingX = SLING_POS.x
     this._edgeFallGraceTimer = 0 // seconds remaining to still jump after falling off edge
     this._spawnGraceTimer = 0    // frames to skip Planck contact resolution after teleport
     this._pendingTerrainRebuild = new Set()  // islands to re-add fixtures when grace ends
@@ -1569,6 +1573,8 @@ class Game {
     this.speedRatio = 0.75
     this.spinAngleVel = 0
     this._landingSettleTimer = 0
+    this._landingCrestGuardTimer = 0
+    this._landingX = SLING_POS.x
     this._edgeFallGraceTimer = 0
     this.slingDragging = false
     this._slingChargeSource = null
@@ -2222,7 +2228,8 @@ class Game {
 
     {
       // ① Planck grounding check
-      if (this.physics.isGrounded() && this.velocity.y <= 180) {
+      const wasDescendingOntoGround = incomingVelocity.y <= 60
+      if (this.physics.isGrounded() && (this.velocity.y <= 180 || wasDescendingOntoGround)) {
         const groundedIsland = this._findGroundedIsland()
         if (groundedIsland) {
           this._landOnIsland(groundedIsland)
@@ -2782,6 +2789,8 @@ class Game {
     this.physics.setArmadilloVelocity(0, 0)
     this.physics.flushContacts()
     this._landingSettleTimer = LANDING_SETTLE_SEC
+    this._landingCrestGuardTimer = LANDING_CREST_GUARD_SEC
+    this._landingX = this.armadillo.position.x
     this.lastRating = 'ROLL'
 
     const dirtCount = impactSpeed > 700 ? 22 : 12
@@ -2848,6 +2857,8 @@ class Game {
     this.physics.setArmadilloVelocity(0, 0)
     this.physics.flushContacts()
     this._landingSettleTimer = LANDING_SETTLE_SEC
+    this._landingCrestGuardTimer = LANDING_CREST_GUARD_SEC
+    this._landingX = this.armadillo.position.x
     if (this.sm.is(State.FLYING) || this.sm.is(State.FALLING)) {
       this.sm.transition(State.ROLLING)
     }
@@ -2864,6 +2875,7 @@ class Game {
 
     const bounds = this.currentIsland.bounds
     this._landingSettleTimer = Math.max(0, this._landingSettleTimer - dt)
+    this._landingCrestGuardTimer = Math.max(0, this._landingCrestGuardTimer - dt)
     if (this.boostHeld) {
       this.speedRatio = THREE.MathUtils.clamp(
         this.speedRatio + (BOOST_ACCEL_PER_SEC * this._climbPower() - ROLLING_FRICTION_PER_SEC) * dt,
@@ -2921,7 +2933,11 @@ class Game {
     const crossedCrest = slopeBefore > 0.08 && slopeAfter < -0.08   // ~5° threshold each side
     const isHillShape  = this.currentIsland.shapeType === 'hill' || this.currentIsland.shapeType === 'slope'
     const pastCenter   = this.armadillo.position.x > this.currentIsland.bowlCenter - 20
-    if (this._landingSettleTimer <= 0 && crossedCrest && isHillShape && pastCenter && this.speedRatio >= 0.55) {
+    const rolledSinceLanding = Math.abs(this.armadillo.position.x - this._landingX)
+    const crestReady = this._landingSettleTimer <= 0
+      && this._landingCrestGuardTimer <= 0
+      && rolledSinceLanding >= LANDING_CREST_MIN_TRAVEL
+    if (crestReady && crossedCrest && isHillShape && pastCenter && this.speedRatio >= 0.55) {
       this._launchFromHillCrest()
       return
     }
